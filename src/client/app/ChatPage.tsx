@@ -616,7 +616,7 @@ export function ChatPage() {
           defaultProvider={state.runtime?.provider ?? "claude"}
           defaultModel={state.availableProviders.find(
             (p) => p.id === (state.runtime?.provider ?? "claude")
-          )?.models[0]?.id ?? "sonnet"}
+          )?.models[0]?.id ?? "opus"}
           availableProviders={state.availableProviders}
           onFork={state.handleForkSession}
         />
@@ -630,7 +630,7 @@ export function ChatPage() {
           defaultProvider={state.runtime?.provider ?? "claude"}
           defaultModel={state.availableProviders.find(
             (p) => p.id === (state.runtime?.provider ?? "claude")
-          )?.models[0]?.id ?? "sonnet"}
+          )?.models[0]?.id ?? "opus"}
           availableProviders={state.availableProviders}
           availableChats={mergeAvailableChats}
           minSessions={state.pendingMergeProjectId ? 2 : 1}

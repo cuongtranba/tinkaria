@@ -560,7 +560,6 @@ export async function startServer(options: StartServerOptions = {}) {
     },
     onMessageAppended,
   })
-  await transcriptConsumer.start()
 
   const runtimeRegistry = new RuntimeRegistry(path.join(store.dataDir, "runtimes"), {
     probeClaudeModels: async (binaryPath: string): Promise<DiscoveredModel[]> => {
@@ -628,6 +627,9 @@ export async function startServer(options: StartServerOptions = {}) {
     coordinator,
     delegationCoordinator,
   })
+
+  // Start after orchestrator exists — onMessageAppended closes over it
+  await transcriptConsumer.start()
 
   const publisher = await createNatsPublisher({
     nc: natsConnector.nc,

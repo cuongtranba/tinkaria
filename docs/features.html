@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tinkaria — Feature Guide</title>
+<style>
+  :root{
+    --bg:#18181b; --surface:#1f1f23; --surface-2:#27272a; --border:#34343a;
+    --text:#e7e7ea; --muted:#a1a1aa; --faint:#71717a;
+    --pink:#f472b6; --purple:#c084fc; --cyan:#67e8f9; --green:#4ade80; --amber:#fbbf24;
+    --radius:14px; --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--pink); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:.86em;
+    background:var(--surface-2); border:1px solid var(--border); padding:.08em .4em; border-radius:6px; color:var(--cyan)}
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px}
+
+  /* ---- header ---- */
+  header.hero{
+    position:relative; overflow:hidden;
+    background:radial-gradient(1200px 500px at 80% -10%, rgba(244,114,182,.18), transparent 60%),
+               radial-gradient(900px 500px at 0% 0%, rgba(192,132,252,.14), transparent 55%);
+    border-bottom:1px solid var(--border);
+    padding:84px 0 56px;
+  }
+  .badge{display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);
+    background:var(--surface-2); border:1px solid var(--border); padding:6px 14px; border-radius:999px; margin-bottom:22px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.18)}
+  h1.title{font-size:clamp(40px,7vw,68px); line-height:1.02; margin:0 0 16px; letter-spacing:-.03em; font-weight:800}
+  h1.title .accent{background:linear-gradient(90deg,var(--pink),var(--purple)); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .lede{font-size:clamp(18px,2.4vw,22px); color:var(--muted); max-width:760px; margin:0 0 28px}
+  .meta-pills{display:flex; flex-wrap:wrap; gap:10px}
+  .pill{font-size:13px; color:var(--text); background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:7px 12px}
+  .pill b{color:var(--pink); font-weight:600}
+
+  /* ---- sticky nav ---- */
+  nav.toc{position:sticky; top:0; z-index:20; background:rgba(24,24,27,.82); backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border)}
+  nav.toc .wrap{display:flex; gap:4px; overflow-x:auto; padding:10px 24px; scrollbar-width:thin}
+  nav.toc a{color:var(--muted); white-space:nowrap; font-size:13.5px; padding:7px 12px; border-radius:8px; transition:.15s}
+  nav.toc a:hover{color:var(--text); background:var(--surface-2); text-decoration:none}
+
+  /* ---- sections ---- */
+  section{padding:56px 0; border-bottom:1px solid var(--border)}
+  .eyebrow{font-size:13px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--pink); margin:0 0 8px}
+  h2{font-size:clamp(26px,3.6vw,36px); margin:0 0 10px; letter-spacing:-.02em; font-weight:750}
+  .section-intro{color:var(--muted); max-width:760px; margin:0 0 32px; font-size:17px}
+
+  /* ---- feature cards ---- */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:18px}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:22px;
+    transition:.18s; position:relative}
+  .card:hover{border-color:#4a4a52; transform:translateY(-2px)}
+  .card h3{margin:0 0 6px; font-size:18px; font-weight:650; display:flex; align-items:center; gap:9px}
+  .ic{width:30px;height:30px;flex:0 0 30px;border-radius:8px;display:grid;place-items:center;
+    background:linear-gradient(135deg,rgba(244,114,182,.2),rgba(192,132,252,.18)); border:1px solid var(--border); font-size:16px}
+  .tag{font-size:11px; color:var(--faint); font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-bottom:14px}
+  .card .row{margin:11px 0 0}
+  .card .row .lbl{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:3px}
+  .lbl.how{color:var(--cyan)} .lbl.val{color:var(--green)}
+  .card .row p{margin:0; font-size:14.5px; color:var(--text)}
+  .card .row.how p,.card .row.val p{color:var(--muted)}
+  .ref{margin-top:14px; font-size:11.5px; color:var(--faint); font-family:"SF Mono",ui-monospace,monospace}
+
+  /* ---- architecture diagram ---- */
+  .arch{display:grid; gap:14px}
+  .layer{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px}
+  .layer h4{margin:0 0 4px; font-size:15px; display:flex; align-items:center; gap:8px}
+  .layer h4 .chip{font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px; background:var(--surface-2); border:1px solid var(--border); color:var(--muted)}
+  .layer p{margin:0; color:var(--muted); font-size:14px}
+  .layer.client{border-left:3px solid var(--pink)}
+  .layer.bus{border-left:3px solid var(--purple)}
+  .layer.server{border-left:3px solid var(--cyan)}
+  .layer.ext{border-left:3px solid var(--amber)}
+  .flowline{text-align:center; color:var(--faint); font-size:20px; line-height:1}
+
+  /* ---- journeys ---- */
+  .journey{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:22px; margin-bottom:16px}
+  .journey h3{margin:0 0 4px; font-size:18px}
+  .journey .jtbd{color:var(--muted); font-style:italic; margin:0 0 16px; font-size:14.5px;
+    border-left:2px solid var(--purple); padding-left:12px}
+  .steps{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+  .step{background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:6px 11px; font-size:13px}
+  .step b{color:var(--pink); font-weight:600; margin-right:5px}
+  .arrow{color:var(--faint)}
+
+  /* ---- maturity table ---- */
+  table{width:100%; border-collapse:collapse; font-size:14.5px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--border)}
+  th{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; font-weight:700}
+  td .stars{color:var(--amber); letter-spacing:1px}
+  tbody tr:hover{background:var(--surface)}
+
+  .note{background:linear-gradient(180deg,rgba(251,191,36,.08),transparent); border:1px solid var(--border);
+    border-left:3px solid var(--amber); border-radius:10px; padding:16px 18px; margin-top:24px; font-size:14.5px; color:var(--muted)}
+  .note b{color:var(--amber)}
+
+  footer{padding:48px 0 64px; color:var(--faint); font-size:14px}
+  footer .wrap{display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center}
+
+  @media(max-width:600px){
+    header.hero{padding:60px 0 40px}
+    section{padding:42px 0}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge"><span class="dot"></span> Local-first workbench · React 19 + Bun · NATS realtime</span>
+    <h1 class="title">Tinkaria <span class="accent">Feature Guide</span></h1>
+    <p class="lede">A playful, browser-based workbench that gives <strong>Claude Code</strong> and <strong>Codex</strong> a shared home — project-aware chat, embedded terminals, rich transcript rendering, multi-session coordination, and a NATS-backed realtime runtime. This guide walks every current feature: <em>what it is, how it works, and why it matters.</em></p>
+    <div class="meta-pills">
+      <span class="pill"><b>2</b> containers (client · server)</span>
+      <span class="pill"><b>43</b> documented components</span>
+      <span class="pill"><b>8</b> end-to-end journeys</span>
+      <span class="pill"><b>11</b> feature domains below</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#architecture">Architecture</a>
+    <a href="#chat">Agent Chat</a>
+    <a href="#transcript">Transcript</a>
+    <a href="#composer">Composer</a>
+    <a href="#sessions">Sessions</a>
+    <a href="#terminals">Terminals</a>
+    <a href="#coordination">Coordination</a>
+    <a href="#intelligence">Project Intelligence</a>
+    <a href="#runtime">Runtime &amp; Data</a>
+    <a href="#sharing">Sharing</a>
+    <a href="#platform">Platform</a>
+    <a href="#journeys">Journeys</a>
+    <a href="#maturity">Maturity</a>
+  </div>
+</nav>
+
+<!-- ============ ARCHITECTURE ============ -->
+<section id="architecture">
+  <div class="wrap">
+    <p class="eyebrow">How it all fits</p>
+    <h2>Architecture at a glance</h2>
+    <p class="section-intro">Every feature rides on the same spine: a React SPA talks to a Bun server over an embedded NATS bus, the server orchestrates AI CLI subprocesses, and all state is event-sourced to disk. Understanding these four layers makes every feature below predictable.</p>
+    <div class="arch">
+      <div class="layer client">
+        <h4>Client <span class="chip">React 19 SPA</span></h4>
+        <p>Chat UI, virtualized transcript, xterm.js terminals, Zustand stores, Radix primitives, Tailwind 4 theming. Subscribes to topic-based snapshots and sends commands via request/reply.</p>
+      </div>
+      <div class="flowline">▲ &nbsp; subscriptions · commands · render-window fetches &nbsp; ▼</div>
+      <div class="layer bus">
+        <h4>NATS transport <span class="chip">embedded daemon</span></h4>
+        <p>A <code>nats-server</code> subprocess (TCP + WebSocket + JetStream) carries snapshots on KV-backed subjects, command request/reply, and live terminal/turn event streams — with auth tokens, payload compression, and dedup.</p>
+      </div>
+      <div class="flowline">▲ &nbsp; publish snapshots · stream turn events &nbsp; ▼</div>
+      <div class="layer server">
+        <h4>Server <span class="chip">Bun HTTP + WS</span></h4>
+        <p>Event-sourced JSONL persistence with snapshot compaction, CQRS read models, multi-turn agent orchestration, a separate runner process for turn execution, and PTY terminal management.</p>
+      </div>
+      <div class="flowline">▲ &nbsp; spawn · JSON-RPC · PTY &nbsp; ▼</div>
+      <div class="layer ext">
+        <h4>External <span class="chip">subprocesses</span></h4>
+        <p>Claude Code &amp; Codex CLIs, the Codex app-server (JSON-RPC over stdio), embedded PTY shells, Docker sandboxes, and Cloudflared tunnels for public sharing.</p>
+      </div>
+    </div>
+    <div class="note"><b>Why event sourcing + CQRS?</b> Writes append immutable events to JSONL logs; reads derive snapshots (sidebar, chat, transcript render-units). Crashing or upgrading mid-turn never corrupts state — the log replays, and clients re-hydrate from the latest snapshot rather than trusting transport order.</div>
+  </div>
+</section>
+
+<!-- ============ AGENT CHAT ============ -->
+<section id="chat">
+  <div class="wrap">
+    <p class="eyebrow">The core loop</p>
+    <h2>Multi-provider agent chat</h2>
+    <p class="section-intro">One chat surface drives two very different AI coding CLIs. Tinkaria normalizes them behind a single provider abstraction so you switch models, reasoning effort, and plan mode without leaving the conversation.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">🔀</span> Provider &amp; model catalog</h3>
+        <div class="tag">c3-211 · providers</div>
+        <div class="row"><span class="lbl">What</span><p>A unified registry of Claude and Codex models with their capabilities.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Normalizes each provider's options — reasoning effort, context-window size, fast mode, model aliases — into one catalog the composer reads from.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Switch providers/models mid-project without learning two different config surfaces.</p></div>
+        <div class="ref">src/server/provider-catalog.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🧠</span> Multi-turn agent &amp; tool gating</h3>
+        <div class="tag">c3-210 · agent</div>
+        <div class="row"><span class="lbl">What</span><p>The brain of a conversation: turn lifecycle, prompt shaping, tool permission gating, and plan mode.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A <code>RunnerProxy</code> sits behind a provider-harness seam — it accepts <code>chat.send</code>, shapes the prompt, gates which tools a turn may use, and streams transcript events without leaking provider transport into the rest of the server.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Consistent, safe turn behavior across providers, plus plan-mode approval flows inside the UI.</p></div>
+        <div class="ref">src/server/runner-proxy.ts · runner/runner-agent.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🎛️</span> Session orchestration &amp; delegation</h3>
+        <div class="tag">c3-206 · orchestration</div>
+        <div class="row"><span class="lbl">What</span><p>Cross-session agent coordination — one session can spawn, message, wait on, and close another.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p><code>SessionOrchestrator</code> enforces depth and concurrency limits, queues input when a target is busy, and cascades cancellation so child sessions stop cleanly.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Safe subagent/delegation patterns without runaway recursion or orphaned sessions.</p></div>
+        <div class="ref">src/server/orchestration.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">⚙️</span> Codex app-server bridge</h3>
+        <div class="tag">c3-216 · codex</div>
+        <div class="row"><span class="lbl">What</span><p>Full Codex CLI integration via its app-server protocol.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Spawns the Codex app-server subprocess, speaks JSON-RPC over stdin/stdout, advertises dynamic tools (including <code>present_content</code>), and translates Codex events into Tinkaria's shared harness turn model.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Codex feels native — its structured output and tools render with the same fidelity as Claude.</p></div>
+        <div class="ref">src/server/codex-app-server.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🚇</span> Hub-to-kit runtime seam</h3>
+        <div class="tag">c3-208 · kit-runtime</div>
+        <div class="row"><span class="lbl">What</span><p>A dedicated runner process that executes turns separately from the web server.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Tracks stable project→kit assignment, bridges turn/session traffic over NATS, and runs a default long-running local kit — keeping turn execution out of the request path.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>The UI stays responsive while turns run; turn crashes don't take down the server.</p></div>
+        <div class="ref">src/runner/* · src/server/codex-runtime.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📐</span> Web-context prompt builder</h3>
+        <div class="tag">c3-207 · prompt-context</div>
+        <div class="row"><span class="lbl">What</span><p>The extra instructions Tinkaria injects so agents behave well inside a browser UI.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Composes additive guidance: browser-UI awareness, cross-session orchestration constraints, rich-content &amp; direct-embed preferences, and Codex <code>present_content</code> usage hints.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Agents produce output that renders beautifully in Tinkaria instead of raw CLI text.</p></div>
+        <div class="ref">src/shared/web-context.ts</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRANSCRIPT ============ -->
+<section id="transcript">
+  <div class="wrap">
+    <p class="eyebrow">Seeing the work</p>
+    <h2>Live transcript rendering</h2>
+    <p class="section-intro">Turning a raw stream of agent events into a stable, scrollable conversation is the hardest UI problem here. Tinkaria splits it into a delivery layer (freshness, caching) and a render layer (virtualization, grouping) governed by a strict projection-key contract so nothing flickers, duplicates, or gets swallowed.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">📡</span> Transcript runtime (server)</h3>
+        <div class="tag">c3-226 · transcript-runtime</div>
+        <div class="row"><span class="lbl">What</span><p>Consumes raw runner turn events and turns them into append-only render facts.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Resumes from JetStream/KV state, appends transcript entries to the event store, tracks active status, triggers queue drains, and notifies subscribers of state changes.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>A reconnecting client always rejoins a turn already in progress — nothing is lost on refresh.</p></div>
+        <div class="ref">src/server/transcript-consumer.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🪣</span> Transcript lifecycle (client)</h3>
+        <div class="tag">c3-118 · transcript-lifecycle</div>
+        <div class="row"><span class="lbl">What</span><p>Owns client-side delivery state: cache restore, render-window fetches, freshness.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Restores cache, requests snapshot/render-window units, buffers live events before the first fetch, and rejects stale payloads using a <code>TranscriptProjectionKey</code> rather than transport order.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Instant transcript on open, no blank flashes, and a failed fetch never wipes what you're reading.</p></div>
+        <div class="ref">src/client/app/useTranscriptLifecycle.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📜</span> Virtualized renderer</h3>
+        <div class="tag">c3-119 · transcript-renderer</div>
+        <div class="row"><span class="lbl">What</span><p>Presents already-folded render units as virtual rows.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Stable height measurement and scroll-facing item identity keep thousands of rows smooth; generic narration/tool work folds into a "WIP" block while final answers and special tools stay visible outside it.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Long conversations stay fast, and the model's actual answer never gets buried in tool noise.</p></div>
+        <div class="ref">src/client/app/ChatTranscript.tsx · chatWaypoints.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">💬</span> Message surfaces</h3>
+        <div class="tag">c3-111 · messages</div>
+        <div class="row"><span class="lbl">What</span><p>The actual rendered bubbles for every message type.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Renders prompts, assistant text, collapsed tool groups, special tools (<code>AskUserQuestion</code>, <code>ExitPlanMode</code>, <code>TodoWrite</code>), system/result/status messages, compact summaries, and the subagent indicator tree.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Each interaction type gets purpose-built chrome instead of a wall of monospace.</p></div>
+        <div class="ref">src/client/components/messages/*</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🃏</span> present_content artifact cards</h3>
+        <div class="tag">c3-106 · present-content</div>
+        <div class="row"><span class="lbl">What</span><p>Rich, typed artifacts the agent chooses to "present" rather than describe.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Normalizes typed content (including direct embeds) and renders it as a dedicated card outside the generic tool flow.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Results — a table, a diagram, a rendered page — show up as first-class output, not buried tool text.</p></div>
+        <div class="ref">src/client/components/messages/PresentContentMessage.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🖼️</span> Rich-content viewer &amp; embeds</h3>
+        <div class="tag">c3-107 · rich-content</div>
+        <div class="row"><span class="lbl">What</span><p>The shared viewer for markdown, code, diagrams, HTML, SVG, and Pug embeds.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Provides zoomable overlays, isolated iframe-style embeds, toolbar controls, a table of contents, and markdown hints — reused by both transcript cards and file previews.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Agents can render real, interactive content safely inside the chat.</p></div>
+        <div class="ref">src/client/components/rich-content/*</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🧩</span> Puggy template engine</h3>
+        <div class="tag">c3-204 · shared/puggy</div>
+        <div class="row"><span class="lbl">What</span><p>A custom Pug-like DSL (parser, expressions, HTML renderer) with a capability sandbox.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Three tightly-cohesive modules parse templates, evaluate expressions, and render HTML under a constrained capability model — no arbitrary script execution.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Agents generate dynamic, data-driven UI fragments that render without trusting raw HTML.</p></div>
+        <div class="ref">src/shared/puggy/**</div>
+      </div>
+
+    </div>
+    <div class="note"><b>The contract that holds it together:</b> render units carry a projection key that the server derives, NATS preserves verbatim, and the client uses to accept or reject updates. This is why a final answer never gets "swallowed" into the WIP block, special tools keep their rationale text, and a dropped fetch never blanks the view.</div>
+  </div>
+</section>
+
+<!-- ============ COMPOSER ============ -->
+<section id="composer">
+  <div class="wrap">
+    <p class="eyebrow">Saying things</p>
+    <h2>The composer &amp; controls</h2>
+    <p class="section-intro">The input bar is more than a textarea — it manages queueing, drafts, model preferences, plan mode, and slash-command skill insertion.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">⌨️</span> Chat input &amp; queueing</h3>
+        <div class="tag">c3-112 · chat-input</div>
+        <div class="row"><span class="lbl">What</span><p>Auto-resizing multi-line composer with submit-on-Enter and queue/cancel behavior.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>When a turn is already running, a follow-up message is queued (coalesced) and drained when the active turn finishes; drafts persist per chat tab so nothing is lost on navigation.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Keep typing your next instruction while the agent works — it lands automatically.</p></div>
+        <div class="ref">src/client/components/chat-ui/ChatInput.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🎚️</span> Preference bar &amp; plan mode</h3>
+        <div class="tag">c3-112 · c3-102</div>
+        <div class="row"><span class="lbl">What</span><p>Inline controls for provider, model, context-window, reasoning effort, and plan-mode toggle.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Reads the normalized provider catalog and persists choices to a Zustand preferences store (96%-cohesive cluster) scoped to your defaults.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Dial in cost/quality per message; approve plans before the agent acts.</p></div>
+        <div class="ref">chatPreferencesStore.ts · ChatPreferenceControls.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">/</span> Skill ribbon &amp; composition</h3>
+        <div class="tag">c3-112 · c3-223</div>
+        <div class="row"><span class="lbl">What</span><p>Slash-command insertion of discovered skills directly into the composer.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>The server discovers skill directories (<code>~/.claude/skills/</code> and project <code>.claude/skills/</code>), caches them per project, and the client's composition store handles prefix parsing and insertion.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Invoke your skills/slash-commands without remembering exact names.</p></div>
+        <div class="ref">skillCompositionStore.ts · server/skill-discovery.ts</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ SESSIONS ============ -->
+<section id="sessions">
+  <div class="wrap">
+    <p class="eyebrow">Continuity</p>
+    <h2>Sessions, history &amp; search</h2>
+    <p class="section-intro">Tinkaria doesn't start from zero. It discovers your existing Claude and Codex history on disk, indexes every session, makes them searchable, and lets you fork or merge conversations.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">🔎</span> Local project discovery</h3>
+        <div class="tag">c3-213 · discovery</div>
+        <div class="row"><span class="lbl">What</span><p>Finds every project you've used a coding agent in.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Scans <code>~/.claude/projects/</code> and <code>~/.codex/sessions/</code> (plus <code>config.toml</code>) to recover previously used project paths.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Your projects are already there on first launch — no manual setup.</p></div>
+        <div class="ref">src/server/discovery.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">⏪</span> Session discovery &amp; resume</h3>
+        <div class="tag">c3-217 · session-discovery</div>
+        <div class="row"><span class="lbl">What</span><p>Imports prior CLI conversations as resumable Tinkaria chats.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Discovers provider session history, merges it with Tinkaria chats, resolves resume files, and imports CLI transcript context into persisted chats.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Pick up a terminal conversation in the browser with full context intact.</p></div>
+        <div class="ref">src/server/session-discovery.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🗂️</span> Session index &amp; naming</h3>
+        <div class="tag">c3-218 · session-index</div>
+        <div class="row"><span class="lbl">What</span><p>Per-session summaries: intent, files touched, commands run, branch, status, unread state.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A read model derives these from event-store transcript entries on every message append, and auto-generates a title for each session.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>The sidebar reads like a labeled work journal, not a list of UUIDs.</p></div>
+        <div class="ref">src/server/session-index.ts · generate-title.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🔦</span> Transcript search (BM25)</h3>
+        <div class="tag">c3-220 · transcript-search</div>
+        <div class="row"><span class="lbl">What</span><p>Full-text lexical search across every transcript in a project.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A <code>TranscriptSearchIndex</code> wraps a BM25 engine with transcript-aware document extraction and metadata indexing.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>"Where did we discuss the auth bug?" — find it across all past sessions.</p></div>
+        <div class="ref">src/server/transcript-search.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🌱</span> Fork session</h3>
+        <div class="tag">c3-110 · recipe-fork-session-flow</div>
+        <div class="row"><span class="lbl">What</span><p>Branch a new, independent chat seeded from the current one.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>You pick a preset scaffold and edit the intent; the server derives a bounded transcript excerpt, generates a seed prompt, and the client opens a fresh chat with no link back to the source.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Explore a tangent without polluting the original thread.</p></div>
+        <div class="ref">ForkSessionDialog.tsx · chat.generateForkPrompt</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🔗</span> Merge session context</h3>
+        <div class="tag">c3-110 · generate-merge-context</div>
+        <div class="row"><span class="lbl">What</span><p>Generate a prompt that folds one chat's context into another.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Builds a merge/fork context prompt from source transcript material via the <code>MergeSessionDialog</code>.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Recombine parallel explorations back into a single working thread.</p></div>
+        <div class="ref">MergeSessionDialog.tsx · generate-merge-context.ts</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ TERMINALS ============ -->
+<section id="terminals">
+  <div class="wrap">
+    <p class="eyebrow">Hands on the metal</p>
+    <h2>Embedded terminals &amp; workspace layout</h2>
+    <p class="section-intro">Real shells live next to the chat. The layout is a carefully tuned, persisted, resizable workspace with animated panes and a scroll machine that keeps you anchored where you expect.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">🖥️</span> Terminal pane &amp; workspace</h3>
+        <div class="tag">c3-110 · TerminalPane</div>
+        <div class="row"><span class="lbl">What</span><p>Embedded xterm.js terminals attached to server-managed PTY shells.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>The server spawns and manages PTYs; terminal output streams over JetStream. Layout helpers, animation curves, and a layout store handle resize/toggle.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Run commands and watch the agent's shell side-by-side — no app switching.</p></div>
+        <div class="ref">TerminalPane.tsx · TerminalWorkspace.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📐</span> Persisted layout &amp; preferences</h3>
+        <div class="tag">c3-102 · stores</div>
+        <div class="row"><span class="lbl">What</span><p>Per-project terminal splits, scrollback, sidebar visibility, and group ordering.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Lightweight Zustand stores persist UI/layout state (with size clamping) scoped per project.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Each project remembers exactly how you arranged it.</p></div>
+        <div class="ref">terminalLayoutStore.ts · rightSidebarStore.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🧭</span> Chat Navigator &amp; scroll machine</h3>
+        <div class="tag">c3-110 · useChatNavigator</div>
+        <div class="row"><span class="lbl">What</span><p>A waypoint navigator plus sticky-focus scroll-follow behavior.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Scroll-follow, sticky focus, and scroll-sync stores coordinate so live output tracks the bottom while reading position is preserved after replies; the Navigator jumps between message waypoints.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Long, fast-moving turns don't yank you around — you stay where you're reading.</p></div>
+        <div class="ref">useChatNavigator.ts · scrollFollowStore.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📁</span> Right sidebar (files/diffs)</h3>
+        <div class="tag">c3-115 · right-sidebar</div>
+        <div class="row"><span class="lbl">What</span><p>A togglable side panel for the file explorer and diff view.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Animated open/close with width persisted per project (diff view is a current placeholder being built out).</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Keep file context one toggle away from the conversation.</p></div>
+        <div class="ref">RightSidebar.tsx</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ COORDINATION ============ -->
+<section id="coordination">
+  <div class="wrap">
+    <p class="eyebrow">Many agents, one project</p>
+    <h2>Workspace coordination</h2>
+    <p class="section-intro">When several sessions work the same repo, they need to not step on each other. The <code>/workspace/:id</code> route is an 8-panel control room — shared todos, file claims, isolated worktrees, rules, repos, agent configs, workflows, and sandboxes — all backed by durable, distributed state.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">✅</span> Shared task ledger</h3>
+        <div class="tag">c3-219 · task-ledger</div>
+        <div class="row"><span class="lbl">What</span><p>Durable shared todos with a claim → complete → abandon lifecycle.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p><code>TaskLedger</code> tracks ownership across sessions with automatic abandoned-detection via a configurable timeout; state is event-sourced and distributed over JetStream.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Parallel sessions don't duplicate work or drop tasks when one stalls.</p></div>
+        <div class="ref">TodosPanel · task-ledger</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🛡️</span> File claims</h3>
+        <div class="tag">c3-209 · ClaimsPanel</div>
+        <div class="row"><span class="lbl">What</span><p>Declare intent over specific files before editing them.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A claim records intent + files + session; releasing it moves it to a "Released" history. Commands flow through <code>workspace.claim.create/release</code>.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Sessions see who's touching what — fewer merge collisions.</p></div>
+        <div class="ref">components/coordination/* · nats-coordination-client.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🌳</span> Worktrees</h3>
+        <div class="tag">c3-209 · WorktreesPanel</div>
+        <div class="row"><span class="lbl">What</span><p>Branch-isolated git worktrees assignable to a session.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Create a worktree from a branch + base, assign a session to it, and remove it when done (commands: <code>workspace.worktree.create/assign/remove</code>).</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Each session edits on its own branch — true isolation, no shared-tree conflicts.</p></div>
+        <div class="ref">WorktreesPanel · repo-manager.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📋</span> Project rules</h3>
+        <div class="tag">c3-209 · RulesPanel</div>
+        <div class="row"><span class="lbl">What</span><p>Shared, editable rules every session in the project should follow.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Add / edit / remove rules persisted in the coordination snapshot (<code>workspace.rule.set/remove</code>).</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>One place to set conventions that all agents respect.</p></div>
+        <div class="ref">RulesPanel</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🤖</span> Agent configs</h3>
+        <div class="tag">c3-209 · AgentConfigPanel</div>
+        <div class="row"><span class="lbl">What</span><p>Define reusable agents: name, description, provider, model, prompt, tools, temperature.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Full CRUD over agent configurations stored in the workspace subscription snapshot (<code>workspace.agent.save/remove</code>).</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Tune specialized agents once and reuse them across the project.</p></div>
+        <div class="ref">AgentConfigPanel</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">⚡</span> Workflows monitor</h3>
+        <div class="tag">c3-209 · WorkflowPanel</div>
+        <div class="row"><span class="lbl">What</span><p>Observe automated workflow runs and cancel active ones.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Subscribes to run state (status badges, step progress) and cancels via <code>workspace.workflow.cancel</code>. Runs are currently triggered via MCP, not the UI.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Watch automation progress and intervene when something goes wrong.</p></div>
+        <div class="ref">WorkflowPanel</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📦</span> Docker sandbox</h3>
+        <div class="tag">c3-225 · sandbox</div>
+        <div class="row"><span class="lbl">What</span><p>Per-workspace Docker container for isolated execution.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Create/start/stop/destroy a container with health checks, NATS communication, and security constraints (memory, CPU shares); lifecycle status streams to the panel.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Run risky experiments without touching your real environment.</p></div>
+        <div class="ref">SandboxPanel · sandbox-health.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🔌</span> Coordination MCP &amp; client</h3>
+        <div class="tag">c3-209 · coordination</div>
+        <div class="row"><span class="lbl">What</span><p>The transport + MCP interface that backs every panel above.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>EventStore-backed JSONL persistence + NATS JetStream distribution, exposed both to the UI panels and to external agents via an MCP tool interface.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>External agents and the UI share one coordination truth.</p></div>
+        <div class="ref">coordination-mcp.ts · nats-coordination-client.ts</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ PROJECT INTELLIGENCE ============ -->
+<section id="intelligence">
+  <div class="wrap">
+    <p class="eyebrow">Knowing the codebase</p>
+    <h2>Project intelligence &amp; extensions</h2>
+    <p class="section-intro">The Project Page is pluggable. It auto-detects what a project supports and surfaces architecture docs, agent configs, and code overviews — and a stateless project agent answers coordination questions deterministically.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">🧱</span> Extension host &amp; router</h3>
+        <div class="tag">c3-120 · c3-227 · extensions</div>
+        <div class="row"><span class="lbl">What</span><p>A generic plugin system for project-scoped views.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>The server detects relevant extensions via filesystem probes and multiplexes their routes; the client renders them as <code>SegmentedControl</code> tabs and lazy-loads each extension's React component. User enable/disable preferences override detection.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>The Project Page adapts to each repo and stays extensible.</p></div>
+        <div class="ref">extension-router.ts · client/extensions/*</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🏛️</span> C3 architecture extension</h3>
+        <div class="tag">c3-120 · extension</div>
+        <div class="row"><span class="lbl">What</span><p>Renders the project's C3 architecture docs (Context → Container → Component) with entity badges.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Calls the <code>c3x</code> CLI (<code>c3x read --full</code>) and renders selected entity documents as full markdown.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Architecture-as-truth is one click from the chat — orientation, ownership, and impact in context.</p></div>
+        <div class="ref">extensions/c3/* · ref-project-c3-app-surface</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">📇</span> Agents &amp; code extensions</h3>
+        <div class="tag">c3-120 · extension</div>
+        <div class="row"><span class="lbl">What</span><p>An agents-config view and a code overview (deps/manifests) view.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Agents parses config files into sections/skills; Code uses language-specific parsers to build manifests and a deps table.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>See a project's agents and dependency surface without leaving Tinkaria.</p></div>
+        <div class="ref">extensions/agents/* · extensions/code/*</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🧮</span> Project agent</h3>
+        <div class="tag">c3-222 · project-agent</div>
+        <div class="row"><span class="lbl">What</span><p>A stateless delegation function answering coordination questions about a project.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Aggregates the SessionIndex, TaskLedger, and TranscriptSearchIndex and makes deterministic, keyword-routed delegation decisions — exposed via HTTP routes and the <code>tinkaria-project</code> CLI.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>A queryable "what's happening on this project" brain for agents and scripts.</p></div>
+        <div class="ref">workspace-agent-routes.ts · bin/tinkaria-project</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ RUNTIME & DATA ============ -->
+<section id="runtime">
+  <div class="wrap">
+    <p class="eyebrow">The spine</p>
+    <h2>Realtime runtime &amp; persistence</h2>
+    <p class="section-intro">Three foundations make everything above durable and live: an append-only event store, an embedded NATS bus, and CQRS read models that turn events into the snapshots the UI subscribes to.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">💾</span> Event store</h3>
+        <div class="tag">c3-201 · event-store</div>
+        <div class="row"><span class="lbl">What</span><p>An append-only JSONL log of all project, chat, queued-turn, and transcript state.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Events are appended immutably; snapshot compaction keeps replay fast. State is reconstructed by replaying the log.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Local-first durability — full history, crash safety, and a single source of truth on your disk.</p></div>
+        <div class="ref">src/server/event-store.ts · events.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🛰️</span> Embedded NATS transport</h3>
+        <div class="tag">c3-205 · nats-transport</div>
+        <div class="row"><span class="lbl">What</span><p>The realtime backbone for snapshots, commands, and event streams.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Starts a <code>nats-server</code> subprocess (TCP + WebSocket + JetStream), manages auth tokens, publishes snapshots to KV-backed subjects with dedup &amp; compression, and handles command request/reply.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Sub-frame UI updates, reconnect-safe streaming, and a protocol external agents can join.</p></div>
+        <div class="ref">nats-bridge.ts · nats-publisher.ts · nats-responders.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🔭</span> CQRS read models</h3>
+        <div class="tag">c3-214 · read-models</div>
+        <div class="row"><span class="lbl">What</span><p>Derived views the client actually subscribes to.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Projects events into sidebar data, chat snapshots, local-project snapshots, and transcript render-units — each stamped with a <code>TranscriptProjectionKey</code> for freshness.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Clients read cheap, consistent snapshots instead of replaying raw events.</p></div>
+        <div class="ref">src/server/read-models.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">⌨️</span> CLI &amp; supervisor</h3>
+        <div class="tag">c3-203 · cli</div>
+        <div class="row"><span class="lbl">What</span><p>The <code>tinkaria</code> entry point, supervisor, and restart logic.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Launches the server, parses args/help, and handles auto-update restarts and process lifecycle. A <code>/health</code> endpoint reports NATS daemon, hub connection, and runner heartbeat (HTTP 503 on required-component failure).</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>One command to run; observable health for safe upgrades and proxied deploys.</p></div>
+        <div class="ref">cli-runtime.ts · update-manager.ts · GET /health</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHARING ============ -->
+<section id="sharing">
+  <div class="wrap">
+    <p class="eyebrow">Beyond localhost</p>
+    <h2>Sharing &amp; access</h2>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="ic">🌐</span> Tunnel sharing + QR</h3>
+        <div class="tag">c3-215 · share</div>
+        <div class="row"><span class="lbl">What</span><p>Expose a Tinkaria session publicly via a temporary URL.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Integrates Cloudflared to open a tunnel and generates a QR code for the resulting URL.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Hop to your phone or share a session in seconds — no deploy, no config.</p></div>
+        <div class="ref">src/server/share.ts</div>
+      </div>
+      <div class="card">
+        <h3><span class="ic">🔐</span> Auth tokens</h3>
+        <div class="tag">c3-205 · nats-auth</div>
+        <div class="row"><span class="lbl">What</span><p>Token-gated access to the runtime and WebSocket bus.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>The server issues auth tokens (<code>/auth/token</code>) that gate NATS connections and the <code>/nats-ws</code> path.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>A shared tunnel isn't an open door — clients must hold a valid token.</p></div>
+        <div class="ref">src/server/nats-auth.ts</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PLATFORM ============ -->
+<section id="platform">
+  <div class="wrap">
+    <p class="eyebrow">Feels native everywhere</p>
+    <h2>Platform &amp; experience</h2>
+    <p class="section-intro">Tinkaria runs as a PWA on mobile, a Tauri desktop companion, and a themeable browser app — with push notifications, keyboard shortcuts, and a unique built-in UI inspection overlay.</p>
+    <div class="grid">
+
+      <div class="card">
+        <h3><span class="ic">📱</span> PWA &amp; resume</h3>
+        <div class="tag">platform · usePwaResume</div>
+        <div class="row"><span class="lbl">What</span><p>Installable progressive web app with reconnect-on-resume.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Visibility / focus / online / pageshow handlers converge to re-bind subscriptions and re-fetch fresh snapshots after the device wakes.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Open it on your phone, lock the screen, come back — it's live, not stale.</p></div>
+        <div class="ref">usePwaResume.ts · ref-pwa</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🖥️</span> Tauri desktop companion</h3>
+        <div class="tag">platform · desktop shell</div>
+        <div class="row"><span class="lbl">What</span><p>A native desktop shell with native webviews and a tray.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A single-port desktop shell attaches to the server-only companion, bootstraps NATS, and surfaces tray status &amp; logs in a two-window model.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>A real app icon and window instead of a browser tab, sharing the same backend.</p></div>
+        <div class="ref">adr-*-tauri-* (desktop)</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🔔</span> Push notifications</h3>
+        <div class="tag">platform · push</div>
+        <div class="row"><span class="lbl">What</span><p>Web push for events while you're away.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Full VAPID web-push stack: a toggle requests permission, registers a subscription with the server (<code>/api/push/*</code>), and the server delivers notifications.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Know when a long turn finishes without watching the screen.</p></div>
+        <div class="ref">push-notifications.ts · usePushNotifications.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🎨</span> Theming</h3>
+        <div class="tag">c3-103 · theme</div>
+        <div class="row"><span class="lbl">What</span><p>Dark / light / system theme.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Persists the choice to localStorage, resolves system preference via <code>matchMedia</code>, and toggles the <code>dark</code> class for Tailwind 4 CSS-variable theming.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Matches your OS and stays comfortable day or night.</p></div>
+        <div class="ref">hooks/useTheme.tsx · index.css</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">⌨️</span> Keyboard shortcuts</h3>
+        <div class="tag">platform · useShortcuts</div>
+        <div class="row"><span class="lbl">What</span><p>Scoped, grouped shortcuts with a help overlay.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>A shortcut hook registers grouped bindings; a focus policy detects text-entry so shortcuts don't fire while typing.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Drive the whole workbench from the keyboard.</p></div>
+        <div class="ref">useShortcuts.ts · ShortcutHelpOverlay.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🏷️</span> Alt+Shift UI identity overlay</h3>
+        <div class="tag">c3-108 · ui-identity</div>
+        <div class="row"><span class="lbl">What</span><p>Hold <kbd>Alt+Shift</kbd> over any surface to reveal its semantic ID and C3 ownership.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Interactive surfaces emit stable <code>data-ui-id</code> hooks; the overlay controller shows the nearest-tag stack, a highlight rect, and a copy action that maps back to the owning component.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>Point at any pixel and instantly know which code owns it — a superpower for QA and agents.</p></div>
+        <div class="ref">UiIdentityOverlay.tsx · uiIdentityOverlay.ts</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">🏠</span> Local projects home</h3>
+        <div class="tag">c3-117 · projects</div>
+        <div class="row"><span class="lbl">What</span><p>The <code>/</code> landing screen: setup state, recent sessions, stats, and a workspace grid.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Renders connection/setup states, recent-session resume cards, project stats, workspace cards, and an add-project modal.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>A welcoming, orienting front door — resume in one click.</p></div>
+        <div class="ref">PageHeader.tsx · LocalDev.tsx · NewWorkspaceModal.tsx</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="ic">👆</span> Mobile-first interactions</h3>
+        <div class="tag">platform · responsive</div>
+        <div class="row"><span class="lbl">What</span><p>Swipe-reveal sidebar, mobile content viewer, tabbed pages, FAB actions.</p></div>
+        <div class="row how"><span class="lbl how">How</span><p>Standalone/mobile detection drives a responsive layout with a sidebar swipe gesture and a mobile-friendly rich-content viewer.</p></div>
+        <div class="row val"><span class="lbl val">Value</span><p>The full workbench actually works on a phone.</p></div>
+        <div class="ref">useIsStandalone.ts · useIsMobile.ts · ref-mobile-tabbed-page-pattern</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ JOURNEYS ============ -->
+<section id="journeys">
+  <div class="wrap">
+    <p class="eyebrow">Features in motion</p>
+    <h2>End-to-end journeys</h2>
+    <p class="section-intro">Features earn their value in sequence. These are the documented journeys (each with a "job to be done") that thread multiple features together.</p>
+
+    <div class="journey">
+      <h3>🧭 Task coordination</h3>
+      <p class="jtbd">"When I'm coordinating work across multiple sessions on the same project, I want to see and manage shared tasks so that sessions don't duplicate effort or miss work items."</p>
+      <div class="steps">
+        <span class="step"><b>1</b>Open workspace</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Add todo</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Claim</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>Complete / abandon</span><span class="arrow">→</span>
+        <span class="step"><b>5</b>Filter by state</span><span class="arrow">→</span>
+        <span class="step"><b>6</b>Manage rules</span>
+      </div>
+    </div>
+
+    <div class="journey">
+      <h3>🛡️ File ownership</h3>
+      <p class="jtbd">"When multiple sessions edit files in the same project, I want to declare intent over files and use isolated branches so that sessions don't create merge conflicts."</p>
+      <div class="steps">
+        <span class="step"><b>1</b>Create claim</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Create worktree</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Assign session</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>Add / clone repo</span><span class="arrow">→</span>
+        <span class="step"><b>5</b>Pull / push</span>
+      </div>
+    </div>
+
+    <div class="journey">
+      <h3>📦 Isolated dev</h3>
+      <p class="jtbd">"When I want to run code in an isolated environment, I want to create and manage a sandbox container so that experiments don't affect my main workspace."</p>
+      <div class="steps">
+        <span class="step"><b>1</b>Create sandbox</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Running</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Inspect</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>Stop / start</span><span class="arrow">→</span>
+        <span class="step"><b>5</b>Destroy</span>
+      </div>
+    </div>
+
+    <div class="journey">
+      <h3>⚡ Automation &amp; monitoring</h3>
+      <p class="jtbd">"When automated workflows run across my workspace, I want to monitor progress and manage agent configurations so that I can intervene when things go wrong and tune behavior."</p>
+      <div class="steps">
+        <span class="step"><b>1</b>View workflow runs</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Cancel run</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Add / edit agent config</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>Enable notifications</span>
+      </div>
+    </div>
+
+    <div class="journey">
+      <h3>🌱 Fork a session</h3>
+      <p class="jtbd">Branch a focused new chat from the current one without dragging the whole thread along.</p>
+      <div class="steps">
+        <span class="step"><b>1</b>Open fork dialog</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Pick preset + edit intent</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Server seeds prompt</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>New independent chat</span>
+      </div>
+    </div>
+
+    <div class="journey">
+      <h3>🎬 Agent turn → render</h3>
+      <p class="jtbd">The flagship internal flow: provider output becomes a stable, interactive transcript.</p>
+      <div class="steps">
+        <span class="step"><b>1</b>Turn starts (agent)</span><span class="arrow">→</span>
+        <span class="step"><b>2</b>Runner emits events</span><span class="arrow">→</span>
+        <span class="step"><b>3</b>Server appends + notifies</span><span class="arrow">→</span>
+        <span class="step"><b>4</b>Client hydrates</span><span class="arrow">→</span>
+        <span class="step"><b>5</b>Renderer folds WIP / cards</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MATURITY ============ -->
+<section id="maturity">
+  <div class="wrap">
+    <p class="eyebrow">Honest assessment</p>
+    <h2>Maturity &amp; load-bearing pillars</h2>
+    <p class="section-intro">Drawn from the graph-derived feature inventory — the five "pillars" carry the most weight and have the strongest test coverage and cohesion.</p>
+    <table>
+      <thead><tr><th>Feature</th><th>Area</th><th>Maturity</th></tr></thead>
+      <tbody>
+        <tr><td>NATS messaging backbone</td><td>Runtime</td><td class="stars">★★★★★</td></tr>
+        <tr><td>Event store</td><td>Runtime</td><td class="stars">★★★★★</td></tr>
+        <tr><td>Runner agent &amp; turn lifecycle</td><td>Agent chat</td><td class="stars">★★★★★</td></tr>
+        <tr><td>App state machine &amp; commands</td><td>Client</td><td class="stars">★★★★★</td></tr>
+        <tr><td>Bun HTTP + WS server core</td><td>Runtime</td><td class="stars">★★★★★</td></tr>
+        <tr><td>Transcript pipeline (runtime / lifecycle / renderer)</td><td>Transcript</td><td class="stars">★★★★</td></tr>
+        <tr><td>Workspace coordination panels</td><td>Coordination</td><td class="stars">★★★★</td></tr>
+        <tr><td>Rich-content &amp; Puggy renderer</td><td>Transcript</td><td class="stars">★★★★</td></tr>
+        <tr><td>Push notifications · PWA resume · extensions</td><td>Platform</td><td class="stars">★★★★</td></tr>
+        <tr><td>Share · skill discovery · auxiliary panels</td><td>Various</td><td class="stars">★★★</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><b>Known rough edges (from journey audits):</b> workflows can't yet be triggered from the UI (MCP-only) and don't show step output; the sandbox panel hides available health metrics and skips a destroy confirmation; the right-sidebar diff view is still a placeholder; the notification toggle is global rather than per-workspace. These are surfaced honestly — the plumbing exists ahead of the UI in several places.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Tinkaria — a playful workbench UI for Claude Code &amp; Codex. Generated from the C3 architecture model (43 components, 8 journeys).</span>
+    <span>Local-first · React 19 · Bun · NATS</span>
+  </div>
+</footer>
+
+</body>
+</html>

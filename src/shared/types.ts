@@ -102,7 +102,7 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "claude",
     label: "Claude",
-    defaultModel: "sonnet",
+    defaultModel: "opus",
     defaultEffort: "high",
     supportsPlanMode: true,
     models: [

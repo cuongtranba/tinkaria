@@ -11,6 +11,7 @@ import type {
   TranscriptEntry,
   TranscriptRenderUnit,
 } from "../shared/types"
+import { compareIndependentWorkspaces } from "../shared/types"
 import type { ChatRecord, StoreState, WorkspaceCoordinationState } from "./events"
 import { createEmptyCoordinationState } from "./events"
 import type { WorkspaceCoordinationSnapshot } from "../shared/workspace-types"
@@ -79,7 +80,7 @@ export function deriveSidebarData(
   })
 
   const independentWorkspaces = [...state.independentWorkspacesById.values()]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort(compareIndependentWorkspaces)
 
   return { workspaceGroups, independentWorkspaces }
 }

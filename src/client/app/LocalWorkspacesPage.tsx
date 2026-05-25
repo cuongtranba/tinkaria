@@ -34,6 +34,10 @@ export function LocalProjectsPage() {
         independentWorkspaces={state.sidebarData.independentWorkspaces}
         onCreateWorkspace={() => setCreateWorkspaceOpen(true)}
         onOpenWorkspace={(wsId) => navigate(`/workspace/${wsId}`)}
+        onRenameWorkspace={(wsId, name) => void state.handleRenameWorkspace(wsId, name)}
+        onTogglePinWorkspace={(wsId, pinned) => void state.handleTogglePinWorkspace(wsId, pinned)}
+        onReorderWorkspaces={(ids) => void state.handleReorderWorkspaces(ids)}
+        onDeleteWorkspace={(wsId) => void state.handleDeleteWorkspace(wsId)}
         projectGroups={state.sidebarData.workspaceGroups}
         onOpenProjectPage={(groupKey) => navigate(`/project/${groupKey}`)}
         activeTab={activeTab}

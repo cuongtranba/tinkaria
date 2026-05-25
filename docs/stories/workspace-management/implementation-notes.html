@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workspace Management — Implementation Notes</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; } h2 { margin-top: 1.8rem; border-bottom: 1px solid #8884; padding-bottom: .3rem; }
+  code { background: #8882; padding: .1em .35em; border-radius: 4px; }
+  .slice { border-left: 3px solid #6a9; padding-left: .8rem; margin: .8rem 0; }
+  .done { border-color: #3a3; } .wip { border-color: #c93; } .todo { border-color: #888; }
+  .tag { font-size: .75rem; padding: .1em .5em; border-radius: 999px; background: #8883; }
+  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #8884; padding: .35rem .5rem; text-align: left; }
+</style>
+</head>
+<body>
+<h1>Workspace Management — Implementation Notes</h1>
+<p>Working narrative for <code>docs/stories/workspace-management/</code>. Contract is the packet
+(<code>overview/design/execplan/validation.md</code>); this file explains <em>how</em> the build got there.
+Updated as the work proceeds.</p>
+
+<h2>Status</h2>
+<table>
+  <tr><th>Slice</th><th>What</th><th>State</th></tr>
+  <tr><td>S1</td><td>Backend rename (event+projection+emit+protocol+responder+client+test)</td><td><span class="tag">done ✓</span></td></tr>
+  <tr><td>S2</td><td>Backend pin + sort + test</td><td><span class="tag">done ✓</span></td></tr>
+  <tr><td>S3</td><td>Backend reorder (move up/down) + test</td><td><span class="tag">done ✓</span></td></tr>
+  <tr><td>S4</td><td>Sidebar UI context menu</td><td><span class="tag">done ✓</span></td></tr>
+  <tr><td>S5</td><td>Home card ⋯ menu</td><td><span class="tag">done ✓</span></td></tr>
+  <tr><td>V</td><td>Verify both surfaces (browser-harness) + typecheck + bun test</td><td><span class="tag">done ✓</span></td></tr>
+</table>
+
+<h2>Design decisions</h2>
+<div class="slice todo">
+  <strong>Reorder = Move up/down, not drag-and-drop.</strong> Deterministic, testable, accessible,
+  identical on both surfaces. Drag deferred (decision 0006).
+</div>
+<div class="slice todo">
+  <strong>New fields are optional</strong> (<code>pinned?</code>, <code>sortOrder?</code>) so existing
+  persisted snapshots/events stay valid — no migration.
+</div>
+<div class="slice todo">
+  <strong>Reorder writes the full ordered id list</strong> (one event rewrites every
+  <code>sortOrder</code>) to avoid sparse-index drift.
+</div>
+
+<h2>Deviations</h2>
+<ul>
+  <li>C3 flow bypassed (no <code>c3.db</code>; user-authorized). Architecture docs not updated for this change.</li>
+</ul>
+
+<h2>Open questions</h2>
+<ul>
+  <li>None blocking. Drag-and-drop reorder could be a follow-up if move up/down feels insufficient.</li>
+</ul>
+
+<h2>Bugs found during running-app verification</h2>
+<div class="slice done">
+  <strong>1. <code>SERVER_COMMANDS</code> allowlist.</strong> The Bun server subscribes to one NATS subject
+  per command type listed in <code>SERVER_COMMANDS</code> (<code>nats-responders.ts</code>). The new
+  <code>rename/set-pinned/reorder</code> commands weren't listed, so they had no subscriber and the client
+  request silently no-op'd (event log stayed empty, UI didn't change). Fix: added the three types to the list.
+  <em>This is exactly why the dual-signal rule matters — the UI looked broken with no client error.</em>
+</div>
+<div class="slice done">
+  <strong>2. read-model ordering.</strong> The client-facing list came from <code>read-models.ts</code>,
+  which sorted by <code>updatedAt</code> desc — ignoring <code>pinned</code>/<code>sortOrder</code> entirely
+  (and since rename/pin/reorder bump <code>updatedAt</code>, unpin would have mis-sorted). Fix: extracted a
+  shared <code>compareIndependentWorkspaces</code> in <code>shared/types.ts</code> used by both the
+  read-model and <code>listIndependentWorkspaces</code> so the snapshot and live view agree.
+</div>
+
+<h2>Log</h2>
+<ul>
+  <li>Intake #3 recorded (high-risk). Story <code>S-workspace-management</code>, decision 0006 added.</li>
+  <li>Backend S1–S3 + state wiring: 0 TS errors, 17 event-store tests pass.</li>
+  <li>UI S4 (sidebar context menu) + S5 (home ⋯ menu) wired through App.tsx / AppSidebar / LocalWorkspacesPage.</li>
+  <li>Rebuilt client (<code>vite build</code>) + restarted <code>cli.ts</code> server to load new code; verified via browser-harness.</li>
+  <li>Found + fixed the two bugs above during verification. Re-verified all four ops on both surfaces + reload persistence. Story marked implemented; trace #4 recorded.</li>
+</ul>
+</body>
+</html>

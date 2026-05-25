@@ -21,6 +21,7 @@ import {
   getUiIdentityIdMap,
 } from "../lib/uiIdentityOverlay"
 import { cn } from "../lib/utils"
+import { deriveTouchedFiles } from "../lib/touchedFiles"
 import {
   DEFAULT_PROJECT_RIGHT_SIDEBAR_LAYOUT,
   RIGHT_SIDEBAR_MAX_SIZE_PERCENT,
@@ -579,6 +580,8 @@ export function ChatPage() {
     return Math.min(RIGHT_SIDEBAR_MAX_SIZE_PERCENT, Math.max(RIGHT_SIDEBAR_MIN_SIZE_PERCENT, size))
   }
 
+  const touchedFiles = useMemo(() => deriveTouchedFiles(state.messages), [state.messages])
+
   const chatCard = (
     <Card ref={chatCardRef} className="bg-background h-full flex flex-col overflow-hidden border-0 rounded-none relative">
       <CardContent className="flex flex-1 min-h-0 flex-col p-0 overflow-hidden relative">
@@ -905,7 +908,14 @@ export function ChatPage() {
               data-right-sidebar-animated="false"
               data-right-sidebar-visual
             >
-              <RightSidebar onClose={() => toggleRightSidebar(workspaceId)} />
+              <RightSidebar
+                onClose={() => toggleRightSidebar(workspaceId)}
+                touchedFiles={touchedFiles}
+                workspacePath={state.navbarLocalPath}
+                onOpenFile={(path) => {
+                  void state.handleOpenLocalLink({ path })
+                }}
+              />
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>

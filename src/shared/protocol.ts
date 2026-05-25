@@ -43,6 +43,9 @@ export type ClientCommand =
   | { type: "project.remove"; workspaceId: string }
   | { type: "independent-workspace.create"; name: string }
   | { type: "independent-workspace.delete"; workspaceId: string }
+  | { type: "independent-workspace.rename"; workspaceId: string; name: string }
+  | { type: "independent-workspace.set-pinned"; workspaceId: string; pinned: boolean }
+  | { type: "independent-workspace.reorder"; orderedWorkspaceIds: string[] }
   | { type: "system.ping" }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }

@@ -128,6 +128,9 @@ export interface AppState {
   handleRemoveProject: (workspaceId: string) => Promise<void>
   handleCreateWorkspace: (name: string) => Promise<void>
   handleDeleteWorkspace: (workspaceId: string) => Promise<void>
+  handleRenameWorkspace: (workspaceId: string, name: string) => Promise<void>
+  handleTogglePinWorkspace: (workspaceId: string, pinned: boolean) => Promise<void>
+  handleReorderWorkspaces: (orderedWorkspaceIds: string[]) => Promise<void>
   handleOpenExternal: (action: "open_finder") => Promise<void>
   handleOpenExternalPath: (action: "open_finder", localPath: string) => Promise<void>
   handleOpenLocalLink: (target: { path: string; line?: number; column?: number }) => Promise<void>
@@ -542,6 +545,9 @@ export function useAppState(activeChatId: string | null): AppState {
     handleRemoveProject: commands.handleRemoveProject,
     handleCreateWorkspace: commands.handleCreateWorkspace,
     handleDeleteWorkspace: commands.handleDeleteWorkspace,
+    handleRenameWorkspace: commands.handleRenameWorkspace,
+    handleTogglePinWorkspace: commands.handleTogglePinWorkspace,
+    handleReorderWorkspaces: commands.handleReorderWorkspaces,
     handleOpenExternal: commands.handleOpenExternal,
     handleOpenExternalPath: commands.handleOpenExternalPath,
     handleOpenLocalLink: commands.handleOpenLocalLink,

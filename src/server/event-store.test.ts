@@ -294,3 +294,49 @@ describe("EventStore", () => {
     expect(replayed.getQueuedTurn(chat.id)).toBeNull()
   })
 })
+
+describe("independent workspace management", () => {
+  test("rename updates the workspace name (trimmed)", async () => {
+    const store = new EventStore(await createTempDataDir())
+    await store.initialize()
+    const ws = await store.createIndependentWorkspace("alpha")
+    await store.renameIndependentWorkspace(ws.id, "  renamed  ")
+    expect(store.listIndependentWorkspaces().find((w) => w.id === ws.id)?.name).toBe("renamed")
+  })
+
+  test("pinning sorts a workspace to the top, unpinning restores order", async () => {
+    const store = new EventStore(await createTempDataDir())
+    await store.initialize()
+    const a = await store.createIndependentWorkspace("a")
+    const b = await store.createIndependentWorkspace("b")
+    const c = await store.createIndependentWorkspace("c")
+    await store.setIndependentWorkspacePinned(c.id, true)
+    expect(store.listIndependentWorkspaces().map((w) => w.id)).toEqual([c.id, a.id, b.id])
+    await store.setIndependentWorkspacePinned(c.id, false)
+    expect(store.listIndependentWorkspaces().map((w) => w.id)).toEqual([a.id, b.id, c.id])
+  })
+
+  test("reorder assigns sortOrder and persists across reload", async () => {
+    const dir = await createTempDataDir()
+    const store = new EventStore(dir)
+    await store.initialize()
+    const a = await store.createIndependentWorkspace("a")
+    const b = await store.createIndependentWorkspace("b")
+    const c = await store.createIndependentWorkspace("c")
+    await store.reorderIndependentWorkspaces([c.id, a.id, b.id])
+    expect(store.listIndependentWorkspaces().map((w) => w.id)).toEqual([c.id, a.id, b.id])
+
+    const reloaded = new EventStore(dir)
+    await reloaded.initialize()
+    expect(reloaded.listIndependentWorkspaces().map((w) => w.id)).toEqual([c.id, a.id, b.id])
+  })
+
+  test("operations on an unknown workspace throw", async () => {
+    const store = new EventStore(await createTempDataDir())
+    await store.initialize()
+    await expect(store.renameIndependentWorkspace("nope", "x")).rejects.toThrow("not found")
+    await expect(store.setIndependentWorkspacePinned("nope", true)).rejects.toThrow("not found")
+    const real = await store.createIndependentWorkspace("real")
+    await expect(store.reorderIndependentWorkspaces([real.id, "nope"])).rejects.toThrow("not found")
+  })
+})

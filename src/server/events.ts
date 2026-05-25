@@ -126,6 +126,23 @@ export type WorkspaceEvent = {
   type: "independent_workspace_deleted"
   timestamp: number
   workspaceId: string
+} | {
+  v: 3
+  type: "independent_workspace_renamed"
+  timestamp: number
+  workspaceId: string
+  name: string
+} | {
+  v: 3
+  type: "independent_workspace_pin_toggled"
+  timestamp: number
+  workspaceId: string
+  pinned: boolean
+} | {
+  v: 3
+  type: "independent_workspaces_reordered"
+  timestamp: number
+  orderedWorkspaceIds: string[]
 }
 
 export type ChatEvent =

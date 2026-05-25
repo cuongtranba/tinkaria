@@ -479,6 +479,18 @@ function AppLayout() {
   const handleMergeSession = useEventCallback((workspaceId: string) => {
     state.requestMerge(workspaceId)
   })
+  const handleRenameWorkspace = useEventCallback((workspaceId: string, name: string) => {
+    void state.handleRenameWorkspace(workspaceId, name)
+  })
+  const handleTogglePinWorkspace = useEventCallback((workspaceId: string, pinned: boolean) => {
+    void state.handleTogglePinWorkspace(workspaceId, pinned)
+  })
+  const handleReorderWorkspaces = useEventCallback((orderedWorkspaceIds: string[]) => {
+    void state.handleReorderWorkspaces(orderedWorkspaceIds)
+  })
+  const handleDeleteWorkspace = useEventCallback((workspaceId: string) => {
+    void state.handleDeleteWorkspace(workspaceId)
+  })
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
   const handleCreateWorkspace = useEventCallback((name: string) => {
     void state.handleCreateWorkspace(name)
@@ -510,6 +522,10 @@ function AppLayout() {
           onInstallUpdate={handleInstallUpdate}
           onMergeSession={handleMergeSession}
           onCreateWorkspace={() => setCreateWorkspaceOpen(true)}
+          onRenameWorkspace={handleRenameWorkspace}
+          onTogglePinWorkspace={handleTogglePinWorkspace}
+          onReorderWorkspaces={handleReorderWorkspaces}
+          onDeleteWorkspace={handleDeleteWorkspace}
         />
         <Outlet context={state} />
       </div>

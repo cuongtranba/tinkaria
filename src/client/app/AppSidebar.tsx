@@ -33,6 +33,10 @@ interface AppSidebarProps {
   onInstallUpdate: () => void
   onMergeSession?: (workspaceId: string) => void
   onCreateWorkspace?: () => void
+  onRenameWorkspace?: (workspaceId: string, name: string) => void
+  onTogglePinWorkspace?: (workspaceId: string, pinned: boolean) => void
+  onReorderWorkspaces?: (orderedWorkspaceIds: string[]) => void
+  onDeleteWorkspace?: (workspaceId: string) => void
 }
 
 interface SidebarDialogNavigationState {
@@ -102,6 +106,10 @@ function AppSidebarInner({
   onInstallUpdate,
   onMergeSession,
   onCreateWorkspace,
+  onRenameWorkspace,
+  onTogglePinWorkspace,
+  onReorderWorkspaces,
+  onDeleteWorkspace,
 }: AppSidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -378,6 +386,10 @@ function AppSidebarInner({
                 onClose()
               }}
               onCreate={() => onCreateWorkspace?.()}
+              onRename={onRenameWorkspace}
+              onTogglePin={onTogglePinWorkspace}
+              onReorder={onReorderWorkspaces}
+              onDelete={onDeleteWorkspace}
               activeWorkspaceId={location.pathname.startsWith("/workspace/") ? location.pathname.split("/")[2] : null}
             />
 

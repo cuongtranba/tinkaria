@@ -12,6 +12,13 @@ import {
   Settings,
   Sparkles,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
 } from "lucide-react"
 import { APP_NAME, getCliInvocation, SDK_CLIENT_APP } from "../../shared/branding"
 import type {
@@ -32,6 +39,12 @@ import { cn } from "../lib/utils"
 import { HomepagePreferences } from "./HomepagePreferences"
 import { NewProjectModal } from "./NewWorkspaceModal"
 import { Button } from "./ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu"
 import { SegmentedControl, type SegmentedOption } from "./ui/segmented-control"
 
 export type HomeTab = "projects" | "workspaces" | "settings"
@@ -47,6 +60,10 @@ interface LocalDevProps {
   independentWorkspaces?: IndependentWorkspace[]
   onCreateWorkspace?: () => void
   onOpenWorkspace?: (workspaceId: string) => void
+  onRenameWorkspace?: (workspaceId: string, name: string) => void
+  onTogglePinWorkspace?: (workspaceId: string, pinned: boolean) => void
+  onReorderWorkspaces?: (orderedWorkspaceIds: string[]) => void
+  onDeleteWorkspace?: (workspaceId: string) => void
   projectGroups?: SidebarWorkspaceGroup[]
   onOpenProjectPage?: (groupKey: string) => void
   activeTab?: HomeTab
@@ -405,27 +422,120 @@ function WorkspaceCard({
   workspace,
   onClick,
   index,
+  onRename,
+  onTogglePin,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
 }: {
   workspace: IndependentWorkspace
   onClick: () => void
   index: number
+  onRename?: (workspaceId: string, name: string) => void
+  onTogglePin?: (workspaceId: string, pinned: boolean) => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+  onDelete?: (workspaceId: string) => void
 }) {
+  const [renaming, setRenaming] = useState(false)
+  const [draft, setDraft] = useState(workspace.name)
+  const hasMenu = Boolean(onRename || onTogglePin || onMoveUp || onMoveDown || onDelete)
+
+  function commit() {
+    const trimmed = draft.trim()
+    if (trimmed && trimmed !== workspace.name) onRename?.(workspace.id, trimmed)
+    setRenaming(false)
+  }
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       style={{ animationDelay: `${index * 40}ms` }}
-      className="animate-homepage-enter rounded-xl p-4 text-left transition-colors duration-200 bg-card ring-1 ring-border hover:ring-[color:var(--color-logo)]/15 group"
-      onClick={onClick}
+      className="animate-homepage-enter rounded-xl p-4 text-left transition-colors duration-200 bg-card ring-1 ring-border hover:ring-[color:var(--color-logo)]/15 group cursor-pointer"
+      onClick={() => { if (!renaming) onClick() }}
+      onKeyDown={(e) => { if (!renaming && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onClick() } }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-foreground truncate">{workspace.name}</div>
+          {renaming ? (
+            <input
+              autoFocus
+              value={draft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === "Enter") { e.preventDefault(); commit() }
+                else if (e.key === "Escape") { e.preventDefault(); setRenaming(false) }
+              }}
+              className="w-full bg-transparent font-medium text-foreground outline-none border-b border-border"
+            />
+          ) : (
+            <div className="font-medium text-foreground truncate flex items-center gap-1.5">
+              {workspace.pinned ? <Pin className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+              <span className="truncate">{workspace.name}</span>
+            </div>
+          )}
           <div className="mt-0.5 text-xs text-muted-foreground">
             Created {formatRelativeTime(workspace.createdAt)}
           </div>
         </div>
-        <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
+        {hasMenu ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Workspace actions"
+                className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              {onRename ? (
+                <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setDraft(workspace.name); setRenaming(true) }}>
+                  <Pencil className="h-4 w-4" />
+                  <span className="text-xs font-medium">Rename</span>
+                </DropdownMenuItem>
+              ) : null}
+              {onTogglePin ? (
+                <DropdownMenuItem onSelect={() => onTogglePin(workspace.id, !workspace.pinned)}>
+                  {workspace.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                  <span className="text-xs font-medium">{workspace.pinned ? "Unpin" : "Pin"}</span>
+                </DropdownMenuItem>
+              ) : null}
+              {onMoveUp ? (
+                <DropdownMenuItem onSelect={() => onMoveUp()}>
+                  <ArrowUp className="h-4 w-4" />
+                  <span className="text-xs font-medium">Move up</span>
+                </DropdownMenuItem>
+              ) : null}
+              {onMoveDown ? (
+                <DropdownMenuItem onSelect={() => onMoveDown()}>
+                  <ArrowDown className="h-4 w-4" />
+                  <span className="text-xs font-medium">Move down</span>
+                </DropdownMenuItem>
+              ) : null}
+              {onDelete ? (
+                <DropdownMenuItem
+                  onSelect={() => onDelete(workspace.id)}
+                  className="text-destructive dark:text-red-400 hover:bg-destructive/10 focus:bg-destructive/10 dark:hover:bg-red-500/20 dark:focus:bg-red-500/20"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="text-xs font-medium">Delete</span>
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
+        )}
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -589,6 +699,10 @@ export function LocalDev({
   independentWorkspaces,
   onCreateWorkspace,
   onOpenWorkspace,
+  onRenameWorkspace,
+  onTogglePinWorkspace,
+  onReorderWorkspaces,
+  onDeleteWorkspace,
   projectGroups,
   onOpenProjectPage,
   activeTab: controlledActiveTab,
@@ -748,14 +862,30 @@ export function LocalDev({
                 </div>
                 {independentWorkspaces && independentWorkspaces.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {independentWorkspaces.map((ws, index) => (
-                      <WorkspaceCard
-                        key={ws.id}
-                        workspace={ws}
-                        index={index}
-                        onClick={() => onOpenWorkspace?.(ws.id)}
-                      />
-                    ))}
+                    {independentWorkspaces.map((ws, index) => {
+                      const moveTo = (to: number) => {
+                        const ids = independentWorkspaces.map((w) => w.id)
+                        ;[ids[index], ids[to]] = [ids[to], ids[index]]
+                        onReorderWorkspaces?.(ids)
+                      }
+                      return (
+                        <WorkspaceCard
+                          key={ws.id}
+                          workspace={ws}
+                          index={index}
+                          onClick={() => onOpenWorkspace?.(ws.id)}
+                          onRename={onRenameWorkspace}
+                          onTogglePin={onTogglePinWorkspace}
+                          onMoveUp={index > 0 && onReorderWorkspaces ? () => moveTo(index - 1) : undefined}
+                          onMoveDown={
+                            index < independentWorkspaces.length - 1 && onReorderWorkspaces
+                              ? () => moveTo(index + 1)
+                              : undefined
+                          }
+                          onDelete={onDeleteWorkspace}
+                        />
+                      )
+                    })}
                   </div>
                 ) : (
                   <InfoCard>

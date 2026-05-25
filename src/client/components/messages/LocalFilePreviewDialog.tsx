@@ -2,10 +2,12 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { createC3UiIdentityDescriptor, getUiIdentityAttributeProps } from "../../lib/uiIdentityOverlay"
 import { ContentOverlay } from "../rich-content/ContentOverlay"
+import { EmbedRenderer } from "../rich-content/EmbedRenderer"
 import { remarkRichContentHint } from "../rich-content/remarkRichContentHint"
 import type { RichContentType } from "../rich-content/types"
 import { createMarkdownComponents } from "./shared"
 import { stripWorkspacePath } from "../../lib/pathUtils"
+import { inferPreviewRenderer } from "../../lib/previewRenderer"
 
 export interface LocalFilePreview {
   path: string
@@ -20,14 +22,6 @@ const LOCAL_FILE_PREVIEW_DIALOG_UI_DESCRIPTOR = createC3UiIdentityDescriptor({
   c3ComponentId: "c3-111",
   c3ComponentLabel: "messages",
 })
-
-function isMarkdownFile(path: string): boolean {
-  return /\.(md|markdown|mdx)$/i.test(path)
-}
-
-function isSvgFile(path: string): boolean {
-  return /\.svg$/i.test(path)
-}
 
 function inferCodeLanguage(path: string): string | null {
   const extension = path.split("/").pop()?.split(".").pop()?.toLowerCase() ?? ""
@@ -132,10 +126,11 @@ function getDialogTitle(preview: LocalFilePreview, workspacePath?: string | null
 }
 
 function getLocalFilePreviewType(path: string): RichContentType {
-  if (isMarkdownFile(path)) {
+  const renderer = inferPreviewRenderer(path)
+  if (renderer.kind === "markdown") {
     return "markdown"
   }
-  if (isSvgFile(path)) {
+  if (renderer.kind === "embed") {
     return "embed"
   }
   return "code"
@@ -159,7 +154,9 @@ export function LocalFilePreviewContent({
   preview: LocalFilePreview
   onOpenLocalLink: (target: { path: string; line?: number; column?: number }) => void
 }) {
-  if (isMarkdownFile(preview.path)) {
+  const renderer = inferPreviewRenderer(preview.path)
+
+  if (renderer.kind === "markdown") {
     const content = normalizeLocalFilePreviewMarkdown(preview.content)
     return (
       <div className="text-pretty prose prose-sm dark:prose-invert px-0.5 w-full max-w-full space-y-4">
@@ -169,6 +166,22 @@ export function LocalFilePreviewContent({
         >
           {content}
         </Markdown>
+      </div>
+    )
+  }
+
+  if (renderer.kind === "embed") {
+    return (
+      <div className="w-full max-w-full">
+        <EmbedRenderer format={renderer.format} source={preview.content} />
+      </div>
+    )
+  }
+
+  if (renderer.kind === "unsupported") {
+    return (
+      <div className="px-1 py-10 text-center text-sm text-muted-foreground">
+        Preview unavailable for this file type.
       </div>
     )
   }

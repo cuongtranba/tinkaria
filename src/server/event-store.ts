@@ -5,7 +5,7 @@ import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import type { AgentConfig, AgentConfigRecord } from "../shared/agent-config-types"
 import type { ProviderProfile, WorkspaceProfileOverride } from "../shared/profile-types"
 import type { AgentProvider, TranscriptEntry } from "../shared/types"
-import { STORE_VERSION } from "../shared/types"
+import { STORE_VERSION, compareIndependentWorkspaces } from "../shared/types"
 import {
   type ChatEvent,
   type AgentConfigEvent,
@@ -342,6 +342,32 @@ export class EventStore {
       }
       case "independent_workspace_deleted": {
         this.state.independentWorkspacesById.delete(event.workspaceId)
+        break
+      }
+      case "independent_workspace_renamed": {
+        const ws = this.state.independentWorkspacesById.get(event.workspaceId)
+        if (ws) {
+          ws.name = event.name
+          ws.updatedAt = event.timestamp
+        }
+        break
+      }
+      case "independent_workspace_pin_toggled": {
+        const ws = this.state.independentWorkspacesById.get(event.workspaceId)
+        if (ws) {
+          ws.pinned = event.pinned
+          ws.updatedAt = event.timestamp
+        }
+        break
+      }
+      case "independent_workspaces_reordered": {
+        event.orderedWorkspaceIds.forEach((id, index) => {
+          const ws = this.state.independentWorkspacesById.get(id)
+          if (ws) {
+            ws.sortOrder = index
+            ws.updatedAt = event.timestamp
+          }
+        })
         break
       }
       case "chat_created": {
@@ -999,8 +1025,51 @@ export class EventStore {
     await this.append(this.projectsLogPath, event)
   }
 
+  async renameIndependentWorkspace(workspaceId: string, name: string) {
+    if (!this.state.independentWorkspacesById.has(workspaceId)) {
+      throw new Error("Independent workspace not found")
+    }
+    const event: WorkspaceEvent = {
+      v: STORE_VERSION,
+      type: "independent_workspace_renamed",
+      timestamp: Date.now(),
+      workspaceId,
+      name: name.trim(),
+    }
+    await this.append(this.projectsLogPath, event)
+  }
+
+  async setIndependentWorkspacePinned(workspaceId: string, pinned: boolean) {
+    if (!this.state.independentWorkspacesById.has(workspaceId)) {
+      throw new Error("Independent workspace not found")
+    }
+    const event: WorkspaceEvent = {
+      v: STORE_VERSION,
+      type: "independent_workspace_pin_toggled",
+      timestamp: Date.now(),
+      workspaceId,
+      pinned,
+    }
+    await this.append(this.projectsLogPath, event)
+  }
+
+  async reorderIndependentWorkspaces(orderedWorkspaceIds: string[]) {
+    for (const id of orderedWorkspaceIds) {
+      if (!this.state.independentWorkspacesById.has(id)) {
+        throw new Error("Independent workspace not found")
+      }
+    }
+    const event: WorkspaceEvent = {
+      v: STORE_VERSION,
+      type: "independent_workspaces_reordered",
+      timestamp: Date.now(),
+      orderedWorkspaceIds,
+    }
+    await this.append(this.projectsLogPath, event)
+  }
+
   listIndependentWorkspaces() {
-    return [...this.state.independentWorkspacesById.values()]
+    return [...this.state.independentWorkspacesById.values()].sort(compareIndependentWorkspaces)
   }
 
   async createChat(workspaceId: string, repoId?: string, chatId?: string) {

@@ -105,6 +105,9 @@ const SERVER_COMMANDS: readonly ClientCommand["type"][] = [
   "project.remove",
   "independent-workspace.create",
   "independent-workspace.delete",
+  "independent-workspace.rename",
+  "independent-workspace.set-pinned",
+  "independent-workspace.reorder",
   "system.ping",
   "update.check",
   "update.install",
@@ -310,6 +313,21 @@ export function registerCommandResponders(args: RegisterRespondersArgs): { dispo
 
       case "independent-workspace.delete": {
         await store.deleteIndependentWorkspace(command.workspaceId)
+        return undefined
+      }
+
+      case "independent-workspace.rename": {
+        await store.renameIndependentWorkspace(command.workspaceId, command.name)
+        return undefined
+      }
+
+      case "independent-workspace.set-pinned": {
+        await store.setIndependentWorkspacePinned(command.workspaceId, command.pinned)
+        return undefined
+      }
+
+      case "independent-workspace.reorder": {
+        await store.reorderIndependentWorkspaces(command.orderedWorkspaceIds)
         return undefined
       }
 

@@ -169,6 +169,9 @@ export interface ChatCommandsReturn {
   handleRemoveProject: (workspaceId: string) => Promise<void>
   handleCreateWorkspace: (name: string) => Promise<void>
   handleDeleteWorkspace: (workspaceId: string) => Promise<void>
+  handleRenameWorkspace: (workspaceId: string, name: string) => Promise<void>
+  handleTogglePinWorkspace: (workspaceId: string, pinned: boolean) => Promise<void>
+  handleReorderWorkspaces: (orderedWorkspaceIds: string[]) => Promise<void>
   handleOpenExternal: (action: "open_finder") => Promise<void>
   handleOpenExternalPath: (action: "open_finder", localPath: string) => Promise<void>
   handleOpenLocalLink: (target: { path: string; line?: number; column?: number }) => Promise<void>
@@ -595,6 +598,35 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
     }
   }
 
+  async function handleRenameWorkspace(workspaceId: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    try {
+      await socket.command({ type: "independent-workspace.rename", workspaceId, name: trimmed })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleTogglePinWorkspace(workspaceId: string, pinned: boolean) {
+    try {
+      await socket.command({ type: "independent-workspace.set-pinned", workspaceId, pinned })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleReorderWorkspaces(orderedWorkspaceIds: string[]) {
+    try {
+      await socket.command({ type: "independent-workspace.reorder", orderedWorkspaceIds })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   // --- Update commands ---
 
   async function handleCheckForUpdates(options?: { force?: boolean }) {
@@ -897,6 +929,9 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
     handleRemoveProject,
     handleCreateWorkspace,
     handleDeleteWorkspace,
+    handleRenameWorkspace,
+    handleTogglePinWorkspace,
+    handleReorderWorkspaces,
     handleOpenExternal,
     handleOpenExternalPath,
     handleOpenLocalLink,

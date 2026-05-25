@@ -1,7 +1,8 @@
-import { UserRound, X, Check, CircleAlert } from "lucide-react"
+import { UserRound, X, Check, CircleAlert, Eye } from "lucide-react"
 import type { ProcessedToolCall } from "./types"
-import { MetaRow, MetaLabel, MetaCodeBlock, ExpandableRow, VerticalLineContainer, getToolIcon, getToolLabel } from "./shared"
+import { MetaRow, MetaLabel, MetaCodeBlock, ExpandableRow, VerticalLineContainer, getToolIcon, getToolLabel, useOpenLocalLink } from "./shared"
 import { memo, useMemo } from "react"
+import { Button } from "../ui/button"
 import { AnimatedShinyText } from "../ui/animated-shiny-text"
 import { FileContentView } from "./FileContentView"
 import { ImageContentView } from "./ImageContentView"
@@ -72,6 +73,14 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message, isLoadin
   const isEditTool = message.toolKind === "edit_file"
   const isReadTool = message.toolKind === "read_file"
 
+  const openLocalLink = useOpenLocalLink()
+  const touchedFilePath = useMemo(() => {
+    if (message.toolKind === "write_file" || message.toolKind === "edit_file") {
+      return message.input.filePath
+    }
+    return null
+  }, [message])
+
   const resultText = useMemo(() => {
     if (typeof message.result === "string") return message.result
     if (!message.result) return ""
@@ -101,6 +110,19 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message, isLoadin
     <div {...getUiIdentityAttributeProps(TOOL_CALL_ITEM_DESCRIPTOR)}>
     <MetaRow className="w-full">
       <ExpandableRow
+        headerAction={
+          touchedFilePath && !message.isError ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => openLocalLink({ path: touchedFilePath })}
+            >
+              <Eye className="size-3.5" />
+              Open preview
+            </Button>
+          ) : null
+        }
         expandedContent={
           <VerticalLineContainer className="my-4 text-sm">
             <div className="flex flex-col gap-2">

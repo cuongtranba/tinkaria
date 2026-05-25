@@ -210,6 +210,25 @@ export interface IndependentWorkspace {
   name: string
   createdAt: number
   updatedAt: number
+  /** Pinned workspaces sort to the top. Absent = unpinned. */
+  pinned?: boolean
+  /** Explicit ordering within the pinned/unpinned group; lower renders higher. Absent sorts last. */
+  sortOrder?: number
+}
+
+/**
+ * Canonical ordering for independent workspaces, shared by the persisted
+ * snapshot and the client-facing sidebar read-model so both surfaces agree:
+ * pinned first, then explicit `sortOrder`, then creation time.
+ */
+export function compareIndependentWorkspaces(a: IndependentWorkspace, b: IndependentWorkspace): number {
+  const aPinned = a.pinned ? 0 : 1
+  const bPinned = b.pinned ? 0 : 1
+  if (aPinned !== bPinned) return aPinned - bPinned
+  const aOrder = a.sortOrder ?? Number.MAX_SAFE_INTEGER
+  const bOrder = b.sortOrder ?? Number.MAX_SAFE_INTEGER
+  if (aOrder !== bOrder) return aOrder - bOrder
+  return a.createdAt - b.createdAt
 }
 
 export interface DiscoveredSessionRuntime {

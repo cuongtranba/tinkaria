@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Implementation Notes — Preview touched files from chat</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.55; }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid currentColor; padding-bottom: .35rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; }
+  code { background: rgba(127,127,127,.18); padding: .1em .35em; border-radius: .25rem; font-size: .9em; }
+  .meta { opacity: .7; font-size: .85rem; }
+  .decision { border-left: 3px solid #4c9; padding: .25rem 0 .25rem 1rem; margin: 1rem 0; }
+  .tradeoff { border-left: 3px solid #e9a23b; padding: .25rem 0 .25rem 1rem; margin: 1rem 0; }
+  .open { border-left: 3px solid #c55; padding: .25rem 0 .25rem 1rem; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid rgba(127,127,127,.35); padding: .4rem .6rem; text-align: left; font-size: .9rem; }
+  th { background: rgba(127,127,127,.12); }
+</style>
+</head>
+<body>
+<h1>Preview files the agent touched, from chat</h1>
+<p class="meta">Story: <code>docs/stories/preview-touched-files/story.md</code> · Lane: normal · Started 2026-05-25</p>
+
+<h2>Working narrative</h2>
+<p>
+  This file tracks <em>how</em> the implementation gets to the contract in
+  <code>story.md</code>. Updated as work proceeds — not just at the end.
+  Status: <strong>implemented + verified end-to-end (write_file, edit_file, missing-file, desktop + mobile). Remaining nicety: a touch toggle for the sidebar (Cmd+B only today).</strong>
+</p>
+
+<h2>Design decisions (from the /grill-me dialog)</h2>
+<div class="decision"><strong>Entry points: both.</strong> Per-card "Open" button on
+  <code>write_file</code>/<code>edit_file</code> cards <em>and</em> a consolidated
+  "Touched files (N)" list. The two serve different moments — immediacy vs. review-before-proceeding.</div>
+<div class="decision"><strong>Content source: fresh from disk.</strong> Reuse
+  <code>system.readLocalFilePreview</code>. Matches the use case (review the actual file),
+  and means <code>edit_file</code> "Open" reads the whole current file, not the old/new diff.</div>
+<div class="decision"><strong>Index: client-side derivation.</strong> Scan in-memory render
+  units for write/edit tool calls; dedup by path (latest wins); no server read-model, no
+  event-sourcing. The panel only needs paths + a created/edited label since content is read on open.</div>
+<div class="decision"><strong>Surface: reuse <code>ContentOverlay</code> modal.</strong> Already
+  used by <code>LocalFilePreviewDialog</code> — free TOC/copy/zoom/mobile slide-up.</div>
+<div class="decision"><strong>Panel home: fill the existing <code>RightSidebar</code> placeholder.</strong>
+  It currently shows "diffs coming soon" and already owns all the responsive plumbing
+  (toggle animation, resizable %, <code>isMobileViewport</code>, edge-swipe). Best fit for mobile + web
+  without building a new surface. A composer chip was rejected: it would rebuild responsive
+  behavior and compete for the tightest mobile real estate.</div>
+<div class="decision"><strong>Type map: extension → renderer, code fallback.</strong>
+  <code>.md</code>→markdown, <code>.html</code>→HTML, <code>.svg</code>→SVG,
+  <code>.mmd</code>→Mermaid, <code>.d2</code>→D2, <code>.pug</code>→Pug; else syntax-highlighted code.
+  <code>iframe</code>/<code>diashort</code> excluded — they are remote URLs, not files.</div>
+<div class="decision"><strong>Security: reuse command as-is, no new scoping.</strong>
+  No new read capability — the command already reads any file and is already client-callable via
+  link previews. We only ever pass paths the agent itself wrote/edited.</div>
+
+<h2>Why HTML is safe by reuse</h2>
+<p>
+  <code>EmbedRenderer</code>'s <code>HtmlEmbed</code> renders into an
+  <code>&lt;iframe sandbox="allow-scripts"&gt;</code> with <em>no</em> <code>allow-same-origin</code>,
+  so agent-authored HTML cannot reach the app origin. Mermaid runs with
+  <code>securityLevel: "strict"</code>; SVG renders as an inert data-URL <code>&lt;img&gt;</code>;
+  Pug compiles to HTML and goes through the same sandbox.
+  Caveat (pre-existing): the HTML sandbox loads the Tailwind browser CDN from jsdelivr — a network call.
+</p>
+
+<h2>Tradeoffs considered</h2>
+<div class="tradeoff"><strong>Disk vs snapshot.</strong> Snapshot avoids a round-trip and survives
+  deletion, but is stale after later edits and <code>edit_file</code> only carries old/new strings.
+  Chose disk = truth, with explicit missing/too-large/binary states.</div>
+<div class="tradeoff"><strong>Client derivation vs server read-model.</strong> Server projection
+  survives transcript truncation, but it's a real schema+responder+event-handler build for data we
+  can already derive. Chose client; flagged the truncation risk below.</div>
+
+<h2>Open questions / risks</h2>
+<div class="open"><strong>Transcript pagination.</strong> If render units are paginated/truncated,
+  very old touched files may not be in memory and would drop off the client-derived list.
+  Mitigation if it bites: record via <code>scripts/harness backlog add</code> and consider a
+  server read-model then — do not add silently.</div>
+<div class="open"><strong>Modal iframe height.</strong> <code>EmbedRenderer</code> uses a fixed 420px
+  iframe height suited to inline embeds; a full-file preview in the modal should fill available height.
+  Recommendation: pass through / override height in the overlay context. To confirm during build.</div>
+
+<h2>Deviations from plan</h2>
+<p>None yet.</p>
+
+<h2>Touched files (implementation)</h2>
+<table>
+  <tr><th>File</th><th>Change</th><th>Status</th></tr>
+  <tr><td><code>lib/previewRenderer.ts</code> (+ test)</td><td>Pure extension→renderer map (md/html/svg/mmd/d2/pug/code/unsupported)</td><td><strong>done — 13 tests green</strong></td></tr>
+  <tr><td><code>lib/touchedFiles.ts</code> (+ test)</td><td>Derive touched-files from render units (dedup/latest-wins/created-vs-edited)</td><td><strong>done — 9 tests green</strong></td></tr>
+  <tr><td><code>LocalFilePreviewDialog.tsx</code> / <code>LocalFilePreviewContent</code></td><td>Route via <code>inferPreviewRenderer</code> through <code>EmbedRenderer</code> (html + embed formats); unsupported state</td><td>pending</td></tr>
+  <tr><td><code>RightSidebar.tsx</code></td><td>Replace placeholder with "Touched files" section (uses <code>deriveTouchedFiles</code>)</td><td>pending</td></tr>
+  <tr><td><code>ToolCallMessage.tsx</code> + <code>shared.tsx</code> (<code>useOpenLocalLink</code>)</td><td>Per-card "Open preview" button on write/edit cards (in expanded content)</td><td><strong>done</strong></td></tr>
+  <tr><td><code>ChatPage.tsx</code></td><td>Derive <code>touchedFiles</code> from <code>state.messages</code>, pass to RightSidebar; open via <code>handleOpenLocalLink</code></td><td><strong>done</strong></td></tr>
+</table>
+
+<h2>Verification (running app, 2026-05-25)</h2>
+<p>
+  Built the client (<code>bun run build</code>), served by the live <code>cli.ts</code> instance on :3210
+  (<code>/health</code> green: nats daemon/conn + runner). Created project <code>/tmp/preview-demo</code>,
+  ran a real agent turn that issued 8 <code>write_file</code> calls (confirmed on disk — dual signal).
+  Drove via browser-harness:
+</p>
+<ul>
+  <li>Per-card <strong>Open preview</strong> on every write card → modal rendered fresh-from-disk:
+    <code>.md</code>→markdown, <code>.html</code>→sandboxed render (teal h1), <code>.svg</code>→image,
+    <code>.mmd</code>→mermaid diagram, <code>.d2</code>→source fallback, <code>.pug</code>→rendered,
+    <code>.ts</code>→syntax-highlighted code, <code>.png</code>→"Preview unavailable".</li>
+  <li>RightSidebar (Cmd+B) showed <strong>Touched files (8)</strong>, all labeled Created, most-recent-first;
+    clicking <code>sample.md</code> opened its markdown preview.</li>
+</ul>
+<p>Evidence screenshots: <code>/tmp/preview-evidence/*.png</code>.</p>
+<div class="open"><strong>Measurement gotcha noted:</strong> the transcript is <em>virtualized</em>; a button sweep while
+  scrolled away under-counts cards (the md card's button was absent from the DOM until scrolled into view).
+  Not a feature bug — relevant for any future automated assertions over the transcript.</div>
+
+<h2>Mobile bug + fix (2026-05-26)</h2>
+<div class="decision"><strong>Bug (user-reported):</strong> no preview button on mobile. Root cause: the per-card button
+  lived inside <code>ExpandableRow.expandedContent</code>, which renders only when the card is individually expanded,
+  and the expand chevron is <code>opacity-0</code> until <em>hover</em>. Mobile has no hover → cards look non-expandable →
+  button unreachable. (It was hover-gated on desktop too, just discoverable via hover.)</div>
+<div class="decision"><strong>Fix:</strong> added an optional <code>headerAction</code> slot to <code>ExpandableRow</code>
+  (rendered in a flex row beside the toggle button, outside it) and moved the "Open preview" button there for write/edit
+  cards. Now always visible on the card header, independent of expansion, on both desktop and mobile.
+  TDD: <code>ToolCallMessage.test.ts</code> asserts write/edit cards expose "Open preview" in static markup and bash does not.</div>
+<p><strong>Re-verified in running app:</strong> @390px the button is on-screen and a tap opens the modal (markdown rendered).
+  edit_file card shows the button and opens the <em>edited</em> content (fresh from disk). Deleted file → graceful
+  "Path not found" toast, no modal/crash.</p>
+<div class="open"><strong>Open follow-up:</strong> the RightSidebar "Touched files" panel still opens only via <code>Cmd+B</code>
+  — unreachable by touch on mobile. The per-card button covers the mobile entry point; a visible sidebar toggle is a
+  recommended follow-up (TEST_MATRIX row "RightSidebar panel reachable on mobile" = planned).</div>
+
+</body>
+</html>

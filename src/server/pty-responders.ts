@@ -147,7 +147,7 @@ async function dispatch(
       }
 
       // Auto-pick from pool if caller didn't supply a token explicitly.
-      let poolBound = false
+      let poolTokenId: string | null = null
       if (!oauthToken && oauthPool) {
         if (!oauthPool.hasAnyToken()) {
           return {
@@ -170,7 +170,7 @@ async function dispatch(
         oauthToken = picked.token
         oauthLabel = picked.label
         oauthPool.markUsed(picked.id)
-        poolBound = true
+        poolTokenId = picked.id
       }
 
       const spawnArgs: StartClaudeSessionPtyArgs = {
@@ -192,6 +192,10 @@ async function dispatch(
       sessions.set(chatId, { handle })
 
       ;(async () => {
+        // rotation guard: when a token is marked limited/error the pool
+        // already drops its reservation set, so finally{} must skip the
+        // plain release(chatId) path to avoid touching unrelated tokens.
+        let poolRotated = false
         try {
           for await (const event of handle.stream) {
             if (event.type === "transcript" && event.entry) {
@@ -230,13 +234,48 @@ async function dispatch(
                   err instanceof Error ? err.message : String(err),
                 )
               }
+              if (poolTokenId && oauthPool) {
+                try {
+                  const stale = oauthPool.takeStaleOwners(poolTokenId)
+                  oauthPool.markLimited(poolTokenId, event.rateLimit.resetAt)
+                  poolRotated = true
+                  console.log(
+                    LOG_PREFIX,
+                    `pool token ${poolTokenId} marked limited until ${event.rateLimit.resetAt}; stale owners=${stale.length}`,
+                  )
+                } catch (err) {
+                  console.warn(
+                    LOG_PREFIX,
+                    `markLimited failed token=${poolTokenId}:`,
+                    err instanceof Error ? err.message : String(err),
+                  )
+                }
+              }
             }
           }
         } catch (err) {
-          console.warn(LOG_PREFIX, `stream error chatId=${chatId}:`, err instanceof Error ? err.message : String(err))
+          const message = err instanceof Error ? err.message : String(err)
+          console.warn(LOG_PREFIX, `stream error chatId=${chatId}:`, message)
+          if (poolTokenId && oauthPool) {
+            try {
+              const stale = oauthPool.takeStaleOwners(poolTokenId)
+              oauthPool.markError(poolTokenId, message)
+              poolRotated = true
+              console.log(
+                LOG_PREFIX,
+                `pool token ${poolTokenId} marked error; stale owners=${stale.length}`,
+              )
+            } catch (markErr) {
+              console.warn(
+                LOG_PREFIX,
+                `markError failed token=${poolTokenId}:`,
+                markErr instanceof Error ? markErr.message : String(markErr),
+              )
+            }
+          }
         } finally {
           sessions.delete(chatId)
-          if (poolBound && oauthPool) {
+          if (poolTokenId && oauthPool && !poolRotated) {
             try { oauthPool.release(chatId) } catch { /* ignore */ }
           }
         }

@@ -67,9 +67,24 @@ registers + heartbeats; reused/expired code rejected; secret file `0600`; PR1
 cross-runner isolation test still green (paired runners share the scope). See
 `docs/stories/personal-runners/PR2-runner-identity-pairing/validation.md`.
 
+## Security review result (2026-05-26)
+
+Reviewed sound for the pilot (cryptographic RNG, race-free single-use,
+HMAC-SHA256, `0600` file, no token/code logging, paired runners strictly equal to
+spawned-runner NATS scope). Must-fixes applied (commit `ec62b18`):
+- consumed-and-expired pairing entries now swept (bounded memory; no permanent
+  consumed-vs-unknown oracle);
+- secrets dir created `0700`; `TINKARIA_RUNNER_HOME` normalized (operator-controlled
+  config, intentionally unrestricted — not attacker input);
+- non-loopback plain-HTTP pairing now warns (the credential travels in the response).
+
 ## Deferred (consistent with PR1's PR2-gates, now this epic's follow-ups)
 
 - `ownerId` / owner grouping + per-user routing (PR5).
-- Authenticating the pairing endpoints (needs a user-identity initiative).
+- **Authenticating the pairing endpoints** (needs a user-identity initiative) +
+  **exchange rate-limiting** (sec LOW-1) — gates before multi-tenant/untrusted exposure.
+- **Hard HTTPS requirement for non-loopback pairing** (sec LOW-2; today: warn only).
 - Credential refresh/rotation (vs. long TTL + re-pair).
 - EventStore-persisted codes; structured pairing audit sink.
+- **Rebase onto corrected PR1 tip (`a14bd71`+)** before integration to inherit
+  PR1's non-token Stage-D fixes (harness backlog #4).

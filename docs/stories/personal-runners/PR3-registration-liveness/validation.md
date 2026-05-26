@@ -35,9 +35,31 @@ bun test src/nats/    # PR1/PR2 still green
 # start a runner with a skewed RUNNER_PROTOCOL_VERSION → /health incompatible + turn blocked
 ```
 
-## Acceptance Evidence
+## Acceptance Evidence (2026-05-26 — team-lead independent gate, dedicated ports)
 
-Add after verification: the liveness-state boundary table passing; `/health`
-showing `state:"online"` + `protocolVersion` for a live runner; an `incompatible`
-runner's `/health` + the blocked turn-start message; the discover path no longer
-calling `process.kill`; PR1/PR2 suites still green.
+- **Liveness state boundary table:** `runner-protocol.test.ts` 25/25 (0→online,
+  24999→online, 25000→degraded, 59999→degraded, 60000→offline, null→offline) +
+  `isProtocolSupported` in/below/above range.
+- **Live runner `/health`** (port 3281): `{ ok:true, state:"online",
+  protocolVersion:1, incompatible:false, heartbeatFresh:true }`.
+- **Skew runner** (`RUNNER_PROTOCOL_VERSION=999`): `/health` →
+  `{ ok:false, state:"online", protocolVersion:999, incompatible:true }`; server
+  logged `Runner <id> is incompatible (protocol v999, server supports v1–1)`.
+- **Turn-start block:** `runner-incompatible-gate.test.ts` — incompatible runner
+  → `sendCommand("start_turn")` throws the upgrade message and the NATS dispatch
+  is **not** called.
+- **Discover path:** uses `runnerLivenessState(reg.lastSeenAt, now) !== "offline"`
+  (no `process.kill`); `pr3-liveness.test.ts` covers stale→not-adoptable /
+  fresh→adoptable; runner stamps `lastSeenAt` in its KV entry each heartbeat.
+- **Typecheck** clean (`-p tsconfig.json`, 0 errors); `src/nats/` 60/0 (PR1/PR2
+  green, no regression).
+
+**Not locally exercised (single host):** a paired runner on a *second* machine
+going degraded→offline over real time (covered by the pure-fn + injected-clock
+tests instead).
+
+**Full-suite note:** ~20 pre-existing failures on this branch are NOT PR3
+regressions — the `server.test.ts` healthcheck "no output" was the callout
+`NATS_DATA_DIR` default bug (fixed on PR1 `e07df74`, inherited on rebase); the
+runner-registration test passes in isolation (parallel-NATS flake); the rest are
+client-UI / browser-journey (agent-browser PATH) tests untouched by PR3.

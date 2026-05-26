@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mobile-composer-menu — Implementation Notes</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.6 -apple-system, system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; background: #0e0f12; color: #d7dae0; }
+  h1 { font-size: 1.6rem; } h2 { margin-top: 2rem; border-bottom: 1px solid #262a31; padding-bottom: .3rem; }
+  code { background: #1a1d22; padding: .1rem .35rem; border-radius: .25rem; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+  th, td { border: 1px solid #262a31; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #15171b; }
+  .ok { color: #4ade80; } .warn { color: #fbbf24; }
+  .muted { color: #8b919c; }
+  blockquote { border-left: 3px solid #3b82f6; margin: .5rem 0; padding: .2rem 0 .2rem .8rem; color: #b6bcc6; }
+</style>
+</head>
+<body>
+<h1>mobile-composer-menu — Implementation Notes</h1>
+<p class="muted">Working narrative for <code>docs/stories/mobile-composer-menu/story.md</code>. The story is the contract; this explains how the implementation got there.</p>
+
+<h2>What was built</h2>
+<p>Single-file feature in <code>src/client/components/chat-ui/ChatPreferenceControls.tsx</code> (+ extended
+<code>ChatPreferenceControls.test.tsx</code>). On mobile (<code>useIsMobile()</code>, ≤767px) the inline chip row collapses
+into one model-indicator trigger that opens a drill-in Radix Popover (root ↔ category). Desktop ≥768px is unchanged.
+The shared <code>PopoverMenuItem</code> gained one optional, backward-compatible prop (<code>trailing</code>).</p>
+
+<h2>Design decisions (where the spec was ambiguous)</h2>
+<table>
+  <tr><th>Decision</th><th>Choice &amp; why</th></tr>
+  <tr><td>Desktop safety vs. DRY</td><td><b>Left the desktop JSX completely untouched</b> and added a mobile <code>if (isMobile) return …</code> branch after the hooks. The mobile menu builds from a local <code>categories</code> array. This duplicates the small option-enumeration but makes desktop regression structurally impossible (its code never changed). Chose surgical-safety over the story's "zero duplication" aspiration — see Deviations.</td></tr>
+  <tr><td>Trigger identity</td><td>New additive UI-identity <code>chat.composer.menu</code> (action + popover) for the collapsed trigger, rather than reusing <code>chat.composer.model</code>. Keeps desktop selectors intact and gives the mobile surface its own stable hook for the overlay/e2e.</td></tr>
+  <tr><td>Drill affordance</td><td>Added optional <code>trailing</code> to <code>PopoverMenuItem</code> to render the <code>›</code> chevron on category rows. Additive prop — the three other consumers (Fork/Merge dialogs, ChatRow) are unaffected.</td></tr>
+  <tr><td>Skills row</td><td>Rendered as a <code>PopoverMenuItem</code> with <code>selected={skillsVisible}</code> (highlight = on) and no <code>trailing</code>; onClick toggles the ribbon and closes the menu. Honors "Skills is a toggle, not a value picker."</td></tr>
+  <tr><td>Trigger state coloring</td><td>Render-time derivation: Plan Mode → blue + <code>ListTodo</code> icon; Codex Fast Mode → emerald. No Effects.</td></tr>
+  <tr><td>"Speed" label</td><td>Codex Fast Mode category labelled <b>Speed</b> in level-1 (value "Fast Mode"/"Standard") to read as a category name rather than repeating the value.</td></tr>
+</table>
+
+<h2>rule-react-no-effects compliance</h2>
+<ul>
+  <li>Menu navigation is local <code>useState</code> (<code>menuOpen</code>, <code>menuCategory</code>) — workflow state, not Effects.</li>
+  <li>Trigger label/icon/color are derived during render from existing props.</li>
+  <li>Menu actions (select, drill, back, toggle, close) are event handlers.</li>
+  <li><code>useIsMobile()</code> is the existing external-subscription adapter (the one sanctioned Effect boundary).</li>
+  <li>No <code>useEffect</code>/<code>useLayoutEffect</code> added.</li>
+</ul>
+
+<h2>Deviations from the plan</h2>
+<blockquote>Story Design Notes said "reuse existing option-derivation … zero duplication." Implemented with a local
+<code>categories</code> structure for the mobile path while leaving desktop JSX intact, so the option enumeration is
+duplicated (small, contained). Rationale: the desktop path is verified-working and higher-risk to break; not touching it
+is the surgical choice. A future DRY refactor (single <code>categories</code> source feeding both paths) is possible but was
+out of scope for this normal-lane change.</blockquote>
+
+<h2>Tradeoffs considered</h2>
+<table>
+  <tr><th>Alternative</th><th>Why not</th></tr>
+  <tr><td>Separate <code>MobileComposerMenu</code> component</td><td>Would need option lists/conditions threaded via props or a shared hook — more wiring; chose in-file branch.</td></tr>
+  <tr><td>Extract <code>useComposerControls()</code> hook feeding both paths (true DRY)</td><td>Largest refactor, touches the working desktop path — deferred.</td></tr>
+  <tr><td>True nested Radix popovers per category</td><td>Stacked floating layers mis-anchor on narrow screens; chose in-panel drill-in (one floating layer).</td></tr>
+</table>
+
+<h2>Verification (dual-signal)</h2>
+<p><b>Unit</b> (<code>bun test ChatPreferenceControls</code>): 6/6 pass — 3 desktop (unchanged) + 3 mobile (collapsed trigger
+present &amp; chip row absent; Plan Mode blue; Codex Fast Mode emerald). <b>Typecheck</b>: <code>@typescript/native-preview</code>
+exit 0.</p>
+<p><b>E2E</b> via browser-harness against the live Vite client (<code>:5174</code>, which proxies to the <code>:5175</code> dev backend
+— <code>/health</code> green: nats/daemon/runner all ok). At 390px:</p>
+<ul>
+  <li>Collapsed trigger <code>⬡ Opus ⌄</code> renders; desktop <code>provider.action</code> absent.</li>
+  <li>Tap → level-1: Provider/Claude · Model/Opus · Reasoning/High · Context/200k · Mode/Full&nbsp;Access · Skills/Shown.</li>
+  <li>Drill into Reasoning → <code>← Reasoning</code> + Low/Medium/High/Max; select <b>Medium</b> → menu closes; reopen shows <b>Medium</b>.</li>
+  <li>Skills row tap → menu closes; reopen shows <b>Hidden</b> (ribbon toggled).</li>
+  <li>Mode → Plan Mode → menu closes; trigger gains <code>text-blue</code> + ListTodo icon.</li>
+  <li>Resize to 1200px → live switch back to the desktop chip row; the Medium + Plan Mode changes made on mobile are reflected there (same state, same callbacks).</li>
+  <li><b>0 console errors / 0 exceptions</b>; dev log clean (<code>upstreamError:0</code>).</li>
+</ul>
+<p class="muted">Note: a transient test-script bug (a <code>startsWith("Mode")</code> selector matching "Model") was a harness artifact,
+not an app defect; corrected with an exact-match selector.</p>
+
+<h2>Open questions</h2>
+<ul>
+  <li class="muted">None blocking. Recommendation: if this file's <code>categories</code> duplication ever drifts from desktop, do the DRY
+  extraction then (single source feeding both paths) — but only with the existing unit tests as the desktop regression guard.</li>
+</ul>
+</body>
+</html>

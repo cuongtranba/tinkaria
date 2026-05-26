@@ -1,5 +1,5 @@
 import { memo, useState } from "react"
-import { Box, Brain, ChevronRight, Gauge, ListTodo, LockOpen, Sparkles, SquareMenu, SquareMinus } from "lucide-react"
+import { ArrowLeft, Box, Brain, ChevronDown, ChevronRight, Gauge, ListTodo, LockOpen, Sparkles, SquareMenu, SquareMinus } from "lucide-react"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
   CLAUDE_REASONING_OPTIONS,
@@ -13,6 +13,7 @@ import {
   type ProviderCatalogEntry,
 } from "../../../shared/types"
 import { createUiIdentity, createUiIdentityDescriptor, getUiIdentityAttributeProps, type UiIdentityDescriptor } from "../../lib/uiIdentityOverlay"
+import { useIsMobile } from "../../hooks/useIsMobile"
 import { cn } from "../../lib/utils"
 import { PROVIDER_ICONS } from "../icons/ProviderIcons"
 export { PROVIDER_ICONS }
@@ -26,6 +27,7 @@ export function PopoverMenuItem({
   label,
   description,
   disabled,
+  trailing,
 }: {
   onClick: () => void
   selected: boolean
@@ -33,6 +35,7 @@ export function PopoverMenuItem({
   label: string
   description?: string
   disabled?: boolean
+  trailing?: React.ReactNode
 }) {
   return (
     <Button
@@ -46,10 +49,11 @@ export function PopoverMenuItem({
       )}
     >
       {icon}
-      <div>
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">{label}</div>
         {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
       </div>
+      {trailing ? <span className="ml-auto shrink-0 text-muted-foreground">{trailing}</span> : null}
     </Button>
   )
 }
@@ -125,6 +129,17 @@ export type ModelOptionChange =
   | { type: "codexReasoningEffort"; effort: CodexReasoningEffort }
   | { type: "fastMode"; fastMode: boolean }
 
+type MobileCategoryKey = "provider" | "model" | "reasoning" | "context" | "fastMode" | "mode"
+
+interface MobileCategory {
+  key: MobileCategoryKey
+  icon: React.ReactNode
+  label: string
+  value: string
+  disabled?: boolean
+  renderOptions: () => React.ReactNode
+}
+
 interface ChatPreferenceControlsProps {
   availableProviders: ProviderCatalogEntry[]
   selectedProvider: AgentProvider
@@ -173,6 +188,9 @@ export const ChatPreferenceControls = memo(function ChatPreferenceControls({
   const contextWindowOptions = providerConfig.models.find((candidate) => candidate.id === model)?.contextWindowOptions ?? []
   const selectedContextWindow = claudeModelOptions?.contextWindow ?? CLAUDE_CONTEXT_WINDOW_OPTIONS[0].id
   const ContextWindowIcon = selectedContextWindow === "1m" ? SquareMenu : SquareMinus
+  const isMobile = useIsMobile()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuCategory, setMenuCategory] = useState<MobileCategoryKey | null>(null)
   const providerActionDescriptor = createUiIdentityDescriptor({
     id: createUiIdentity("chat.composer.provider", "action"),
     c3ComponentId: "c3-112",
@@ -238,6 +256,239 @@ export const ChatPreferenceControls = memo(function ChatPreferenceControls({
     c3ComponentId: "c3-112",
     c3ComponentLabel: "chat-input",
   })
+  const menuActionDescriptor = createUiIdentityDescriptor({
+    id: createUiIdentity("chat.composer.menu", "action"),
+    c3ComponentId: "c3-112",
+    c3ComponentLabel: "chat-input",
+  })
+  const menuPopoverDescriptor = createUiIdentityDescriptor({
+    id: createUiIdentity("chat.composer.menu", "popover"),
+    c3ComponentId: "c3-112",
+    c3ComponentLabel: "chat-input",
+  })
+
+  if (isMobile) {
+    const modelLabel = providerConfig.models.find((candidate) => candidate.id === model)?.label ?? model
+    const reasoningLabel = selectedProvider === "claude"
+      ? CLAUDE_REASONING_OPTIONS.find((effort) => effort.id === modelOptions.reasoningEffort)?.label ?? modelOptions.reasoningEffort
+      : CODEX_REASONING_OPTIONS.find((effort) => effort.id === modelOptions.reasoningEffort)?.label ?? modelOptions.reasoningEffort
+    const closeMenu = () => {
+      setMenuOpen(false)
+      setMenuCategory(null)
+    }
+
+    const categories: MobileCategory[] = []
+    if (showProviderPicker) {
+      categories.push({
+        key: "provider",
+        icon: <ProviderIcon className="h-4 w-4 text-muted-foreground" />,
+        label: "Provider",
+        value: providerConfig?.label ?? selectedProvider,
+        disabled: providerLocked || !onProviderChange,
+        renderOptions: () => availableProviders.map((provider) => {
+          const Icon = PROVIDER_ICONS[provider.id]
+          return (
+            <PopoverMenuItem
+              key={provider.id}
+              onClick={() => { onProviderChange?.(provider.id); closeMenu() }}
+              selected={selectedProvider === provider.id}
+              icon={<Icon className="h-4 w-4 text-muted-foreground" />}
+              label={provider.label}
+            />
+          )
+        }),
+      })
+    }
+    categories.push({
+      key: "model",
+      icon: <ModelIcon className="h-4 w-4 text-muted-foreground" />,
+      label: "Model",
+      value: modelLabel,
+      renderOptions: () => providerConfig.models.map((candidate) => (
+        <PopoverMenuItem
+          key={candidate.id}
+          onClick={() => { onModelChange(selectedProvider, candidate.id); closeMenu() }}
+          selected={model === candidate.id}
+          icon={<Box className="h-4 w-4 text-muted-foreground" />}
+          label={candidate.label}
+          description={candidate.description}
+        />
+      )),
+    })
+    categories.push({
+      key: "reasoning",
+      icon: <Brain className="h-4 w-4 text-muted-foreground" />,
+      label: "Reasoning",
+      value: reasoningLabel,
+      renderOptions: () => (
+        selectedProvider === "claude"
+          ? CLAUDE_REASONING_OPTIONS.map((effort) => (
+            <PopoverMenuItem
+              key={effort.id}
+              onClick={() => { onModelOptionChange({ type: "claudeReasoningEffort", effort: effort.id }); closeMenu() }}
+              selected={modelOptions.reasoningEffort === effort.id}
+              icon={<Brain className="h-4 w-4 text-muted-foreground" />}
+              label={effort.label}
+              disabled={effort.id === "max" && model !== "opus"}
+            />
+          ))
+          : CODEX_REASONING_OPTIONS.map((effort) => (
+            <PopoverMenuItem
+              key={effort.id}
+              onClick={() => { onModelOptionChange({ type: "codexReasoningEffort", effort: effort.id }); closeMenu() }}
+              selected={modelOptions.reasoningEffort === effort.id}
+              icon={<Brain className="h-4 w-4 text-muted-foreground" />}
+              label={effort.label}
+            />
+          ))
+      ),
+    })
+    if (selectedProvider === "claude" && contextWindowOptions.length > 1) {
+      categories.push({
+        key: "context",
+        icon: <ContextWindowIcon className="h-4 w-4 text-muted-foreground" />,
+        label: "Context",
+        value: contextWindowOptions.find((option) => option.id === selectedContextWindow)?.label ?? selectedContextWindow,
+        renderOptions: () => contextWindowOptions.map((option) => (
+          <PopoverMenuItem
+            key={option.id}
+            onClick={() => { onModelOptionChange({ type: "contextWindow", contextWindow: option.id }); closeMenu() }}
+            selected={selectedContextWindow === option.id}
+            icon={option.id === "1m"
+              ? <SquareMenu className="h-4 w-4 text-muted-foreground" />
+              : <SquareMinus className="h-4 w-4 text-muted-foreground" />}
+            label={option.label}
+            description={option.id === "1m" ? "Expanded context window" : "Standard context window"}
+          />
+        )),
+      })
+    }
+    if (selectedProvider === "codex") {
+      categories.push({
+        key: "fastMode",
+        icon: <Gauge className={cn("h-4 w-4 text-muted-foreground", !codexModelOptions?.fastMode && "-scale-x-100")} />,
+        label: "Speed",
+        value: codexModelOptions?.fastMode ? "Fast Mode" : "Standard",
+        renderOptions: () => (
+          <>
+            <PopoverMenuItem
+              onClick={() => { onModelOptionChange({ type: "fastMode", fastMode: false }); closeMenu() }}
+              selected={!codexModelOptions?.fastMode}
+              icon={<Gauge className="h-4 w-4 text-muted-foreground -scale-x-100" />}
+              label="Standard"
+            />
+            <PopoverMenuItem
+              onClick={() => { onModelOptionChange({ type: "fastMode", fastMode: true }); closeMenu() }}
+              selected={Boolean(codexModelOptions?.fastMode)}
+              icon={<Gauge className="h-4 w-4 text-muted-foreground" />}
+              label="Fast Mode"
+            />
+          </>
+        ),
+      })
+    }
+    if (showPlanMode) {
+      categories.push({
+        key: "mode",
+        icon: planMode ? <ListTodo className="h-4 w-4 text-muted-foreground" /> : <LockOpen className="h-4 w-4 text-muted-foreground" />,
+        label: "Mode",
+        value: planMode ? "Plan Mode" : "Full Access",
+        renderOptions: () => (
+          <>
+            <PopoverMenuItem
+              onClick={() => { onPlanModeChange(false); closeMenu() }}
+              selected={!planMode}
+              icon={<LockOpen className="h-4 w-4 text-muted-foreground" />}
+              label="Full Access"
+              description="Execution without approval"
+            />
+            <PopoverMenuItem
+              onClick={() => { onPlanModeChange(true); closeMenu() }}
+              selected={planMode}
+              icon={<ListTodo className="h-4 w-4 text-muted-foreground" />}
+              label="Plan Mode"
+              description="Review a plan before execution"
+            />
+          </>
+        ),
+      })
+    }
+
+    const activeCategory = menuCategory ? categories.find((category) => category.key === menuCategory) ?? null : null
+    const TriggerIcon = planMode ? ListTodo : ModelIcon
+    const triggerColor = planMode
+      ? "text-blue-400 dark:text-blue-300"
+      : (selectedProvider === "codex" && codexModelOptions?.fastMode ? "text-emerald-500 dark:text-emerald-400" : undefined)
+
+    return (
+      <div className={cn("flex items-center", className)}>
+        <Popover
+          open={menuOpen}
+          onOpenChange={(open) => { setMenuOpen(open); if (!open) setMenuCategory(null) }}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              {...getUiIdentityAttributeProps(menuActionDescriptor)}
+              className={cn(
+                "flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground [&>svg]:shrink-0 [&>span]:whitespace-nowrap h-auto",
+                triggerColor
+              )}
+            >
+              <TriggerIcon className="h-3.5 w-3.5" />
+              <span>{modelLabel}</span>
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            {...getUiIdentityAttributeProps(menuPopoverDescriptor)}
+            align="center"
+            className="w-64 p-1"
+          >
+            <div className="space-y-1">
+              {activeCategory ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMenuCategory(null)}
+                    className="w-full flex items-center gap-2 p-2 text-sm font-medium text-muted-foreground hover:opacity-60 transition-opacity"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span>{activeCategory.label}</span>
+                  </button>
+                  {activeCategory.renderOptions()}
+                </>
+              ) : (
+                <>
+                  {categories.map((category) => (
+                    <PopoverMenuItem
+                      key={category.key}
+                      onClick={() => { if (!category.disabled) setMenuCategory(category.key) }}
+                      disabled={category.disabled}
+                      selected={false}
+                      icon={category.icon}
+                      label={category.label}
+                      description={category.value}
+                      trailing={category.disabled ? undefined : <ChevronRight className="h-4 w-4" />}
+                    />
+                  ))}
+                  {showSkillsToggle ? (
+                    <PopoverMenuItem
+                      onClick={() => { onSkillsToggle?.(); closeMenu() }}
+                      selected={Boolean(skillsVisible)}
+                      icon={<Sparkles className={cn("h-4 w-4 text-muted-foreground", skillsVisible && "text-amber-600 dark:text-amber-400")} />}
+                      label="Skills"
+                      description={skillsVisible ? "Shown" : "Hidden"}
+                    />
+                  ) : null}
+                </>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    )
+  }
 
   return (
     <div className={cn("flex md:justify-center items-center gap-0.5", className)}>

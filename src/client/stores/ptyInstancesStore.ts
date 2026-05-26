@@ -18,6 +18,10 @@ interface PtyInstancesState {
   togglePopover: () => void
 }
 
+function isSmokeChatId(chatId: string): boolean {
+  return chatId.startsWith("smoke-spawn")
+}
+
 function isLive(instance: PtyInstanceState): boolean {
   return instance.phase !== "exited"
 }
@@ -30,7 +34,7 @@ export function createPtyInstancesStore(): PtyInstancesStore {
     popoverOpen: false,
 
     applySnapshot: (instances) => {
-      const live = instances.filter(isLive)
+      const live = instances.filter(isLive).filter((i) => !isSmokeChatId(i.chatId))
       set({ instances: live.length === 0 ? EMPTY : live })
     },
 
@@ -39,6 +43,7 @@ export function createPtyInstancesStore(): PtyInstancesStore {
         const prev = state.instances
         if (diff.op === "added") {
           if (!isLive(diff.instance)) return state
+          if (isSmokeChatId(diff.instance.chatId)) return state
           if (prev.some((i) => i.chatId === diff.instance.chatId)) return state
           return { instances: [...prev, diff.instance] }
         }

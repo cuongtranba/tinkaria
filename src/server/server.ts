@@ -743,6 +743,20 @@ export async function startServer(options: StartServerOptions = {}) {
       const spawnText = dec.decode(await decompressPayload(spawnReply.data))
       console.log(LOG_PREFIX, "claude-pty self-test pty.spawn (no token):", spawnText)
 
+      // Self-test spawned a real PTY when pool had tokens — kill it so the
+      // smoke-spawn-no-token instance does not leak into every chat's PTY
+      // indicator (publishes `removed` delta to client store).
+      try {
+        await natsConnector.nc.request(
+          ptyCommandSubject("pty.exit"),
+          compressPayload(enc.encode(JSON.stringify({ chatId: "smoke-spawn-no-token" }))),
+          { timeout: 2000 },
+        )
+      } catch {
+        // Best-effort cleanup; ignore failures (instance may not exist if
+        // spawn rejected due to empty pool).
+      }
+
       const { oauthCommandSubject } = await import("../shared/nats-subjects")
       const oauthListReply = await natsConnector.nc.request(
         oauthCommandSubject("oauth.list"),

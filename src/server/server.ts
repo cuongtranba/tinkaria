@@ -13,6 +13,9 @@ import { readToken } from "../nats/nats-token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
 import { registerPtyResponders } from "./pty-responders"
+import { OAuthSettingsStore } from "./oauth-pool/oauth-settings-store"
+import { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
+import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
 import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { RunnerProxy } from "./runner-proxy"
@@ -695,7 +698,17 @@ export async function startServer(options: StartServerOptions = {}) {
     runtimeRegistry,
   })
 
-  const ptyResponders = registerPtyResponders({ nc: natsConnector.nc, store })
+  const oauthSettings = new OAuthSettingsStore()
+  await oauthSettings.load()
+  const oauthPool = new OAuthTokenPool(
+    () => oauthSettings.getTokens(),
+    (id, patch) => oauthSettings.mutateTokenStatus(id, patch),
+    Date.now,
+    () => oauthSettings.getConcurrencyDefault(),
+  )
+  const oauthResponders = registerOAuthResponders({ nc: natsConnector.nc, store: oauthSettings })
+
+  const ptyResponders = registerPtyResponders({ nc: natsConnector.nc, store, oauthPool })
 
   // Boot-time self-test: round-trip pty.snapshot through NATS to prove the
   // responder is reachable. Logs a single line so /health smoke can confirm.
@@ -729,6 +742,15 @@ export async function startServer(options: StartServerOptions = {}) {
       )
       const spawnText = dec.decode(await decompressPayload(spawnReply.data))
       console.log(LOG_PREFIX, "claude-pty self-test pty.spawn (no token):", spawnText)
+
+      const { oauthCommandSubject } = await import("../shared/nats-subjects")
+      const oauthListReply = await natsConnector.nc.request(
+        oauthCommandSubject("oauth.list"),
+        compressPayload(enc.encode("{}")),
+        { timeout: 2000 },
+      )
+      const oauthListText = dec.decode(await decompressPayload(oauthListReply.data))
+      console.log(LOG_PREFIX, "oauth-pool self-test oauth.list:", oauthListText)
     } catch (err) {
       console.warn(LOG_PREFIX, "claude-pty self-test failed:", err instanceof Error ? err.message : String(err))
     }
@@ -845,6 +867,7 @@ export async function startServer(options: StartServerOptions = {}) {
     orchestrator.destroy()
     responders.dispose()
     ptyResponders.dispose()
+    oauthResponders.dispose()
     publisher.dispose()
     terminals.closeAll()
     transcriptConsumer.stop()

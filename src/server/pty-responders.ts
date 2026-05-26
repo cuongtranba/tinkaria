@@ -20,6 +20,7 @@ import { createPtyInstanceRegistry } from "./claude-pty/pty-instance-registry"
 import { startClaudeSessionPTY, type StartClaudeSessionPtyArgs } from "./claude-pty/driver"
 import type { ClaudeSessionHandle } from "./claude-pty/agent-normalizers"
 import type { EventStore } from "./event-store"
+import type { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
 
 const LOG_PREFIX = "[claude-pty]"
 const encoder = new TextEncoder()
@@ -37,6 +38,7 @@ async function decode(data: Uint8Array): Promise<unknown> {
 export interface PtyResponderDeps {
   nc: NatsConnection
   store: EventStore
+  oauthPool?: OAuthTokenPool
 }
 
 export interface PtyResponderHandle {
@@ -57,7 +59,7 @@ interface ActiveSession {
 }
 
 export function registerPtyResponders(deps: PtyResponderDeps): PtyResponderHandle {
-  const { nc, store } = deps
+  const { nc, store, oauthPool } = deps
   const registry = createPtyInstanceRegistry()
   const sessions = new Map<string, ActiveSession>()
 
@@ -84,7 +86,7 @@ export function registerPtyResponders(deps: PtyResponderDeps): PtyResponderHandl
       }
 
       try {
-        const result = await dispatch(type, payload, registry, sessions, store)
+        const result = await dispatch(type, payload, registry, sessions, store, oauthPool)
         msg.respond?.(encode(result))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -123,6 +125,7 @@ async function dispatch(
   registry: ReturnType<typeof createPtyInstanceRegistry>,
   sessions: Map<string, ActiveSession>,
   store: EventStore,
+  oauthPool: OAuthTokenPool | undefined,
 ): Promise<CommandResult> {
   switch (type) {
     case "pty.snapshot":
@@ -134,13 +137,40 @@ async function dispatch(
       const cwd = requireString(payload, "cwd")
       const model = requireString(payload, "model")
       const planMode = Boolean(payload.planMode)
-      const oauthToken = (payload.oauthToken as string | undefined) ?? null
-      const oauthLabel = (payload.oauthLabel as string | undefined) ?? undefined
+      let oauthToken = (payload.oauthToken as string | undefined) ?? null
+      let oauthLabel = (payload.oauthLabel as string | undefined) ?? undefined
       const sessionToken = (payload.sessionToken as string | undefined) ?? null
       const forkSession = Boolean(payload.forkSession)
 
       if (sessions.has(chatId)) {
         return { ok: false, error: `pty already live for chatId=${chatId}` }
+      }
+
+      // Auto-pick from pool if caller didn't supply a token explicitly.
+      let poolBound = false
+      if (!oauthToken && oauthPool) {
+        if (!oauthPool.hasAnyToken()) {
+          return {
+            ok: false,
+            error: "No OAuth pool tokens configured. Add one under Settings → Claude PTY.",
+          }
+        }
+        const picked = oauthPool.pickActive(chatId)
+        if (!picked) {
+          const unavail = oauthPool.describeUnavailability(chatId)
+          const summary = unavail
+            .filter((u) => u.reason !== "available")
+            .map((u) => `${u.label}: ${u.reason}`)
+            .join("; ")
+          return {
+            ok: false,
+            error: `No usable OAuth pool token (${summary || "all tokens unavailable"}).`,
+          }
+        }
+        oauthToken = picked.token
+        oauthLabel = picked.label
+        oauthPool.markUsed(picked.id)
+        poolBound = true
       }
 
       const spawnArgs: StartClaudeSessionPtyArgs = {
@@ -206,6 +236,9 @@ async function dispatch(
           console.warn(LOG_PREFIX, `stream error chatId=${chatId}:`, err instanceof Error ? err.message : String(err))
         } finally {
           sessions.delete(chatId)
+          if (poolBound && oauthPool) {
+            try { oauthPool.release(chatId) } catch { /* ignore */ }
+          }
         }
       })().catch(() => undefined)
 
@@ -239,6 +272,9 @@ async function dispatch(
         sessions.delete(chatId)
       }
       registry.remove(chatId)
+      if (oauthPool) {
+        try { oauthPool.release(chatId) } catch { /* ignore */ }
+      }
       return { ok: true }
     }
 
@@ -250,6 +286,9 @@ async function dispatch(
         sessions.delete(chatId)
       }
       registry.remove(chatId)
+      if (oauthPool) {
+        try { oauthPool.release(chatId) } catch { /* ignore */ }
+      }
       return { ok: true }
     }
 

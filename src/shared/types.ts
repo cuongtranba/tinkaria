@@ -3,6 +3,40 @@ export const PROTOCOL_VERSION = 1 as const
 
 export type AgentProvider = "claude" | "codex" | "claude-pty"
 
+// === OAuth token pool (claude-pty auth) ===
+
+export type OAuthTokenStatus = "active" | "limited" | "error" | "disabled"
+
+export interface OAuthTokenEntry {
+  id: string
+  label: string
+  token: string
+  status: OAuthTokenStatus
+  limitedUntil: number | null
+  lastUsedAt: number | null
+  lastErrorAt: number | null
+  lastErrorMessage: string | null
+  addedAt: number
+  /** Per-token concurrent-chat cap. Falls back to ClaudeAuthSettings.concurrencyDefault. */
+  maxConcurrent?: number
+}
+
+export interface ClaudeAuthSettings {
+  tokens: OAuthTokenEntry[]
+  concurrencyDefault: number
+}
+
+export const OAUTH_TOKEN_MAX_CONCURRENT_MIN = 1
+export const OAUTH_TOKEN_MAX_CONCURRENT_MAX = 5
+export const OAUTH_TOKEN_CONCURRENCY_DEFAULT = 1
+export const OAUTH_TOKEN_LABEL_MAX = 64
+export const OAUTH_TOKEN_VALUE_MAX = 1024
+
+export const CLAUDE_AUTH_DEFAULTS: ClaudeAuthSettings = {
+  tokens: [],
+  concurrencyDefault: OAUTH_TOKEN_CONCURRENCY_DEFAULT,
+}
+
 export interface ProviderModelOption {
   id: string
   label: string

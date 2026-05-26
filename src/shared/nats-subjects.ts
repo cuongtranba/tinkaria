@@ -109,3 +109,22 @@ export function ptyInstanceEventSubject(chatId: string): string {
 
 export const ALL_PTY_COMMANDS = `${PREFIX}.cmd.pty.>`
 export const ALL_PTY_EVENTS = `${PREFIX}.evt.pty.>`
+
+// === oauth pool subjects ===
+
+export type OAuthCommandType =
+  | "oauth.list"
+  | "oauth.add"
+  | "oauth.remove"
+  | "oauth.update"
+  | "oauth.setConcurrencyDefault"
+
+export function oauthCommandSubject(commandType: OAuthCommandType): string {
+  return `${PREFIX}.cmd.${commandType}`
+}
+
+export function oauthChangedSubject(): string {
+  return `${PREFIX}.evt.oauth.changed`
+}
+
+export const ALL_OAUTH_COMMANDS = `${PREFIX}.cmd.oauth.>`

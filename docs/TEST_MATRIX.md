@@ -60,6 +60,12 @@ implemented until tests or validation evidence exist.
 | PR2-runner-identity-pairing | Multiple paired runners coexist with distinct runnerIds | n/a | n/a | yes | n/a | implemented | by design — each `/pairing/code` allocates a fresh runnerId; E2E paired runnerId distinct from the server-spawned one (explicit 2-runner coexistence run not separately captured) |
 | PR2-runner-identity-pairing | Paired runner shares PR1 scope: still DENIED on another runnerId's cmd/KV (isolation preserved) | n/a | yes | n/a | n/a | implemented | PR1 callout.integration test green (src/nats 60/60); paired runners use the same `{class:runner, runnerId}` scope — no widening |
 
+| PR3-registration-liveness | `runnerLivenessState(lastHeartbeatAt, now)` → online (<25s) / degraded (25–60s) / offline (≥60s); null → offline | yes | n/a | n/a | n/a | planned | pure fn boundary table |
+| PR3-registration-liveness | RunnerRegistration carries `protocolVersion`; server marks out-of-range runner `incompatible` (distinct from offline) | yes | yes | n/a | n/a | planned | PROTOCOL_VERSION + SUPPORTED_RANGE; additive shape, no migration |
+| PR3-registration-liveness | Incompatible runner BLOCKS turn start with a clear upgrade message (never silent dispatch/downgrade) | yes | yes | n/a | n/a | planned | gate before RunnerProxy.sendCommand(start_turn) |
+| PR3-registration-liveness | Discover path uses heartbeat age, NOT `process.kill(pid,0)` (cross-machine correct) | n/a | yes | n/a | yes | planned | paired runner on another host correctly live/dead |
+| PR3-registration-liveness | `/health` runner gains `state` + `protocolVersion` + `incompatible`; live runner shows online + version | n/a | n/a | yes | n/a | planned | E2E: live runner online; skewed-version runner → incompatible + blocked turn |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from "react"
 import type { PtyInstancePhase, PtyInstanceState } from "../../../shared/pty-instance"
-import type { ClientCommand } from "../../../shared/protocol"
 import { usePtyInstances, usePtyInstancesStore, usePtyLiveCount, usePtyPopoverOpen } from "../../stores/ptyInstancesStore"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
-import type { KannaSocket } from "../../app/socket"
+import type { AppTransport } from "../../app/socket-interface"
+import { ptyCancel, ptyExit } from "../../lib/pty-client"
 
 const PHASE_COLOR: Record<PtyInstancePhase, string> = {
   spawning: "var(--warning)",
@@ -280,7 +280,7 @@ export function PtyInstancesIndicatorView({
 }
 
 interface ConnectedProps {
-  socket?: KannaSocket
+  socket?: AppTransport
   onOpenChat?: (chatId: string) => void
 }
 
@@ -306,8 +306,7 @@ export function PtyInstancesIndicator({ socket, onOpenChat }: ConnectedProps) {
   const handleCancel = useCallback(
     (chatId: string) => {
       if (!socket) return
-      const cmd: ClientCommand = { type: "pty.cancel", chatId }
-      void socket.command(cmd).catch(() => {})
+      void ptyCancel(socket, chatId).catch(() => {})
     },
     [socket],
   )
@@ -315,8 +314,7 @@ export function PtyInstancesIndicator({ socket, onOpenChat }: ConnectedProps) {
   const handleKill = useCallback(
     (chatId: string) => {
       if (!socket) return
-      const cmd: ClientCommand = { type: "pty.kill", chatId }
-      void socket.command(cmd).catch(() => {})
+      void ptyExit(socket, chatId).catch(() => {})
     },
     [socket],
   )

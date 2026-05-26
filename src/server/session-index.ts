@@ -1,4 +1,4 @@
-import type { TranscriptEntry, NormalizedToolCall } from "../shared/types"
+import type { TranscriptEntry, NormalizedToolCall, AgentProvider } from "../shared/types"
 import type { StoreState } from "./events"
 import type { SessionRecord, SessionStatus } from "../shared/workspace-types"
 
@@ -7,7 +7,7 @@ interface MutableSessionRecord {
   workspaceId: string
   intent: string
   status: SessionStatus
-  provider: "claude" | "codex"
+  provider: AgentProvider
   branch: string | null
   filesTouched: Set<string>
   commandsRun: string[]

@@ -12,6 +12,8 @@ import {
 import { cn } from "../../lib/utils"
 import type { AgentProvider, CurrentRepoStatusSnapshot, DiscoveredSessionRuntime, SessionStatus } from "../../../shared/types"
 import { PROVIDER_ICONS, getProviderFromModel } from "../icons/ProviderIcons"
+import { PtyInstancesIndicator } from "./PtyInstancesIndicator"
+import type { AppTransport } from "../../app/socket-interface"
 
 interface Props {
   sidebarCollapsed: boolean
@@ -27,6 +29,8 @@ interface Props {
   chatStatus?: SessionStatus
   runtimeModel?: string | null
   runtimeProvider?: AgentProvider | null
+  socket?: AppTransport
+  onOpenPtyChat?: (chatId: string) => void
 }
 
 function getPathLabel(localPath: string | undefined, repoStatus: CurrentRepoStatusSnapshot | null | undefined): string | null {
@@ -230,6 +234,8 @@ export function ChatNavbar({
   chatStatus,
   runtimeModel,
   runtimeProvider,
+  socket,
+  onOpenPtyChat,
 }: Props) {
   const pathLabel = getPathLabel(localPath, currentRepoStatus)
   const compactRepoLabel = getCompactRepoLabel(pathLabel, currentRepoStatus)
@@ -302,6 +308,9 @@ export function ChatNavbar({
             </TooltipContent>
           </Tooltip>
         ) : null}
+
+        {/* PTY instances indicator */}
+        <PtyInstancesIndicator socket={socket} onOpenChat={onOpenPtyChat} />
 
         {/* Separator */}
         {chatTitle ? <div className="w-px h-3.5 bg-border/60 shrink-0" /> : null}

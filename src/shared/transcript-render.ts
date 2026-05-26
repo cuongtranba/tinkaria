@@ -182,6 +182,12 @@ function hydrateTranscriptEntries(entries: TranscriptEntry[]): RenderMessage[] {
         break
       case "context_window_updated":
         break
+      case "rate_limit":
+        messages.push({
+          message: { ...createBaseMessage(entry), kind: "rate_limit", rateLimit: entry.rateLimit },
+          sourceEntryIds: [entry._id],
+        })
+        break
       case "agent_result":
         messages.push({
           message: { ...createBaseMessage(entry), kind: "unknown", json: JSON.stringify(entry, null, 2) },
@@ -282,6 +288,7 @@ function createSingleUnit(item: RenderMessage, kind: Exclude<TranscriptRenderUni
     case "context_cleared":
     case "interrupted":
     case "unknown":
+    case "rate_limit":
       return { kind, id, sourceEntryIds: item.sourceEntryIds, message: item.message } as TranscriptRenderUnit
     case "assistant_response":
       return { kind, id, sourceEntryIds: item.sourceEntryIds, message: item.message } as TranscriptRenderUnit
@@ -350,6 +357,8 @@ function getSingleKind(message: HydratedTranscriptMessage): Exclude<TranscriptRe
       return "interrupted"
     case "unknown":
       return "unknown"
+    case "rate_limit":
+      return "rate_limit"
     default: {
       const _exhaustive: never = message
       return _exhaustive

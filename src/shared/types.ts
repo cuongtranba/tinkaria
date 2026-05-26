@@ -1,7 +1,7 @@
 export const STORE_VERSION = 3 as const
 export const PROTOCOL_VERSION = 1 as const
 
-export type AgentProvider = "claude" | "codex"
+export type AgentProvider = "claude" | "codex" | "claude-pty"
 
 export interface ProviderModelOption {
   id: string
@@ -52,9 +52,15 @@ export interface CodexModelOptions {
   fastMode: boolean
 }
 
+export interface ClaudePtyModelOptions {
+  reasoningEffort: ClaudeReasoningEffort
+  contextWindow: ClaudeContextWindow
+}
+
 export interface ProviderModelOptionsByProvider {
   claude: ClaudeModelOptions
   codex: CodexModelOptions
+  "claude-pty": ClaudePtyModelOptions
 }
 
 export type ModelOptions = Partial<{
@@ -70,6 +76,11 @@ export const DEFAULT_CODEX_MODEL_OPTIONS = {
   reasoningEffort: "high",
   fastMode: false,
 } as const satisfies CodexModelOptions
+
+export const DEFAULT_CLAUDE_PTY_MODEL_OPTIONS = {
+  reasoningEffort: "high",
+  contextWindow: "200k",
+} as const satisfies ClaudePtyModelOptions
 
 export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
   return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
@@ -123,6 +134,19 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
       { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", supportsEffort: false },
     ],
     efforts: [],
+  },
+  {
+    id: "claude-pty",
+    label: "Claude (PTY)",
+    defaultModel: "opus",
+    defaultEffort: "high",
+    supportsPlanMode: true,
+    models: [
+      { id: "opus", label: "Opus", supportsEffort: true, contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS] },
+      { id: "sonnet", label: "Sonnet", supportsEffort: true, contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS] },
+      { id: "haiku", label: "Haiku", supportsEffort: true },
+    ],
+    efforts: [...CLAUDE_REASONING_OPTIONS],
   },
 ]
 
@@ -629,6 +653,11 @@ export interface ContextWindowUpdatedEntry extends TranscriptEntryBase {
   usage: ContextWindowUsageSnapshot
 }
 
+export interface RateLimitEntry extends TranscriptEntryBase {
+  kind: "rate_limit"
+  rateLimit: { resetAt: number; tz: string }
+}
+
 export interface AgentResultEntry extends TranscriptEntryBase {
   kind: "agent_result"
   delegationId: string
@@ -658,6 +687,7 @@ export type TranscriptEntry =
   | InterruptedEntry
   | ContextUsageEntry
   | ContextWindowUpdatedEntry
+  | RateLimitEntry
   | AgentResultEntry
 
 export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {
@@ -814,6 +844,7 @@ export type HydratedTranscriptMessage =
   | ({ kind: "context_cleared"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "interrupted"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "unknown"; json: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "rate_limit"; rateLimit: { resetAt: number; tz: string }; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ id: string; messageId?: string; hidden?: boolean } & HydratedToolCall)
 
 export type TranscriptRenderUnitKind =
@@ -832,6 +863,7 @@ export type TranscriptRenderUnitKind =
   | "context_cleared"
   | "interrupted"
   | "unknown"
+  | "rate_limit"
 
 export interface TranscriptRenderUnitBase<TKind extends TranscriptRenderUnitKind> {
   kind: TKind
@@ -853,6 +885,7 @@ export type TranscriptSingleRenderUnit =
   | (TranscriptRenderUnitBase<"context_cleared"> & { message: Extract<HydratedTranscriptMessage, { kind: "context_cleared" }> })
   | (TranscriptRenderUnitBase<"interrupted"> & { message: Extract<HydratedTranscriptMessage, { kind: "interrupted" }> })
   | (TranscriptRenderUnitBase<"unknown"> & { message: Extract<HydratedTranscriptMessage, { kind: "unknown" }> })
+  | (TranscriptRenderUnitBase<"rate_limit"> & { message: Extract<HydratedTranscriptMessage, { kind: "rate_limit" }> })
 
 export type TranscriptRenderUnit =
   | TranscriptSingleRenderUnit

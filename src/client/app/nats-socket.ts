@@ -227,6 +227,34 @@ export class NatsSocket implements AppTransport {
     }
   }
 
+  rawSubscribe<TPayload = unknown>(
+    subject: string,
+    handler: (payload: TPayload) => void,
+  ): () => void {
+    if (!this.nc) {
+      throw new Error("Not connected")
+    }
+    const sub = this.nc.subscribe(subject)
+    void (async () => {
+      for await (const msg of sub) {
+        try {
+          const decoded = await decompressPayload(msg.data)
+          const parsed = JSON.parse(decoder.decode(decoded)) as TPayload
+          handler(parsed)
+        } catch (err) {
+          console.warn(LOG_PREFIX, `rawSubscribe handler error on ${subject}:`, err instanceof Error ? err.message : String(err))
+        }
+      }
+    })().catch(() => undefined)
+    return () => {
+      try {
+        sub.unsubscribe()
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   ensureHealthyConnection(): Promise<void> {
     if (!this.nc || this.currentStatus !== "connected") {
       void this.reconnectNow()

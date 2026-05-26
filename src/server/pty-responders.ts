@@ -184,8 +184,22 @@ async function dispatch(
                   err instanceof Error ? err.message : String(err),
                 )
               }
-            } else if (event.type === "rate_limit") {
+            } else if (event.type === "rate_limit" && event.rateLimit) {
               console.log(LOG_PREFIX, `rate_limit chatId=${chatId}`, event.rateLimit)
+              try {
+                store.appendMessage(chatId, {
+                  _id: `pty-rate-limit-${Date.now()}`,
+                  kind: "rate_limit",
+                  rateLimit: event.rateLimit,
+                  createdAt: Date.now(),
+                })
+              } catch (err) {
+                console.warn(
+                  LOG_PREFIX,
+                  `rate_limit append skipped chatId=${chatId}:`,
+                  err instanceof Error ? err.message : String(err),
+                )
+              }
             }
           }
         } catch (err) {

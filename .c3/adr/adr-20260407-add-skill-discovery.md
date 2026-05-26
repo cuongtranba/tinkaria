@@ -1,6 +1,6 @@
 ---
 id: adr-20260407-add-skill-discovery
-c3-seal: 037284c40fed44acb9cfce89d48a38cb4254466401539d09811c3b05fd7258e2
+c3-seal: 27614675eb0a25ba69bb0e8a63160b419146b9017478d9b5b370a5aef73d42fe
 title: add-skill-discovery
 type: adr
 goal: Add server-side skill discovery module that scans filesystem skill directories (~/.claude/skills/ and <project>/.claude/skills/) and injects discovered skills into Codex system_init entries. This enables the skill ribbon to work for both Claude and Codex providers.
@@ -20,6 +20,7 @@ Add server-side skill discovery module that scans filesystem skill directories (
 - MODIFY: src/server/agent.ts — AgentCoordinator receives SkillCache, resolves skills before Codex turns
 - MODIFY: src/server/local-codex-kit.ts — StartKitTurnRequest threads skills through NATS
 - MODIFY: src/server/server.ts — creates SkillCache instance, passes to AgentCoordinator
+
 ## Risks
 
 - Skill directories might not exist for all users → handled via ENOENT graceful fallback

@@ -1,6 +1,6 @@
 ---
 id: adr-20260410-ref-nats-transport-hardening-adoption
-c3-seal: 3ebf2ad9488050dba18700f66a6f0b7d20b4c44bbb70d0796f5ba4e48d668fa6
+c3-seal: 6f4a132b615023120ef55d40e64204ad89582cc1fbc9b6cdd974d7ca9e7f2405
 title: Adopt ref-nats-transport-hardening as the NATS transport standard
 type: adr
 goal: Adopt `ref-nats-transport-hardening` as the standard every NATS-connecting actor in this codebase must honor. The ref captures the eight disciplines that landed in `adr-20260410-nats-reliability-sweep` and makes them a first-class pattern rather than tribal knowledge buried in the diff.
@@ -27,6 +27,7 @@ The hardening ADR fixed four P0 bugs in the NATS WebSocket transport (upstream r
 7. Observable proxy counters flushed per minute with reset + idle gate
 8. Drain-with-timeout, fall back to close, on shutdown
 Each discipline is stated with a concrete "Why" grounded in observed runtime constraints: Cloudflare tunnel handshake variance (1.3–4s, measured 1964ms in prod), Bun WebSocket's WHATWG-spec throw on CONNECTING send, NATS library internal reconnect racing outer loops, and the diagnostic blindness that made the original bug invisible until users noticed.
+
 ## Citing components
 
 Wired via `c3x wire`:
@@ -35,6 +36,7 @@ Wired via `c3x wire`:
 - `c3-110` chat (owns `src/client/app/nats-socket.ts`)
 - `c3-205` nats-transport (owns `src/server/nats-bridge.ts`, `nats-connector.ts`)
 - `c3-208` kit-runtime (nearest owner for `src/runner/runner-nats.ts` + `runner.ts` until a dedicated runner component exists)
+
 ## Override policy
 
 Overrides require an ADR naming the specific discipline, the failure mode being accepted, and a bounded blast radius. Documented explicitly in the ref's `## Override` section.

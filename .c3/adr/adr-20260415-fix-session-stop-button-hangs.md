@@ -1,6 +1,6 @@
 ---
 id: adr-20260415-fix-session-stop-button-hangs
-c3-seal: 761135d233dd0dfc0f6fe633672b401f39c369a015cb51e05172485cf4a2e6bb
+c3-seal: 227abf5e35d9ec893c431351ebb4d20d597fa25add272506abe9e9e17549331b
 title: fix-session-stop-button-hangs
 type: adr
 goal: Reproduce and fix the session where a running chat keeps running forever and the stop button does not cancel it.
@@ -9,6 +9,7 @@ date: "2026-04-15"
 ---
 
 # Fix Session Stop Button Hangs
+
 ## Goal
 
 Reproduce and fix the session where a running chat keeps running forever and the stop button does not cancel it.

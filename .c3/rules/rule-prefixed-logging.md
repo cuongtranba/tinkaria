@@ -1,6 +1,6 @@
 ---
 id: rule-prefixed-logging
-c3-seal: a6606585c7f7720ddf89cced673a5e7d2e43974acff82ce5686c65c499862a21
+c3-seal: 91d10ffc8ee824f48abf6522d6c5f2f0c7e6d83341f233779e1454a30acf72f6
 title: prefixed-logging
 type: rule
 goal: Consistent, greppable logging across the codebase using the shared LOG_PREFIX constant and appropriate severity levels.
@@ -30,6 +30,7 @@ Convention: `const LOG_PREFIX = "[process-name]"` at the top of the entry file. 
 | CLI user output — startup banner, URLs, one-time info | console.log | APP_NAME, "— local-only project chat UI" |
 | Debug traces — module-level state changes, client-side flow | console.info | "[useTinkariaState] subscription updated" |
 | console.error is never used directly. Fatal conditions throw; everything else warns. |  |  |
+
 ## Golden Example
 
 ```typescript
@@ -83,6 +84,7 @@ const LOG_PREFIX = "[nats-daemon]"
 console.warn(LOG_PREFIX, "Received SIGTERM, shutting down")
 console.warn(LOG_PREFIX, "NATS server started without WebSocket support")
 ```
+
 ## Not This
 
 ```typescript
@@ -111,7 +113,9 @@ console.error("child process died")  // use console.warn — it's recoverable
 import { LOG_PREFIX } from "../shared/branding"  // wrong in a separate process
 // Define a local LOG_PREFIX instead
 ```
+
 ## Scope
+
 ## Override
 
 Test files may use bare console calls for debugging. Remove before committing.

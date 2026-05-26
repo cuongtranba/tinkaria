@@ -1,6 +1,6 @@
 ---
 id: rule-journey-test-coverage
-c3-seal: 4f3fb0d8198e7222e6ddd1ec31f2fff60ecafe820ddeea60a63a54deb3d6b97a
+c3-seal: 6fa161aa1a5ac4d7d5d8b0d194334c633f38b59d5b5d4a71620525bb9b540436
 title: journey-test-coverage
 type: rule
 goal: Ensure every journey recipe stage has both an integration test (snapshot assertion) and an E2E test (screen assertion), preventing journeys from becoming stale documentation.
@@ -39,6 +39,7 @@ async function verifyStage2_AddTodo(ab: AgentBrowser) {
   await ab.screenshot();
 }
 ```
+
 ## Not This
 
 | Anti-Pattern | Correct | Why Wrong Here |
@@ -47,6 +48,7 @@ async function verifyStage2_AddTodo(ab: AgentBrowser) {
 | E2E test clicking without data-ui-id selectors | Use data-ui-id attribute selectors | Brittle selectors break on UI refactor without catching regressions |
 | E2E test without waiting for subscription update | Always wait for element after action | Race condition — screenshot taken before state change propagates |
 | Journey stage added without updating test files | Update both test layers in same PR | Journey becomes unverified documentation |
+
 ## Scope
 
 Applies to all journey recipe stages in workspace coordination, file ownership, isolated dev, and automation journeys. Integration tests run on every push. E2E tests run on merge to main.

@@ -1,6 +1,6 @@
 ---
 id: c3-2
-c3-seal: a9967d8a79e45cb6f3569b27cae3256810847d7b022d676800d131ce6d44175c
+c3-seal: fd5abe31631c91b81788fea895cfe6f0be0bbfd169e15e5e865490045f1a101d
 title: server
 type: container
 boundary: service
@@ -40,6 +40,8 @@ Bun HTTP + WebSocket server managing all persistent state, AI agent sessions, te
 | c3-225 | sandbox | Feature | active | Sandbox lifecycle, health, and isolation surfaces. |
 | c3-226 | transcript-runtime | Feature | active | Live transcript runtime bridge, append-only render facts, and event consumption. |
 | c3-227 | extension-router | Feature | active | Server routing for project extension data. |
+| c3-228 | claude-pty | Feature | active | Claude CLI run inside a PTY as additive subscription-billed provider. |
+
 ## Responsibilities
 
 - Persist all state via JSONL event logs with snapshot compaction
@@ -48,6 +50,7 @@ Bun HTTP + WebSocket server managing all persistent state, AI agent sessions, te
 - Spawn and manage PTY terminals
 - Scan local filesystem for Claude/Codex projects
 - Serve static SPA assets in production
+
 ## Complexity Assessment
 
 Complex: Event sourcing with replay, multi-provider agent orchestration, subprocess management (CLI + PTY), CQRS read model derivation, real-time WebSocket broadcasting.

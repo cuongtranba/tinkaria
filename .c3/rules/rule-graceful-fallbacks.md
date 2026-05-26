@@ -1,6 +1,6 @@
 ---
 id: rule-graceful-fallbacks
-c3-seal: b824681c1f2175a2a700eaaed69099e0ed0326bfcd659f51e1d643d53991babb
+c3-seal: fe0242c722127d8ff5ec55b2e644d8067e9660543e62d1330d4b56d6a9da4a90
 title: graceful-fallbacks
 type: rule
 goal: External inputs (user config, file reads, WebSocket messages, CLI args) are normalized through dedicated functions that always return valid values, never crash.
@@ -71,6 +71,7 @@ if (!next) throw new Error("Missing value for --port")
 const port = parseInt(next, 10)
 if (!Number.isFinite(port)) throw new Error(`Invalid port: ${next}`)
 ```
+
 ## Not This
 
 ```typescript
@@ -87,6 +88,7 @@ const msg = JSON.parse(data) as ClientMessage  // SyntaxError crash
 // ❌ Swallowing ALL errors
 try { ... } catch { return null }  // hides bugs, only catch expected errors
 ```
+
 ## Scope
 
 All code handling external input: file reads, WebSocket messages, CLI args, user configuration, snapshot loading.

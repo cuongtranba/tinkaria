@@ -1,6 +1,6 @@
 ---
 id: adr-20260408-runner-readiness-healthcheck
-c3-seal: 169bd1cb2b11849800eadabbb8208135e143c3c18bd2cfaa063633e23e969382
+c3-seal: 0d6f3a0eded0f00b40555325702dc7d74e7d09a7626a8d86ef98a58eb8d330f4
 title: runner-readiness-healthcheck
 type: adr
 goal: Document runner-readiness-healthcheck architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-08"
 ---
 
 # runner-readiness-healthcheck
+
 ## Goal
 
 Document runner-readiness-healthcheck architecture decisions and responsibilities.

@@ -1,6 +1,6 @@
 ---
 id: adr-20260414-fix-c3-extension-empty
-c3-seal: e5b95ecfc42678c6b4041fbe88dbcdb85a0841db4019072996965d0bcd60f0d6
+c3-seal: 032c9467cbadd3589f304a1e31d366abef014c63b72399f96e9dd1e64c35fbbc
 title: fix-c3-extension-empty
 type: adr
 goal: Fix the C3 extension/project surface so a Kanna/Tinkaria project with valid C3 data displays meaningful architecture content instead of an empty view.
@@ -18,10 +18,12 @@ Fix the C3 extension/project surface so a Kanna/Tinkaria project with valid C3 d
 - Normalize C3 JSON entities on the client, mapping `title` to renderable `name` and preserving valid nested children.
 - Add focused regression tests for parsed server data and client entity normalization.
 - Preserve extension UI identity coverage while working with existing extension identity changes.
+
 ## Risks
 
 - Existing running dev server on 5174 may still serve old code until restarted; verified fixed build on alternate dev ports 5184/5185.
 - C3 CLI output remains external; route still keeps a fallback for unexpected non-JSON output.
+
 ## Verification
 
 - RED: `bun test src/server/extensions/c3/server.test.ts src/client/extensions/extensionsIdentity.test.tsx` initially failed because `getC3ExtensionUiIdentityDescriptors` was missing; server list test was too weak and allowed raw TOON.

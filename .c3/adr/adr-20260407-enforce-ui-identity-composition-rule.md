@@ -1,6 +1,6 @@
 ---
 id: adr-20260407-enforce-ui-identity-composition-rule
-c3-seal: a740ba81ceb9586bc06dddb2440543e31d9577ebdd84293831fd6df597c2284f
+c3-seal: a38d71705c97ef48545426803947ab6e0e94dd42920f00ec470f224f8e03c819
 title: enforce-ui-identity-composition-rule
 type: adr
 goal: Document enforce-ui-identity-composition-rule architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-07"
 ---
 
 # enforce-ui-identity-composition-rule
+
 ## Goal
 
 Document enforce-ui-identity-composition-rule architecture decisions and responsibilities.

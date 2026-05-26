@@ -1,6 +1,6 @@
 ---
 id: ref-screen-composition-patterns
-c3-seal: 1f43c04b60f690e9cba4402e4a1b1fea806103247a0dd5b08cc0672c84642a3b
+c3-seal: 0cdb52d172995a3fa7b0d1e42ed9e581fde3923b243872d4d8cdf0aef29172e7
 title: screen-composition-patterns
 type: ref
 goal: Document the screen composition vocabulary so new screens reuse existing layout primitives instead of inventing one-off patterns.
@@ -27,6 +27,7 @@ For data-heavy CRUD boards (coordination, admin, monitoring). All from `src/clie
 | PanelListItem | Hoverable bordered row with consistent spacing. Accepts className for conditional styles. |
 | PanelSectionHeader | Small muted label dividing list sections, such as Released (3). |
 | Dense panel layout: compose panels in CSS Grid (grid-cols-2 grid-rows-2 gap-px bg-border) inside a page wrapper. Each panel is flex flex-col h-full. |  |
+
 ### 2. Browse/Discovery — Card Vocabulary
 
 For homepage, project selection, overview surfaces. Currently local to `LocalDev.tsx`:
@@ -38,6 +39,7 @@ For homepage, project selection, overview surfaces. Currently local to `LocalDev
 | SectionHeader | text-[13px] font-medium text-muted-foreground uppercase tracking-wider. |
 | PageHeader | Route-level title with optional actions. |
 | Browse layout: responsive CSS Grid (grid-cols-1 xl:grid-cols-2) with gap-3. |  |
+
 ### 3. Sidebar — Compact Navigation
 
 For persistent sidebar navigation. Owned by `c3-113`:
@@ -47,6 +49,7 @@ For persistent sidebar navigation. Owned by `c3-113`:
 | Project group header | Sticky header with folder icon, name, and right-aligned action icon buttons shown on hover. |
 | ChatRow | Per-session row with model badge, truncated title, and timestamp. |
 | Action buttons | h-5.5 w-5.5 !rounded opacity-100 md:opacity-0 md:group-hover/section:opacity-100. |
+
 ### Decision Guide
 
 | If building... | Use... |
@@ -55,6 +58,7 @@ For persistent sidebar navigation. Owned by `c3-113`:
 | Project browser / card grid / overview | Card vocabulary + PageHeader |
 | Sidebar section / nav list | Sidebar patterns |
 | Modal / dialog | Radix Dialog + responsive modal pattern (ref-responsive-modal-pattern) |
+
 ## Why
 
 Without this reference, each new screen reinvents layout from scratch — different spacing, rounding, empty states, and header patterns. The coordination panel refactor proved that 4 nearly-identical panels had diverged in subtle ways (missing count badges, raw vs component inputs, inconsistent action button styles). This ref prevents that drift for future screens.

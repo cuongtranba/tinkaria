@@ -1,6 +1,6 @@
 ---
 id: c3-204
-c3-seal: 8d46368cf4045056e3224bc52f21a844ac7a27dec632866a8dee401c223308d1
+c3-seal: 5fab12856ecb15993eb7d39bfa0865e69ad443e9a120de9f6a6b5d0bf81a25ad
 title: shared-types
 type: component
 category: foundation
@@ -21,6 +21,7 @@ uses:
 ---
 
 # shared-types
+
 ## Goal
 
 Shared type definitions, WebSocket/NATS command protocol envelope schema, tool normalization, port constants, and branding used by both client and server.
@@ -33,6 +34,7 @@ Shared type definitions, WebSocket/NATS command protocol envelope schema, tool n
 | Role | Own shared-types behavior inside the parent container without taking over sibling responsibilities. |
 | Boundary | Keep shared-types decisions inside this component and escalate container-wide policy to the parent. |
 | Collaboration | Coordinate with cited governance and adjacent components before changing the contract. |
+
 ## Purpose
 
 Own shared protocol/types for transcript projection metadata across client and server. `TranscriptProjectionKey` belongs here so chat snapshots, render-window replies, reducer events, and tests share one shape: `{ chatId, entryCount, lastEntryId, contentHash }`. This component defines the wire contract but does not derive the key or decide freshness.
@@ -45,6 +47,7 @@ Own shared protocol/types for transcript projection metadata across client and s
 | Inputs | Accept only the files, commands, data, or calls that belong to shared-types ownership. | ref-component-identity-mapping |
 | State / data | Preserve explicit state boundaries and avoid hidden cross-component ownership. | ref-component-identity-mapping |
 | Shared dependencies | Use lower-layer helpers and cited references instead of duplicating shared policy. | ref-component-identity-mapping |
+
 ## Business Flow
 
 | Aspect | Detail | Reference |
@@ -53,6 +56,7 @@ Own shared protocol/types for transcript projection metadata across client and s
 | Primary path | Follow the component goal, honor parent fit, and emit behavior through the documented contract. | ref-component-identity-mapping |
 | Alternate paths | When a request falls outside shared-types ownership, hand it to the parent or sibling component. | ref-component-identity-mapping |
 | Failure behavior | Surface mismatch through check, tests, lookup, or review evidence before derived work ships. | ref-component-identity-mapping |
+
 ## Governance
 
 | Reference | Type | Governs | Precedence | Notes |
@@ -61,6 +65,7 @@ Own shared protocol/types for transcript projection metadata across client and s
 | ref-live-transcript-render-contract | ref | End-to-end transcript render-unit protocol expectations. | Use with state-machine ref for live transcript payloads. | ChatSnapshot and chat.getRenderUnits must expose render units plus projection metadata. |
 | rule-type-guards | rule | Runtime validation/normalization for external protocol payloads. | Use named guards/normalizers for any untrusted key payload. | No inline shape guessing. |
 | rule-rule-strict-typescript | rule | Compile-time exhaustiveness for projection-key and render-unit contracts. | Strict shared types are required before client/server implementation. | Typecheck via bunx native tsc. |
+
 ## Contract
 
 | Surface | Direction | Contract | Boundary | Evidence |
@@ -69,6 +74,7 @@ Own shared protocol/types for transcript projection metadata across client and s
 | ChatSnapshot payload | OUT | Chat snapshots carry renderUnits and their projectionKey together so clients can apply/ignore deterministically. | Snapshots without key are invalid for delivery-machine visibility. | src/shared/types.ts; src/server/read-models.test.ts |
 | chat.getRenderUnits reply | OUT | Render-window command replies carry renderUnits and the same projectionKey semantics as snapshots. | Reply metadata must survive request/reply transport. | src/shared/protocol.ts; src/server/nats-responders.test.ts |
 | normalization/guards | OUT | Any external projection-key payload validation uses named guard/normalizer functions. | No ad hoc inline shape checks. | src/shared/protocol.ts; rule-type-guards |
+
 ## Change Safety
 
 | Risk | Trigger | Detection | Required Verification |
@@ -76,6 +82,7 @@ Own shared protocol/types for transcript projection metadata across client and s
 | Key shape forks | Client, server, or tests define separate projection-key shapes. | rg TranscriptProjectionKey src should point to shared type imports. | bunx @typescript/native-preview --noEmit -p tsconfig.json |
 | Snapshot/reply omits key | ChatSnapshot or chat.getRenderUnits returns render units without projectionKey. | Protocol/read-model/responder tests fail. | bun test src/server/read-models.test.ts src/server/nats-responders.test.ts |
 | Hash/freshness logic leaks into types | Shared type module starts deriving contentHash or applying freshness rules. | Code review of src/shared/types.ts and src/shared/protocol.ts. | bun test src/shared/transcript-render.test.ts src/server/read-models.test.ts |
+
 ## Derived Materials
 
 | Material | Must derive from | Allowed variance | Evidence |

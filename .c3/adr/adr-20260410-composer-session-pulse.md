@@ -1,6 +1,6 @@
 ---
 id: adr-20260410-composer-session-pulse
-c3-seal: f461fdf334bf0449e8a7d7f3fca14b1a16ccb7c19398bb71237157ca801a7423
+c3-seal: be385ff6e179ff0e647305daafbd60259c6ec9aeb40776a3cf318f9fb7998c7b
 title: composer-session-pulse
 type: adr
 goal: 'Move session-state indication from transcript messages into the composer border:'
@@ -16,6 +16,7 @@ Move session-state indication from transcript messages into the composer border:
 2. **Reconnecting**: keep current amber border visual, remove the text badge inside composer
 3. **Remove transcript status messages**: no more "Reconnecting" or "Disconnecting" text injected into the message list
 Affected: c3-112 (chat-input), c3-111 (messages)
+
 ## Approach
 
 - Add CSS `@keyframes` for a subtle border pulse using brand coral accent

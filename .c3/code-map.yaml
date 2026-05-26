@@ -35,12 +35,12 @@ c3-110:
   - src/client/app/nats-socket.ts
   - src/client/app/scrollFollowStore.ts
   - src/client/app/socket-interface.ts
+  - src/client/app/useAppState.machine.ts
   - src/client/app/useAppState.ts
   - src/client/app/useChatCommands.ts
   - src/client/app/useChatNavigator.ts
   - src/client/app/useScrollSync.ts
   - src/client/app/useStickyChatFocus.ts
-  - src/client/app/useAppState.machine.ts
   - src/client/components/chat-ui/ForkSessionDialog.tsx
   - src/client/components/chat-ui/MergeSessionDialog.tsx
   - src/client/components/chat-ui/TerminalPane.tsx
@@ -152,6 +152,15 @@ c3-222:
 c3-226:
   - src/server/transcript-consumer.test.ts
   - src/server/transcript-consumer.ts
+c3-228:
+  - src/client/app/ClaudePtyTab.tsx
+  - src/client/components/chat-ui/PtyInstancesIndicator.tsx
+  - src/client/stores/ptyInstancesStore.ts
+  - src/server/claude-pty-mcp/**
+  - src/server/claude-pty/**
+  - src/server/pty-responders.ts
+  - src/shared/pty-instance.ts
+  - src/shared/tinkaria-system-prompt.ts
 ref-live-transcript-render-contract:
   - src/client/app/ChatTranscript.tsx
   - src/client/app/useTranscriptLifecycle.ts
@@ -220,8 +229,8 @@ rule-error-extraction:
 rule-graceful-fallbacks:
   - src/server/cli-runtime.ts
   - src/server/event-store.ts
-  - src/server/nats-publisher.ts
   - src/server/nats-bridge.ts
+  - src/server/nats-publisher.ts
   - src/server/terminal-manager.ts
 rule-prefixed-logging:
   - src/client/app/useAppState.ts

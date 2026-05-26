@@ -431,6 +431,24 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
       return "sent" as const
     }
 
+    // Claude-PTY routing: if a live pty instance exists for this chat,
+    // bypass chat.send and forward keystrokes via pty.input. The PTY
+    // driver owns the turn lifecycle in that mode.
+    try {
+      const ptyStoreMod = await import("../stores/ptyInstancesStore")
+      const ptyClient = await import("../lib/pty-client")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storeFactory: any = (ptyStoreMod as any).usePtyInstancesStore ?? (ptyStoreMod as any).default
+      const snapshot: { instances?: Array<{ chatId: string }> } | undefined = storeFactory?.getState?.()
+      const live = snapshot?.instances?.some((i) => i.chatId === activeChatId) ?? false
+      if (live) {
+        await ptyClient.ptyInput(socket, activeChatId, content)
+        return "sent" as const
+      }
+    } catch {
+      // Store/helper not initialised or no live PTY — fall through.
+    }
+
     if (
       shouldQueueChatSubmit(isProcessing, activeQueuedText)
       || getSubmitPipelineMode(submitPipeline, activeChatId) === "flushing"

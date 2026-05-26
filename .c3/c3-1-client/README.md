@@ -1,6 +1,6 @@
 ---
 id: c3-1
-c3-seal: a437b3c1a786c21901118af651e22b8fe5fc90cc8da36abe6cfece4d121abd47
+c3-seal: a36fe12f6cf712cff8e36f3f6d2f5a2eb39cc4242c7d9441c0c0444b57c89a05
 title: client
 type: container
 boundary: service
@@ -32,6 +32,7 @@ React 19 single-page application running in the browser — chat interface, term
 | c3-118 | transcript-lifecycle | Feature | active | Transcript delivery state, projection freshness, raw-event coalescing, and ready render-unit handoff. |
 | c3-119 | transcript-renderer | Feature | active | Units-only transcript presentation, virtualization, stable measurement, and dispatch to message renderers. |
 | c3-120 | extensions | Feature | active | Project extension surfaces including C3, agents, and code views. |
+
 ## Responsibilities
 
 - Render chat transcripts with rich message types (tool calls, diffs, todos, plans)
@@ -39,6 +40,7 @@ React 19 single-page application running in the browser — chat interface, term
 - Manage UI state (theme, layout, preferences) via Zustand stores
 - Connect to server via WebSocket for real-time state updates
 - Handle project navigation, sidebar, and settings UI
+
 ## Complexity Assessment
 
 Moderate-to-Complex: 96 TSX/TS files, rich message rendering pipeline, multi-panel layout with resizable panes, terminal integration, drag-and-drop project ordering.

@@ -1,6 +1,6 @@
 ---
 id: ref-ref-provider-abstraction
-c3-seal: fef333961e1e2dffe028ba6a7abb99f90ce978485c19662d52b95bad3c5dcb9e
+c3-seal: 5e416b09364c458136eb2ee3312c452d17f53c0b10d1d9da6465d195a303fe9b
 title: ref-provider-abstraction
 type: ref
 goal: Abstract away differences between AI providers so the UI and business logic work identically regardless of which provider is active.
@@ -21,6 +21,7 @@ ProviderCatalog defines a normalized interface over Claude and Codex providers. 
 - Shared model option types enable a single settings UI for all providers
 - Provider-specific quirks are isolated in adapter code, not leaked across the codebase
 - Easy to add new providers by implementing the catalog interface
+
 ## How
 
 Provider-specific bootstrap and transport live behind dedicated harness seams that preserve a shared `HarnessTurn` contract.
@@ -32,6 +33,7 @@ For each provider:
 3. Keep `AgentCoordinator` limited to prompt shaping, lifecycle bookkeeping, and the single harness call.
 4. Add focused harness tests that prove provider-owned bootstrap, fallback, and startup-failure behavior directly.
 Compliance questions:
+
 - Can the coordinator start the provider without directly calling the provider SDK or transport primitives?
 - Does the provider have a dedicated harness module that owns bootstrap/session-start choreography?
 - Are provider transport semantics verified in focused harness tests instead of only broad coordinator tests?

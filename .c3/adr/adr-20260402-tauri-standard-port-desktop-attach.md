@@ -1,6 +1,6 @@
 ---
 id: adr-20260402-tauri-standard-port-desktop-attach
-c3-seal: 635f0857bd1d7b66366def7a8d17de1842d62ffabd3c287d58b52fdf04444963
+c3-seal: f5d514fa8d861a9893cc2feb88743c62cedfffa58a0f5d10f49f145847fdcde7
 title: tauri-standard-port-desktop-attach
 type: adr
 goal: Document tauri-standard-port-desktop-attach architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-02"
 ---
 
 # tauri-standard-port-desktop-attach
+
 ## Goal
 
 Document tauri-standard-port-desktop-attach architecture decisions and responsibilities.

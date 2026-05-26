@@ -15,6 +15,10 @@ import { ensureCalloutKeys } from "../nats/auth-callout/keys"
 import { mintCredentialToken } from "../nats/auth-callout/token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
+import { registerPtyResponders } from "./pty-responders"
+import { OAuthSettingsStore } from "./oauth-pool/oauth-settings-store"
+import { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
+import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
 import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { PairingStore } from "./pairing-store"
@@ -754,6 +758,78 @@ export async function startServer(options: StartServerOptions = {}) {
     runtimeRegistry,
   })
 
+  const oauthSettings = new OAuthSettingsStore()
+  await oauthSettings.load()
+  const oauthPool = new OAuthTokenPool(
+    () => oauthSettings.getTokens(),
+    (id, patch) => oauthSettings.mutateTokenStatus(id, patch),
+    Date.now,
+    () => oauthSettings.getConcurrencyDefault(),
+  )
+  const oauthResponders = registerOAuthResponders({ nc: natsConnector.nc, store: oauthSettings })
+
+  const ptyResponders = registerPtyResponders({ nc: natsConnector.nc, store, oauthPool })
+
+  // Boot-time self-test: round-trip pty.snapshot through NATS to prove the
+  // responder is reachable. Logs a single line so /health smoke can confirm.
+  ;(async () => {
+    try {
+      const { ptyCommandSubject } = await import("../shared/nats-subjects")
+      const { compressPayload, decompressPayload } = await import("../shared/compression")
+      const enc = new TextEncoder()
+      const dec = new TextDecoder()
+      const reply = await natsConnector.nc.request(
+        ptyCommandSubject("pty.snapshot"),
+        compressPayload(enc.encode("{}")),
+        { timeout: 2000 },
+      )
+      const text = dec.decode(await decompressPayload(reply.data))
+      console.log(LOG_PREFIX, "claude-pty self-test pty.snapshot:", text)
+
+      // Spawn smoke: prove driver invocation reaches verifyPtyAuth by issuing
+      // pty.spawn with no OAuth token. Expected reply: {ok:false, error:"…OAuth pool token…"}.
+      const spawnReply = await natsConnector.nc.request(
+        ptyCommandSubject("pty.spawn"),
+        compressPayload(enc.encode(JSON.stringify({
+          chatId: "smoke-spawn-no-token",
+          projectId: "smoke",
+          cwd: process.cwd(),
+          model: "opus",
+          oauthToken: null,
+          oauthLabel: "smoke-test",
+        }))),
+        { timeout: 2000 },
+      )
+      const spawnText = dec.decode(await decompressPayload(spawnReply.data))
+      console.log(LOG_PREFIX, "claude-pty self-test pty.spawn (no token):", spawnText)
+
+      // Self-test spawned a real PTY when pool had tokens — kill it so the
+      // smoke-spawn-no-token instance does not leak into every chat's PTY
+      // indicator (publishes `removed` delta to client store).
+      try {
+        await natsConnector.nc.request(
+          ptyCommandSubject("pty.exit"),
+          compressPayload(enc.encode(JSON.stringify({ chatId: "smoke-spawn-no-token" }))),
+          { timeout: 2000 },
+        )
+      } catch {
+        // Best-effort cleanup; ignore failures (instance may not exist if
+        // spawn rejected due to empty pool).
+      }
+
+      const { oauthCommandSubject } = await import("../shared/nats-subjects")
+      const oauthListReply = await natsConnector.nc.request(
+        oauthCommandSubject("oauth.list"),
+        compressPayload(enc.encode("{}")),
+        { timeout: 2000 },
+      )
+      const oauthListText = dec.decode(await decompressPayload(oauthListReply.data))
+      console.log(LOG_PREFIX, "oauth-pool self-test oauth.list:", oauthListText)
+    } catch (err) {
+      console.warn(LOG_PREFIX, "claude-pty self-test failed:", err instanceof Error ? err.message : String(err))
+    }
+  })().catch(() => undefined)
+
   const distDir = path.join(import.meta.dir, "..", "..", "dist", "client")
 
   // Warm up the synthetic INFO cache used by the lazy-upstream proxy path.
@@ -914,6 +990,8 @@ export async function startServer(options: StartServerOptions = {}) {
     clearInterval(natsWsCounterInterval)
     orchestrator.destroy()
     responders.dispose()
+    ptyResponders.dispose()
+    oauthResponders.dispose()
     publisher.dispose()
     terminals.closeAll()
     transcriptConsumer.stop()

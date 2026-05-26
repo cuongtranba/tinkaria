@@ -331,5 +331,15 @@ export class RunnerProxy {
     } catch (_error) {
       // Chat might not be running — swallow
     }
+    // Tear down any long-lived claude-pty session for this chat. Cancel
+    // above only sends ^C to the active turn (preserving the session for
+    // a follow-up prompt). A chat being deleted must release the claude
+    // CLI child + MCP HTTP server + file watcher + memory sampler + OAuth
+    // pool reservation. Mirrors kanna's `closeChat` discipline.
+    try {
+      await this.sendCommand("stop_chat_pty", { chatId })
+    } catch (_error) {
+      // Runner may have already cleared the session — swallow
+    }
   }
 }

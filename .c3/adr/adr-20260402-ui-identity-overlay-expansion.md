@@ -1,6 +1,6 @@
 ---
 id: adr-20260402-ui-identity-overlay-expansion
-c3-seal: 8bd04e48455cc6bce2b0f9c745ca7a6c9de1bbc6efc4d22785363810009d7676
+c3-seal: 9b727e36bc0bc22bf385336291dcdf6c48072921f18e0fbe49556fee6bd9005c
 title: ui-identity-overlay-expansion
 type: adr
 goal: Document ui-identity-overlay-expansion architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-02"
 ---
 
 # ui-identity-overlay-expansion
+
 ## Goal
 
 Document ui-identity-overlay-expansion architecture decisions and responsibilities.

@@ -1,6 +1,6 @@
 ---
 id: adr-20260410-transcript-payload-budgeted-paging
-c3-seal: c97891f35c889a9d8cc0acae26c8e46a6effae81ec024f8fe8aa2744dbf5170d
+c3-seal: 497e8853f9f7606be7ccd0132e75777b15bf5c847b7f4fd42bd2cab091e225ab
 title: transcript-payload-budgeted-paging
 type: adr
 goal: Supersede the unsafe assumption in `adr-20260401-chunked-transcript-loading` that a fixed tail window by entry count is transport-safe.
@@ -23,11 +23,13 @@ Proposed API shape:
 ```ts
 { type: "chat.getTranscriptPage", chatId, cursor?: string, direction: "backward", targetEntries?: number, maxBytes?: number }
 ```
+
 Response shape:
 
 ```ts
 { entries: TranscriptEntry[], nextCursor: string | null, hasMore: boolean, approxBytes: number }
 ```
+
 Contract rules:
 
 1. The server chooses page boundaries.
@@ -39,13 +41,16 @@ This keeps transport safety inside the transport boundary, where `c3-205` alread
 **Secondary decision — externalize large transcript artifacts:**
 Do not keep treating append-only transcript JSONL as a blob store. Large screenshot/tool-result payloads should move to asset-backed references so transcripts remain event logs, not transport-hostile binary containers.
 Target direction:
+
 - transcript entry stores metadata + asset reference
 - large binary payload stored separately on disk
 - rich-content surfaces resolve the asset lazily when needed
 Example shape:
+
 ```ts
 { type: "image_ref", assetId, mimeType, byteSize, width, height }
 ```
+
 This second phase reduces disk growth in `c3-201`, request/reply pressure in `c3-205`, and hydration/parse memory in `c3-110` (`chat`).
 
 **Affected entities:**

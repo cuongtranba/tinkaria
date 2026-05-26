@@ -1,6 +1,6 @@
 ---
 id: rule-transcript-boundary-regressions
-c3-seal: 5d63de3ac0b022e3c5459daccb849bc54e88cd0da69a31c6bbd1f19a11619685
+c3-seal: f6b5931b1574ae9a0fcddf80d48d1d8692b539c04b33d990ca3d7550f90a03ef
 title: transcript-boundary-regressions
 type: rule
 goal: Prevent transcript-flow changes from silently breaking live assistant visibility, WIP grouping, tool-result hydration, or structured artifact rendering.
@@ -21,6 +21,7 @@ Required proof by changed surface:
 - Hydration path: prove bulk and incremental hydration agree; prove `tool_result` updates return a fresh message-array reference.
 - Grouping path: prove narration/tools/errors/special tools/final assistant answer boundaries.
 - Render path: prove semantic UI id and dedicated renderer (`message.wip-block.area`, `message.assistant.response`, `message.present_content.item`, rich-content viewer ids where relevant).
+
 ## Golden Example
 
 `ChatTranscript.test.tsx` locks WIP grouping and live trailing answer visibility; `parseTranscript.test.ts` locks bulk/incremental hydration and tool-result mutation; `PresentContentMessage.test.tsx` and `RichContentBlock.test.tsx` lock artifact rendering.

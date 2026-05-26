@@ -14,12 +14,13 @@ const PREFERENCES_UI_DESCRIPTOR = createC3UiIdentityDescriptor({
 })
 
 const THEME_OPTIONS: readonly ThemePreference[] = ["light", "dark", "system"]
-const PROVIDER_OPTIONS: readonly DefaultProviderPreference[] = ["last_used", "claude", "codex"]
+const PROVIDER_OPTIONS: readonly DefaultProviderPreference[] = ["last_used", "claude", "codex", "claude-pty"]
 
 const PROVIDER_LABELS: Record<DefaultProviderPreference, string> = {
   last_used: "Last used",
   claude: "Claude",
   codex: "Codex",
+  "claude-pty": "Claude (PTY)",
 }
 
 function SegmentGroup<T extends string>({

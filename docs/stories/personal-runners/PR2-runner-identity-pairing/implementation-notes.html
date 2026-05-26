@@ -25,7 +25,7 @@
 <body>
 
 <h1>PR2 — Runner Identity &amp; Pairing</h1>
-<p class="sub">Working narrative · <span class="status">packet stage — implementation starting</span></p>
+<p class="sub">Working narrative · <span class="status">Stage 1 complete — server endpoints + code store + durable token mint</span></p>
 
 <p>Contract: <code>execplan.md</code> / <code>overview.md</code> / <code>design.md</code> /
 <code>validation.md</code>; decision <code>0008</code>. Stacks on PR1's auth-callout.</p>
@@ -71,13 +71,62 @@
   bites.</p>
 </div>
 
-<h2>Deviations</h2>
-<p class="muted">None yet — implementation starting.</p>
+<h2>Stage 1 — Server Implementation</h2>
+<div class="card">
+  <span class="label">token.ts — TTL + byteOffset fixes</span>
+  <p>Added <code>exp</code> field to the token payload (required — legacy tokens without
+  <code>exp</code> are rejected). Added optional <code>ttlSeconds</code> parameter to
+  <code>mintCredentialToken</code> (default 30 days for existing callers; paired runners
+  use <code>RUNNER_PAIR_TTL</code> default 90d). Fixed a pre-existing
+  <code>byteOffset</code> bug in <code>hmacSign</code>/<code>hmacVerify</code> where
+  pooled-Buffer sub-array views caused HMAC key import to see the wrong bytes — fixed
+  with <code>buffer.slice(byteOffset, byteOffset+byteLength)</code>.</p>
+</div>
+<div class="card">
+  <span class="label">pairing-store.ts — in-memory single-use code store</span>
+  <p>Pure class with injectable clock and RNG. Generates 10 random bytes → 16
+  base32 chars formatted <code>xxxxx-xxxxx-xxxxxx</code> (5-5-6). <code>exchange()</code>
+  looks up the entry before sweeping so "expired" and "consumed" are distinguishable
+  from "unknown". Sweep runs on <code>issue()</code> and <code>exchange()</code> to
+  bound memory growth. 10 unit tests covering shape, uniqueness, single-use, expiry,
+  and sweep semantics.</p>
+</div>
+<div class="card">
+  <span class="label">server.ts — endpoint wiring</span>
+  <p>Added <code>mintPairedRunnerToken</code> (callout branch only, uses
+  <code>RUNNER_PAIR_TTL</code> env, default 7776000s). Instantiated
+  <code>PairingStore</code>. Two routes inserted before <code>/api/workspace/</code>:
+  <code>POST /api/pairing/code</code> (allocates <code>runner-{ms}-{pid}</code>
+  runnerId, mints long-lived token, stores code, returns <code>{code, expiresAt}</code>)
+  and <code>POST /api/pairing/exchange</code> (atomically consumes code, returns
+  <code>{runnerId, token, natsUrl, natsWsUrl}</code>; 410 expired/consumed; 400
+  unknown). Token mode returns 409 with a clear message.</p>
+</div>
 
-<h2>Verification log</h2>
-<p class="muted">Empty until Stage 2/verify. Decisive entry: externally-launched
-paired runner's <code>decision=grant class=runner:&lt;id&gt;</code> + its registry
-entry, plus a rejected reused code.</p>
+<h2>Deviations</h2>
+<div class="card">
+  <span class="label">Fixed pre-existing byteOffset bug in token.ts</span>
+  <p>The task brief said "do not modify scope-policy.ts or the callout." token.ts
+  was fair game and had a pre-existing test failure (byteOffset). Fixed it as part
+  of adding TTL — all 13 token tests now pass.</p>
+</div>
+
+<h2>Verification log (Stage 1)</h2>
+<div class="card">
+  <span class="label">Stage 1 — all tests green</span>
+  <ul>
+    <li>typecheck: clean (<code>bunx @typescript/native-preview --noEmit</code>)</li>
+    <li><code>bun test src/nats/auth-callout/token.test.ts</code>: 13/13 pass</li>
+    <li><code>bun test src/server/pairing-store.test.ts</code>: 10/10 pass</li>
+    <li><code>bun test src/server/pairing-endpoints.test.ts</code>: 4/4 pass (full server,
+    30s timeout each — round-trip, consumed 410, unknown 400, token-mode 409)</li>
+    <li><code>bun test src/nats/</code>: 60/60 pass (no PR1 regressions)</li>
+  </ul>
+  <p>Exchange round-trip verified: <code>verifyCredentialToken(token, keys.tokenSecret)</code>
+  → <code>{class:"runner", runnerId}</code> with <code>runnerId</code> matching the issued
+  value. NATS callout log shows <code>decision=grant class=runner:runner-&lt;id&gt;</code>
+  for the spawned runner confirming PR1 callout path is unaffected.</p>
+</div>
 
 </body>
 </html>

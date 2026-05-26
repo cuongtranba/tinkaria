@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-remove-legacy-kanna-data-roots
-c3-seal: 214534667bd8bc5d7a803f1573b55d5a968fa35827baf9ea537fb819b97aed0c
+c3-seal: b87387aa64e61619d907c2a5bfedc201de91e795e0fa3752edb8f2d80dce4a12
 title: remove-legacy-kanna-data-roots
 type: adr
 goal: Document remove-legacy-kanna-data-roots architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-06"
 ---
 
 # remove-legacy-kanna-data-roots
+
 ## Goal
 
 Document remove-legacy-kanna-data-roots architecture decisions and responsibilities.

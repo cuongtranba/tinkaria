@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-hub-kit-runtime-split
-c3-seal: 720f01b33d0ac887ec1eff34f9a14c3a4b4016b726471f0fdabb1f673c4a3cbf
+c3-seal: c1c863679d9d6c1409b5dd8d5a93da4c9e59852ff829d4c38e0d4d2c84b89cad
 title: split runtime into hub control plane and kit workers
 type: adr
 goal: '[ASSUMED] Design-only ADR for a runtime split that isolates durable server concerns from disposable agent execution while keeping the naming contract precise enough to implement without transport ambiguity.'
@@ -19,7 +19,9 @@ Adopt a two-role architecture:
 - `hub` is the control plane. It hosts HTTP/UI, embedded NATS, the event store, read models, chat/project/session identity, orchestration state, approval flow, and the authoritative transcript.
 - `kit` is a long-lived execution daemon. It advertises capabilities, accepts leased turn assignments from the hub, runs provider-specific agent work, and emits status/tool/result events back to the hub.
 A single `kit` is not a one-shot worker. It is expected to handle many operations across many projects and agent sessions up to its configured capacity.
+
 ## Responsibilities
+
 ### Hub
 
 - Start and own NATS transport and all client-facing responders.
@@ -28,6 +30,7 @@ A single `kit` is not a one-shot worker. It is expected to handle many operation
 - Match turns onto eligible kits using provider/profile/capability filters.
 - Issue leases, track heartbeats, and recover abandoned turns.
 - Publish snapshots to the UI and expose the authoritative session state.
+
 ### Kit
 
 - Register with the hub using a `KitProfile` that describes machine identity, provider support, skill pack, system-prompt profile, labels/tags, and max concurrency.
@@ -36,6 +39,7 @@ A single `kit` is not a one-shot worker. It is expected to handle many operation
 - Stream execution events, tool requests, completion/failure signals, and heartbeat signals back to the hub.
 - Stop work on lease loss or explicit cancel from the hub.
 - Support many concurrent operations across many projects and chats, subject to its declared limits.
+
 ## Naming Layers
 
 The design uses three distinct naming layers. They MUST NOT be collapsed together.
@@ -59,17 +63,20 @@ No implementer should infer a literal top-level NATS subject layout from the con
 - Current server/runtime authority maps to the future `hub` role.
 - `kit` names the runtime role, not the current NATS subject prefix.
 - The legacy `kanna.*` transport namespace remains in place initially for compatibility.
+
 ## Hard Boundaries
 
 - Kits MUST NOT write durable chat/project/task/orchestration state directly.
 - Kits MUST NOT publish UI snapshots directly.
 - The hub MUST remain the only authority for chat identity, transcript order, task/orchestration state, and client-visible status.
 - `project-agent` remains in the hub because it queries and coordinates shared project state rather than executing provider work.
+
 ## Scheduling Rules
 
 - Prefer the same kit for follow-up turns when the provider session/thread token lives there.
 - Fall back to any compatible kit when affinity cannot be satisfied.
 - Keep a built-in local kit mode so single-machine/dev usage still works without remote execution daemons.
+
 ## Migration Plan
 
 1. Extract an `AgentRuntime` boundary from the current in-process coordinator so turn execution is abstracted behind an interface.
@@ -79,6 +86,7 @@ No implementer should infer a literal top-level NATS subject layout from the con
 5. Add kit registry, capability matching, leases, and heartbeat recovery.
 6. Move Claude execution behind the same worker contract.
 7. Only after the local kit path is stable, enable multi-machine kits.
+
 ## Risks
 
 - Hidden distributed state if orchestration logic leaks into kits.
@@ -86,6 +94,7 @@ No implementer should infer a literal top-level NATS subject layout from the con
 - Ordering bugs if kits append transcript state directly instead of emitting events.
 - Over-designing discovery/placement before the first local external kit proves the boundary.
 - Naming drift between ADR shorthand and transport/protocol code if the layers above are not kept explicit.
+
 ## Acceptance Criteria For The First Slice
 
 - Restarting UI/hub code no longer requires the agent runtime to be embedded in the same process boundary.

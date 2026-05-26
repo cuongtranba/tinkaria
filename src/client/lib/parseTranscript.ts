@@ -143,6 +143,12 @@ function hydrateEntry(
         ...createBaseMessage(entry),
         kind: "interrupted",
       }
+    case "rate_limit":
+      return {
+        ...createBaseMessage(entry),
+        kind: "rate_limit",
+        rateLimit: entry.rateLimit,
+      }
     default:
       return {
         ...createBaseMessage(entry),

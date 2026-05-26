@@ -74,6 +74,12 @@ export interface RunnerAgentOptions {
   createTurn: TurnFactory
   generateTitle?: (content: string, cwd: string) => Promise<string | null>
   coordinationStore?: CoordinationStore
+  /**
+   * Hook the runner calls when a chat is being torn down (cancel without
+   * active turn, chat.delete). Implementation closes any live claude-pty
+   * session for the chat. Wired from runner.ts to turn-factories.ts.
+   */
+  stopClaudePtySession?: (chatId: string) => void
 }
 
 // ── RunnerAgent ─────────────────────────────────────────────────────
@@ -84,6 +90,7 @@ export class RunnerAgent {
   private readonly createTurn: TurnFactory
   private readonly generateTitle: ((content: string, cwd: string) => Promise<string | null>) | undefined
   private readonly coordinationStore: CoordinationStore | undefined
+  private readonly stopClaudePtySessionFn: ((chatId: string) => void) | undefined
   readonly activeTurns = new Map<string, ActiveTurn>()
 
   constructor(options: RunnerAgentOptions) {
@@ -92,6 +99,7 @@ export class RunnerAgent {
     this.createTurn = options.createTurn
     this.generateTitle = options.generateTitle
     this.coordinationStore = options.coordinationStore
+    this.stopClaudePtySessionFn = options.stopClaudePtySession
   }
 
   // ── Publishing ──────────────────────────────────────────────────
@@ -216,7 +224,15 @@ export class RunnerAgent {
 
   async cancel(chatId: string): Promise<void> {
     const active = this.activeTurns.get(chatId)
-    if (!active) return
+    if (!active) {
+      // No active turn but a long-lived claude-pty session may still own a
+      // claude CLI child, MCP HTTP server, file watcher, sampler interval,
+      // and an OAuth pool reservation. Closing the session here matches
+      // kanna's `closeChat` discipline — cancel of an idle chat must release
+      // the PTY, not silently no-op.
+      this.stopClaudePtySessionFn?.(chatId)
+      return
+    }
 
     active.cancelRequested = true
 
@@ -241,6 +257,16 @@ export class RunnerAgent {
     this.activeTurns.delete(chatId)
 
     void this.interruptTurnAfterCancel(active).catch(() => {})
+  }
+
+  /**
+   * Tear down any live claude-pty session for the chat unconditionally.
+   * Called from RunnerProxy.disposeChat after a separate `cancel_turn`
+   * has interrupted any in-flight turn. Always safe — no-op when the chat
+   * has no session.
+   */
+  stopChatPty(chatId: string): void {
+    this.stopClaudePtySessionFn?.(chatId)
   }
 
   async respondTool(chatId: string, toolUseId: string, result: unknown): Promise<void> {

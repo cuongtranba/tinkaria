@@ -1,6 +1,6 @@
 ---
 id: c3-208
-c3-seal: 43292bbb4a71b567e7092cae8ca3fbebd20497b2639bd86b47771c11da6c12c5
+c3-seal: b3225ff1c99b30ec8bf2b905f1277b172fc34aa5ce2d8cd400fea3214db1d92b
 title: kit-runtime
 type: component
 category: foundation
@@ -19,6 +19,7 @@ uses:
 ---
 
 # kit-runtime
+
 ## Goal
 
 Own the hub-to-kit execution seam for Codex turns: track stable project-to-kit assignment, bridge turn/session traffic over NATS, and run the default local long-running kit without changing the client command surface.
@@ -31,6 +32,7 @@ Own the hub-to-kit execution seam for Codex turns: track stable project-to-kit a
 | Role | Own kit-runtime behavior inside the parent container without taking over sibling responsibilities. |
 | Boundary | Keep kit-runtime decisions inside this component and escalate container-wide policy to the parent. |
 | Collaboration | Coordinate with cited governance and adjacent components before changing the contract. |
+
 ## Purpose
 
 Provide durable agent-ready documentation for kit-runtime so generated code, tests, and follow-up docs preserve ownership, boundaries, governance, and verification evidence.
@@ -43,6 +45,7 @@ Provide durable agent-ready documentation for kit-runtime so generated code, tes
 | Inputs | Accept only the files, commands, data, or calls that belong to kit-runtime ownership. | ref-component-identity-mapping |
 | State / data | Preserve explicit state boundaries and avoid hidden cross-component ownership. | ref-component-identity-mapping |
 | Shared dependencies | Use lower-layer helpers and cited references instead of duplicating shared policy. | ref-component-identity-mapping |
+
 ## Business Flow
 
 | Aspect | Detail | Reference |
@@ -51,11 +54,13 @@ Provide durable agent-ready documentation for kit-runtime so generated code, tes
 | Primary path | Follow the component goal, honor parent fit, and emit behavior through the documented contract. | ref-component-identity-mapping |
 | Alternate paths | When a request falls outside kit-runtime ownership, hand it to the parent or sibling component. | ref-component-identity-mapping |
 | Failure behavior | Surface mismatch through check, tests, lookup, or review evidence before derived work ships. | ref-component-identity-mapping |
+
 ## Governance
 
 | Reference | Type | Governs | Precedence | Notes |
 | --- | --- | --- | --- | --- |
 | ref-component-identity-mapping | ref | Governs kit-runtime behavior, derivation, or review when applicable. | Explicit cited governance beats uncited local prose. | Migrated from legacy component form; refine during next component touch. |
+
 ## Contract
 
 | Surface | Direction | Contract | Boundary | Evidence |
@@ -64,6 +69,7 @@ Provide durable agent-ready documentation for kit-runtime so generated code, tes
 | status events | OUT | RunnerAgent publishes status_change events such as starting/running/waiting_for_user, but these are asynchronous observations consumed by c3-226 and cannot be the only active-state gate. | c3-226 transcript-runtime boundary | src/runner/runner-agent.ts; src/server/transcript-consumer.ts |
 | final events | OUT | RunnerAgent publishes turn_finished, turn_failed, or turn_cancelled and removes active turns in finally. | c3-226 transcript-runtime boundary | src/runner/runner-agent.ts; src/runner/runner-agent.test.ts |
 | Codex app-server seam | OUT | Codex app-server manager maps Codex JSON-RPC turn events into HarnessTurn transcript/session events without owning chat queue policy. | c3-216 codex boundary | src/server/codex-app-server.ts; src/server/codex-app-server.test.ts |
+
 ## Change Safety
 
 | Risk | Trigger | Detection | Required Verification |
@@ -72,6 +78,7 @@ Provide durable agent-ready documentation for kit-runtime so generated code, tes
 | Status-event timing assumption | Code assumes starting/running status_change arrives before Codex can send a follow-up tool call. | Reproduces only with immediate Codex send_input after spawnAgent. | bun test src/server/orchestration.test.ts --test-name-pattern 'queues input if target is already running' |
 | Provider boundary drift | Codex app-server or runner code starts owning chat queue policy. | Queue behavior appears in src/server/codex-app-server.ts or src/runner/runner-agent.ts instead of RunnerProxy. | src/server/runner-proxy.ts; src/server/codex-app-server.ts; src/runner/runner-agent.ts |
 | Contract drift | Goal, boundary, or derived material changes without matching component docs. | Compare Goal, Parent Fit, Contract, and Derived Materials. | C3X_MODE=agent bash /home/lagz0ne/.agents/skills/c3/bin/c3x.sh check |
+
 ## Derived Materials
 
 | Material | Must derive from | Allowed variance | Evidence |

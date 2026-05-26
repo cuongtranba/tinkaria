@@ -1,6 +1,6 @@
 ---
 id: recipe-workspace-isolated-dev-journey
-c3-seal: 1a19649725f7fe91bc42d79ca71ada64a7125fd33337d79a99240788ad5a7af4
+c3-seal: 943dfd8ded82d9af5ec3a91b5e2bedf38aeb731ff7934e87adab795530267c7b
 title: workspace-isolated-dev-journey
 type: recipe
 goal: 'Trace the sandbox isolation journey: user creates a Docker sandbox, monitors its lifecycle, and manages container state.'
@@ -24,16 +24,19 @@ When I want to run code in an isolated environment, I want to create and manage 
 | 4. Stop sandbox | /workspace/:id | SandboxPanel | Click "Stop" | Status → "stopped" (gray), Start button appears |
 | 5. Start sandbox | /workspace/:id | SandboxPanel | Click "Start" | Status → "running" (green), Stop button appears |
 | 6. Destroy sandbox | /workspace/:id | SandboxPanel | Click "Destroy" | Returns to empty state (no sandbox) |
+
 ### Subscription Dependencies
 
 - `useSandboxSubscription(socket, workspaceId)` → SandboxSnapshot
 - Commands: workspace.sandbox.create/start/stop/destroy
+
 ### Known UX Gaps (from audit)
 
 - No confirmation dialog on Destroy
 - Health data (memory usage, CPU%, NATS connected, uptime) exists in snapshot but is not rendered
 - Error field not displayed when status is "error"
 - No loading/disabled state on buttons during operations
+
 ### Test Contract
 
 - Stage 1: Empty state renders with Create button

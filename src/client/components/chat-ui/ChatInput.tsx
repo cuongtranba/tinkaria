@@ -389,7 +389,7 @@ const ComposerPreferenceControls = memo(forwardRef<ComposerPreferencesHandle, Co
         break
       case "fastMode":
         doUpdate(
-          (state) => state.provider === "claude"
+          (state) => state.provider !== "codex"
             ? state
             : { ...state, modelOptions: { ...state.modelOptions, fastMode: change.fastMode } },
           () => setComposerModelOptions({ fastMode: change.fastMode })
@@ -669,6 +669,8 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
 
     if (composerSnapshot.providerPrefs.provider === "claude") {
       modelOptions = { claude: { ...composerSnapshot.providerPrefs.modelOptions } }
+    } else if (composerSnapshot.providerPrefs.provider === "claude-pty") {
+      modelOptions = { "claude-pty": { ...composerSnapshot.providerPrefs.modelOptions } }
     } else {
       modelOptions = { codex: { ...composerSnapshot.providerPrefs.modelOptions } }
     }

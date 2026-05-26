@@ -1,6 +1,6 @@
 ---
 id: c3-210
-c3-seal: c3f484e7c0255718e92d77920c50093a9e113c62b4cf23aaf48fd67f20cc845a
+c3-seal: d27a86e5ac320bb022c262ba4b8643c691d738a6a6e7a50eb7e0cd1f0fd64b7c
 title: agent
 type: component
 category: feature
@@ -26,6 +26,7 @@ uses:
 ---
 
 # agent
+
 ## Goal
 
 RunnerProxy and provider harness seams manage multi-turn AI agent sessions, prompt shaping, tool gating, plan mode, transcript event flow, queued follow-up ownership, and provider handoff without leaking provider transport details across the server.
@@ -38,6 +39,7 @@ RunnerProxy and provider harness seams manage multi-turn AI agent sessions, prom
 | Role | Own agent behavior inside the parent container without taking over sibling responsibilities. |
 | Boundary | Keep agent decisions inside this component and escalate container-wide policy to the parent. |
 | Collaboration | Coordinate with cited governance and adjacent components before changing the contract. |
+
 ## Purpose
 
 Provide durable agent-ready documentation for agent so generated code, tests, and follow-up docs preserve ownership, boundaries, governance, and verification evidence.
@@ -50,6 +52,7 @@ Provide durable agent-ready documentation for agent so generated code, tests, an
 | Inputs | Accept only the files, commands, data, or calls that belong to agent ownership. | ref-component-identity-mapping |
 | State / data | Preserve explicit state boundaries and avoid hidden cross-component ownership. | ref-component-identity-mapping |
 | Shared dependencies | Use lower-layer helpers and cited references instead of duplicating shared policy. | ref-component-identity-mapping |
+
 ## Business Flow
 
 | Aspect | Detail | Reference |
@@ -58,11 +61,13 @@ Provide durable agent-ready documentation for agent so generated code, tests, an
 | Primary path | Follow the component goal, honor parent fit, and emit behavior through the documented contract. | ref-component-identity-mapping |
 | Alternate paths | When a request falls outside agent ownership, hand it to the parent or sibling component. | ref-component-identity-mapping |
 | Failure behavior | Surface mismatch through check, tests, lookup, or review evidence before derived work ships. | ref-component-identity-mapping |
+
 ## Governance
 
 | Reference | Type | Governs | Precedence | Notes |
 | --- | --- | --- | --- | --- |
 | ref-component-identity-mapping | ref | Governs agent behavior, derivation, or review when applicable. | Explicit cited governance beats uncited local prose. | Migrated from legacy component form; refine during next component touch. |
+
 ## Contract
 
 | Surface | Direction | Contract | Boundary | Evidence |
@@ -71,6 +76,7 @@ Provide durable agent-ready documentation for agent so generated code, tests, an
 | active turn query | OUT | activeTurns.has(chatId) is the orchestration contract for busy/queue decisions and must return true for both transcript-observed active statuses and recentlyStartedChats. | c3-206 orchestration boundary | src/server/runner-proxy.ts; bun test src/server/runner-proxy.test.ts --test-name-pattern 'activeTurns.has() returns true immediately' |
 | queued follow-up | OUT | chat.queue stores one coalesced queued turn when activeTurns.has is true; drainQueuedTurn clears recentlyStartedChats, waits for observed active status to disappear, then starts the queued turn. | c3-226 transcript-runtime boundary | src/server/runner-proxy.ts; bun test src/server/runner-proxy.test.ts |
 | provider handoff | OUT | Provider-specific transports remain behind the runner/provider seam; queue and active-state ownership stays in RunnerProxy rather than Codex UI/tool error handling. | c3-208 kit-runtime boundary | src/server/codex-app-server.ts; src/runner/runner-agent.ts; bun test src/server/codex-app-server.test.ts src/runner/runner-agent.test.ts |
+
 ## Change Safety
 
 | Risk | Trigger | Detection | Required Verification |
@@ -79,6 +85,7 @@ Provide durable agent-ready documentation for agent so generated code, tests, an
 | Queue drain recursion | activeTurns.has is implemented in terms of hasActiveOrJustStartedTurn, then drainQueuedTurn calls activeTurns.has after deleting recentlyStartedChats. | Queued turn never drains or active-state checks recurse. | src/server/runner-proxy.ts; bun test src/server/runner-proxy.test.ts --test-name-pattern 'drainQueuedTurn' |
 | Ownership drift | Busy errors are handled in Codex UI/tool layer instead of server queue ownership. | sendInput throws already running/busy instead of calling coordinator.queue. | bun test src/server/orchestration.test.ts --test-name-pattern 'queues input if target is already running' |
 | Contract drift | Goal, boundary, or derived material changes without matching component docs. | Compare Goal, Parent Fit, Contract, and Derived Materials. | C3X_MODE=agent bash /home/lagz0ne/.agents/skills/c3/bin/c3x.sh check |
+
 ## Derived Materials
 
 | Material | Must derive from | Allowed variance | Evidence |

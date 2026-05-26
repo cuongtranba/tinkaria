@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Implementation Notes — Port claude-pty Provider</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 ui-sans-serif, system-ui, sans-serif; max-width: 920px; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+  h2 { margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: .25rem; }
+  h3 { margin-top: 1.25rem; }
+  .meta { color: #888; font-size: .9rem; }
+  .pending { color: #d97706; font-weight: 600; }
+  .open { background: #fef3c7; padding: 0 .3em; border-radius: .25em; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #1118270d; padding: .75rem 1rem; border-radius: .35rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+  th, td { border: 1px solid #8884; padding: .35rem .55rem; text-align: left; vertical-align: top; }
+  th { background: #1118270d; }
+</style>
+</head>
+<body>
+<h1>Implementation Notes — Port <code>claude-pty</code> Provider from kanna</h1>
+<p class="meta">Branch: <code>port-claude-pty</code> · Worktree: <code>~/Desktop/repo/tinkaria-port-claude-pty</code> · Lane: high-risk · Status: <span class="pending">pre-implementation — awaiting user resolution of design.md open questions</span></p>
+
+<h2>Decisions captured to date</h2>
+<table>
+  <thead><tr><th>Decision</th><th>Choice</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>Source repo</td><td><code>~/Desktop/repo/kanna</code></td><td>User Q1</td></tr>
+    <tr><td>Scope</td><td>All of PTY mode (server + client + protocol)</td><td>User Q2</td></tr>
+    <tr><td>Lane</td><td>High-risk</td><td>User Q3</td></tr>
+    <tr><td>Role in tinkaria</td><td>New provider alongside existing (API + Codex)</td><td>User Q4</td></tr>
+    <tr><td>Transport</td><td>Route through NATS subjects (<code>pty.*</code>)</td><td>User Q5</td></tr>
+    <tr><td>Sandbox</td><td>None — accepted security risk</td><td>User Q6 (confirmed Q7)</td></tr>
+    <tr><td>Port volume</td><td>Full port (35 PTY files + 9 sibling modules)</td><td>User Q8</td></tr>
+    <tr><td>Provider exposure</td><td>Settings page surface mirroring kanna</td><td>User Q9</td></tr>
+    <tr><td>C3 drift</td><td>Fix in the worktree alongside port (resolved via <code>c3x repair</code>)</td><td>User Q10</td></tr>
+    <tr><td>Harness state</td><td>Init + brownfield import (DONE — <code>harness.db</code> seeded, 24 stories / 6 decisions)</td><td>User Q11</td></tr>
+    <tr><td>Driver dep tree</td><td>Port whole tree (mcp-http, mcp, subagent-orchestrator, tool-callback, cloudflare-tunnel, system-prompt, auto-continue, agent normalizers, permission-policy)</td><td>User Q12</td></tr>
+  </tbody>
+</table>
+
+<h2>Open questions blocking implementation</h2>
+<p>Each item below conflicts with an existing tinkaria component. Code edits are <strong>paused</strong> until each lands a choice — see <code>design.md</code> "Dependency Reconciliation" for context.</p>
+<ol>
+  <li><span class="open">OQ-1</span> Two orchestrators in one server. Kanna's <code>subagent-orchestrator.ts</code> (884 LOC) vs tinkaria's <code>c3-206 orchestration / SessionOrchestrator</code>. <strong>Recommendation:</strong> namespace kanna's as <code>claude-pty/subagent-orchestrator.ts</code> internal to the PTY driver — do not wire it into the global server. Avoids the merge.</li>
+  <li><span class="open">OQ-2</span> <code>kanna-mcp-http.ts</code> + <code>kanna-mcp.ts</code> vs <code>c3-227 extension-router</code>. <strong>Recommendation:</strong> port verbatim under <code>src/server/claude-pty-mcp/</code>, isolated from extension-router. Re-evaluate consolidation in a follow-up story.</li>
+  <li><span class="open">OQ-3</span> <code>cloudflare-tunnel/</code> in kanna vs <code>c3-215 share</code> in tinkaria. <strong>Recommendation:</strong> the PTY driver only needs the <em>type</em> <code>TunnelGateway</code>; satisfy by adapting to <code>c3-215 share</code>'s exported type. Do NOT port a second tunnel module.</li>
+  <li><span class="open">OQ-4</span> <code>permission-policy.ts</code> (kanna) vs tinkaria's permission gate. <strong>Recommendation:</strong> reuse tinkaria's. Adapt PTY driver call sites.</li>
+  <li><span class="open">OQ-5</span> <code>agent.ts</code> normalizers (only 7 functions used from a 3.5k file). <strong>Recommendation:</strong> re-export the needed symbols from <code>c3-210 agent</code> if already present, otherwise port the 7 functions into <code>src/server/claude-pty/agent-normalizers.ts</code> — do NOT replace tinkaria's <code>agent.ts</code>.</li>
+  <li><span class="open">OQ-6</span> <code>kanna-system-prompt.ts</code> branding. <strong>Recommendation:</strong> rename "kanna" → "tinkaria" in the prompt text. Behaviour unchanged.</li>
+  <li><span class="open">OQ-7</span> <code>terminal-manager.ts</code> (generic shell terminal). <strong>Recommendation:</strong> excluded per overview Non-Goals — confirm.</li>
+  <li><span class="open">OQ-8</span> Sandbox follow-up story. <strong>Recommendation:</strong> open a backlog item to re-evaluate before any non-developer use.</li>
+</ol>
+
+<h2>Tradeoffs noted in design.md</h2>
+<ul>
+  <li>NATS subject byte stream vs raw WS — picked NATS for transport consistency at the cost of slightly higher per-byte overhead vs raw WS pipes.</li>
+  <li>No sandbox — accepted security risk per user; documented in ADR. Re-evaluation trigger: any non-localhost deployment.</li>
+  <li>Full dep port — heaviest possible scope; reconciliation table contains the only knobs that keep the surface bounded.</li>
+</ul>
+
+<h2>Deviations from kanna</h2>
+<ul>
+  <li>Sandbox subtree (12 files) not ported.</li>
+  <li><code>terminal-manager.ts</code> (generic terminal) not ported.</li>
+  <li>WebSocket layer replaced by NATS subjects (no <code>ws-router</code>).</li>
+  <li>Rename: anywhere "kanna" appears as a brand/identifier in ported files, rename to "tinkaria" (logs, prompts, settings keys) unless the symbol is a stable filename used as an interop key with the claude CLI (e.g. <code>~/.claude/sessions/&lt;pid&gt;.json</code> remains unchanged because claude owns that path).</li>
+</ul>
+
+<h2>Paper trail</h2>
+<ul>
+  <li>ADR: pending — to be created via <code>c3x add adr port-claude-pty-provider</code> after OQ-1..8 are resolved.</li>
+  <li>Decision file: <code>docs/decisions/0007-port-claude-pty-provider.md</code> (pending).</li>
+  <li>Harness story id: <code>port-claude-pty-provider</code> (pending <code>scripts/harness story add</code>).</li>
+  <li>Test matrix rows: pending addition to <code>docs/TEST_MATRIX.md</code>.</li>
+</ul>
+
+<h2>Update log</h2>
+<ul>
+  <li>Created with story packet skeleton. No code edits yet.</li>
+</ul>
+</body>
+</html>

@@ -1,6 +1,6 @@
 ---
 id: adr-20260416-transcript-render-units-read-model
-c3-seal: 90b965600ecfb46f0682dfc8d3ab4818f9b94e112b64435987f107f1b425a49f
+c3-seal: a398eb7cf7773b7bc855c93acb018728f7086c11803bc8f30f7a568f0593cb02
 title: transcript-render-units-read-model
 type: adr
 goal: Simplify transcript rendering by making render units the deterministic read model for chat UI.
@@ -27,6 +27,7 @@ Implementation:
 - Server read models and NATS responders derive render units; chat.getRenderUnits exposes deterministic render windows.
 - Client transcript lifecycle/cache/height/render paths now consume render units. ChatTranscript renders units directly and no longer owns grouping, status hiding, system dedupe, TodoWrite latest selection, or context-cleared result hiding.
 - Subagent inspector uses render units for known chats and the shared fold for external provider transcript files.
+
 ## Context
 
 Current chat rendering derives WIP blocks, assistant answers, special tool boundaries, present_content artifacts, latest-only TodoWrite, and status/result visibility in client-side render code. The user wants current UI concepts preserved, but no client guessing: immutable transcript facts fold once into deterministic render units, and the frontend renders those units only.
@@ -40,6 +41,7 @@ Implement a stream-to-render contract across server/shared/client:
 - chat snapshots/tail/live UI data expose complete folded render-unit windows;
 - frontend ChatTranscript switches on render unit kind only;
 - no permanent compatibility layer; existing sessions are handled by a one-off migration/copy script if needed.
+
 ## Verification
 
 Use RED-GREEN-TDD:

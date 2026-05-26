@@ -1,6 +1,6 @@
 ---
 id: adr-20260402-companion-only-tauri-desktop
-c3-seal: 1804cbe957c15b505b0086f901e1209597cae5edd1def4e8fba920bc973edb6d
+c3-seal: 37e59b39d651bbe859ba8202a471784afa3cd765c30bf879b196388f1f0bd567
 title: companion-only-tauri-desktop
 type: adr
 goal: Document companion-only-tauri-desktop architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-02"
 ---
 
 # companion-only-tauri-desktop
+
 ## Goal
 
 Document companion-only-tauri-desktop architecture decisions and responsibilities.

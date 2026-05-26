@@ -18,6 +18,7 @@
   },
   "include": [
     "src/vite-env.d.ts",
+    "src/types-shim/**/*.d.ts",
     "scripts/**/*.ts",
     "vite.config.ts",
     "src/main.tsx",
@@ -35,6 +36,7 @@
     "src/client/lib/formatters.ts",
     "src/client/lib/pathUtils.ts",
     "src/client/lib/parseTranscript.ts",
+    "src/client/lib/pty-client.ts",
     "src/client/components/ui/button.tsx",
     "src/client/components/ui/card.tsx",
     "src/client/components/ui/dialog.tsx",

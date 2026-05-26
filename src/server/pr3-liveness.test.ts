@@ -92,7 +92,7 @@ describe("RunnerManager.getReadiness — liveness state derivation", () => {
       ;(mgr as unknown as { lastHeartbeatAt: number | null }).lastHeartbeatAt =
         age === null ? null : now - age
       const r = mgr.getReadiness(now)
-      expect(r.state).toBe(expectedState)
+      expect(r.state as string).toBe(expectedState)
       expect(r.heartbeatFresh).toBe(r.state === "online")
     }
   })
@@ -237,7 +237,7 @@ describe("/health runner shape (integration)", () => {
 
       expect(health).not.toBeNull()
       // state must be present and one of the liveness values
-      expect(["online", "degraded", "offline"]).toContain(health!.state)
+      expect(["online", "degraded", "offline"]).toContain(health!.state as string)
       expect(health!.state).toBe("online") // healthy runner → online
       // heartbeatFresh back-compat: must equal (state === "online")
       expect(health!.heartbeatFresh).toBe(health!.state === "online")

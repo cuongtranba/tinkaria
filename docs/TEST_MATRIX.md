@@ -54,6 +54,12 @@ implemented until tests or validation evidence exist.
 | PR1-secure-nats-transport | NATS binds the configured interface (tailnet/0.0.0.0) only in callout mode; token-mode wide bind refused | n/a | yes | n/a | yes | implemented | bind-guard unit tests; boot proof: wide+callout ALIVE+healthy (bound 0.0.0.0), wide+token REFUSED with guard error, loopback+token regression ok. NOTE: off-box second-host reachability + WireGuard-down not locally exercisable (single host) |
 | PR1-secure-nats-transport | Callout health surfaced via `/health` | n/a | yes | n/a | n/a | changed | No separate `callout` field added. Coverage is transitive: if the responder is down, server-admin/runner cannot authenticate → `natsConnection`/`runner` report unhealthy. Explicit callout-health field = PR2 follow-up |
 
+| PR2-runner-identity-pairing | `POST /api/pairing/code` issues a short-lived single-use code (callout mode); token mode → 409 | yes | yes | n/a | n/a | planned | code store unit + endpoint integration; mints PR1 runner token at issue |
+| PR2-runner-identity-pairing | `POST /api/pairing/exchange` redeems code once → {runnerId, token, natsUrl}; reused/expired → 410; unknown → 400 | yes | yes | n/a | n/a | planned | atomic single-use; returned token verifies via PR1 verifyCredentialToken → {class:runner, runnerId} |
+| PR2-runner-identity-pairing | Externally-launched runner starts from `~/.tinkaria/runner-secret.json` (0600), connects via PR1 callout, self-registers + heartbeats | yes | n/a | yes | yes | planned | E2E: no server spawn; registry entry + callout `decision=grant class=runner:<id>`; file 0600 |
+| PR2-runner-identity-pairing | Multiple paired runners coexist with distinct runnerIds | n/a | n/a | yes | n/a | planned | pair twice → two registry entries |
+| PR2-runner-identity-pairing | Paired runner shares PR1 scope: still DENIED on another runnerId's cmd/KV (isolation preserved) | n/a | yes | n/a | n/a | planned | PR1 callout.integration test stays green; no scope widening for paired runners |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

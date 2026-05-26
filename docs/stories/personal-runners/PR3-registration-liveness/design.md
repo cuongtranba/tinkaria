@@ -56,10 +56,21 @@ stream), not written by the runner into the registry.
 
 ## Data Model
 
-- No tables. KV `runtime_runner_registry` entries gain `protocolVersion` +
-  `capabilities` (additive JSON). No migration — entries are ephemeral (re-written
-  each runner start; a missing field → incompatible/offline, self-healing).
-- `lastHeartbeatAt` remains in-memory server state per tracked runner.
+- No tables. KV `runtime_runner_registry` entries gain `protocolVersion`,
+  `capabilities`, and **`lastSeenAt`** (additive JSON). No migration — entries are
+  ephemeral (re-written each runner start; a missing field → incompatible/offline,
+  self-healing).
+- **Two freshness sources, one pure function:**
+  - *Active runner* (the one this server is subscribed to): liveness uses the
+    **server-tracked `lastHeartbeatAt`** (from the 10s heartbeat stream) — most
+    real-time, no extra writes. Used by `/health`.
+  - *Discovery* (judging a runner the server is **not** subscribed to — e.g. a
+    paired runner on another host, picked from the KV registry): `process.kill`
+    is meaningless, and the server has no heartbeat history, so the registry entry
+    must carry its own freshness. The runner updates **`lastSeenAt`** in its own
+    KV entry on a bounded cadence (piggybacked on the heartbeat / coarser timer;
+    it may write its own key per PR1 scope). The discover path uses
+    `runnerLivenessState(reg.lastSeenAt, now)`.
 
 ## UI / Platform Impact
 
@@ -80,10 +91,12 @@ stream), not written by the runner into the registry.
 1. **Keep `pid`-based liveness, add a special case for paired runners.** Rejected —
    two liveness mechanisms is fragile; heartbeat-TTL is uniform and is what the
    concept specifies. `pid` kept only as informational.
-2. **Store `lastHeartbeatAt` in the KV registry (runner-written).** Rejected — the
-   server already owns the heartbeat stream; server-side tracking avoids extra KV
-   writes every 10s and a write-scope question. (A future multi-server setup might
-   revisit, but that's beyond PR3.)
+2. **Store the active runner's `lastHeartbeatAt` in KV (per-beat write).** Rejected
+   for the *active* runner — the server already owns the heartbeat stream, so
+   server-side tracking is more real-time and avoids a 10s write. **But discovery
+   of a non-subscribed runner genuinely needs a KV freshness field** — hence the
+   coarse `lastSeenAt` above (bounded cadence, not necessarily per-beat). The two
+   uses share the one `runnerLivenessState` function.
 3. **Silently accept any protocolVersion (log only).** Rejected — the concept is
    explicit: never silently degrade; a stale runner must be *loudly* incompatible
    and blocked, because "mostly works but mangles one field" is the worst failure.

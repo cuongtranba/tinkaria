@@ -1,23 +1,25 @@
 import { useState } from "react"
 import { useNavigate, useOutletContext } from "react-router-dom"
-import { ArrowLeft, Box, Puzzle, Settings, User } from "lucide-react"
+import { ArrowLeft, Box, Puzzle, Settings, User, Server } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { SegmentedControl, type SegmentedOption } from "../components/ui/segmented-control"
 import { ProvidersTab } from "./ProvidersTab"
 import { ProfilesTab } from "./ProfilesTab"
 import { ExtensionsTab } from "./ExtensionsTab"
+import { RunnersTab } from "./RunnersTab"
 import type { AppState } from "./useAppState"
 
-export type TinkariaTab = "providers" | "profiles" | "extensions"
+export type TinkariaTab = "providers" | "profiles" | "extensions" | "runners"
 
 const TAB_OPTIONS: SegmentedOption<TinkariaTab>[] = [
   { value: "providers", label: "Providers", icon: Box, tooltip: "Providers" },
   { value: "profiles", label: "Profiles", icon: User, tooltip: "Profiles" },
   { value: "extensions", label: "Extensions", icon: Puzzle, tooltip: "Extensions" },
+  { value: "runners", label: "Runners", icon: Server, tooltip: "Runners" },
 ]
 
 export function normalizeTinkariaTab(value: string | null): TinkariaTab {
-  return value === "profiles" || value === "extensions" ? value : "providers"
+  return value === "profiles" || value === "extensions" || value === "runners" ? value : "providers"
 }
 
 export function TinkariaSettingsPanel({
@@ -46,6 +48,7 @@ export function TinkariaSettingsPanel({
         {activeTab === "providers" && <ProvidersTab state={state} />}
         {activeTab === "profiles" && <ProfilesTab state={state} />}
         {activeTab === "extensions" && <ExtensionsTab state={state} />}
+        {activeTab === "runners" && <RunnersTab />}
       </div>
     </div>
   )

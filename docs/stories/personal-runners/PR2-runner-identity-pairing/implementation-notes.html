@@ -25,7 +25,7 @@
 <body>
 
 <h1>PR2 — Runner Identity &amp; Pairing</h1>
-<p class="sub">Working narrative · <span class="status">Stage 1 complete — server endpoints + code store + durable token mint</span></p>
+<p class="sub">Working narrative · <span class="status">Stage 2 complete — runner credential store + paired-runner start + Add-my-runner UI</span></p>
 
 <p>Contract: <code>execplan.md</code> / <code>overview.md</code> / <code>design.md</code> /
 <code>validation.md</code>; decision <code>0008</code>. Stacks on PR1's auth-callout.</p>
@@ -111,6 +111,54 @@
   of adding TTL — all 13 token tests now pass.</p>
 </div>
 
+<h2>Stage 2 — Runner Credential Store + Paired-Runner Start + UI</h2>
+<div class="card">
+  <span class="label">runner-credential.ts — credential file store</span>
+  <p>New module: <code>writeRunnerCredential(cred)</code> writes
+  <code>&lt;TINKARIA_RUNNER_HOME&gt;/runner-secret.json</code> atomically
+  (tmp + rename) with mode <code>0600</code> (chmod before and after rename for
+  umask safety). <code>readRunnerCredential()</code> returns <code>null</code> if
+  the file does not exist — no throw. <code>TINKARIA_RUNNER_HOME</code> defaults
+  to <code>~/.tinkaria</code>. Shape:
+  <code>{ runnerId, token, natsUrl, natsWsUrl, pairedAt }</code>.</p>
+</div>
+<div class="card">
+  <span class="label">runner-pair.ts — exchange flow</span>
+  <p>New module: <code>pairRunner({ serverUrl, code })</code> POSTs to
+  <code>/api/pairing/exchange</code>, throws with the HTTP status + server error
+  message on non-OK, writes the credential via <code>writeRunnerCredential</code>
+  on success. Small, no retries, no state — just one HTTP call + one file write.</p>
+</div>
+<div class="card">
+  <span class="label">runner.ts — pair subcommand + credential-file startup</span>
+  <p>Two surgical additions. (1) Subcommand dispatch at the top: if
+  <code>process.argv[2] === "pair"</code>, parse <code>--server</code> and
+  <code>--code</code> flags, call <code>pairRunner</code>, and exit. (2) Before
+  the existing NATS connect: if <code>NATS_URL</code> is absent from env, load
+  <code>readRunnerCredential()</code> and use its <code>natsUrl</code>,
+  <code>token</code>, <code>runnerId</code> — env still wins for server-spawned
+  runners. The <code>NATS_DATA_DIR</code> file-token path is unaffected
+  (fallback for non-callout spawned runners).</p>
+</div>
+<div class="card">
+  <span class="label">RunnersTab.tsx + SettingsPage.tsx — Add my runner UI</span>
+  <p>New <code>RunnersTab</code> component under the Settings panel (fourth tab,
+  "Runners", Server icon). Calls <code>POST /api/pairing/code</code>, displays
+  the code with one-click copy, the remaining TTL, and the one-liner to run on
+  the runner machine. Error surface for non-OK responses (callout-mode guard).
+  Wired into <code>SettingsPage</code> as <code>"runners"</code> tab; added to
+  the <code>normalizeTinkariaTab</code> guard and <code>TAB_OPTIONS</code> array.</p>
+</div>
+
+<h2>Stage 2 — Deviations</h2>
+<div class="card">
+  <span class="label">chmod before and after rename</span>
+  <p>The design said "mode 0600". Added <code>chmodSync</code> on the tmp file
+  before rename (so it is never world-readable even transiently) and again after
+  rename (umask on some systems can widen a rename). Belt-and-suspenders; 5 tests
+  confirm the post-write mode.</p>
+</div>
+
 <h2>Verification log (Stage 1)</h2>
 <div class="card">
   <span class="label">Stage 1 — all tests green</span>
@@ -126,6 +174,31 @@
   → <code>{class:"runner", runnerId}</code> with <code>runnerId</code> matching the issued
   value. NATS callout log shows <code>decision=grant class=runner:runner-&lt;id&gt;</code>
   for the spawned runner confirming PR1 callout path is unaffected.</p>
+</div>
+
+<h2>Verification log (Stage 2)</h2>
+<div class="card">
+  <span class="label">Stage 2 — all tests green</span>
+  <ul>
+    <li>typecheck: clean (<code>bunx @typescript/native-preview --noEmit</code>)</li>
+    <li><code>bun test src/runner/runner-credential.test.ts</code>: 5/5 pass (round-trip, 0600 mode, TINKARIA_RUNNER_HOME, missing→null, overwrite)</li>
+    <li><code>bun test src/runner/runner-pair.test.ts</code>: 3/3 pass (exchange→credential written, consumed→throws, unknown→throws)</li>
+    <li><code>bun test src/server/pairing-store.test.ts</code>: 10/10 pass (unchanged)</li>
+    <li><code>bun test src/nats/</code>: 60/60 pass (no regressions)</li>
+  </ul>
+</div>
+<div class="card">
+  <span class="label">Stage 2 — E2E paired-runner proof (port 3285)</span>
+  <ul>
+    <li>Server booted: <code>NATS_DATA_DIR=/tmp/pr2e NATS_AUTH_MODE=callout bun run ./src/server/cli.ts --port 3285</code></li>
+    <li><code>/health</code>: all green (natsDaemon, natsConnection, runner)</li>
+    <li>Pairing code issued via <code>POST /api/pairing/code</code></li>
+    <li>Pair CLI run: <code>TINKARIA_RUNNER_HOME=/tmp/pr2home bun run src/runner/runner.ts pair --server http://localhost:3285 --code &lt;code&gt;</code> → "Runner paired"</li>
+    <li>Credential file: <code>/tmp/pr2home/runner-secret.json</code> — mode <code>600</code> confirmed via <code>stat</code></li>
+    <li>Externally-launched runner started with NO <code>NATS_URL</code>/<code>NATS_TOKEN</code>; loaded credential file, connected, registered, heartbeating</li>
+    <li>Callout log: <code>decision=grant class=runner:runner-1779803283101-16783</code></li>
+    <li>Consumed-code replay returns <code>{ "error": "consumed" }</code> (HTTP 410)</li>
+  </ul>
 </div>
 
 </body>

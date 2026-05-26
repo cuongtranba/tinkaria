@@ -1,3 +1,4 @@
+import { normalizeToolCall } from "../../shared/tools"
 import type {
   ContextWindowUsageSnapshot,
   SlashCommand,
@@ -147,12 +148,14 @@ export async function* createClaudeHarnessStream(
 export function normalizeClaudeStreamMessage(message: unknown): TranscriptEntry[] {
   const m = asRecord(message)
   if (!m) return []
+  const uuid = typeof m.uuid === "string" ? m.uuid : undefined
+  const inner = asRecord(m.message)
+
   if (m.type === "system" && (m as Record<string, unknown>).subtype === "init") {
-    const messageId = typeof m.uuid === "string" ? m.uuid : undefined
     return [
       timestamped({
         kind: "system_init",
-        messageId,
+        messageId: uuid,
         provider: "claude",
         model: typeof m.model === "string" ? m.model : "unknown",
         tools: Array.isArray(m.tools) ? m.tools : [],
@@ -167,5 +170,79 @@ export function normalizeClaudeStreamMessage(message: unknown): TranscriptEntry[
       } as Omit<TranscriptEntry, "_id" | "createdAt">),
     ]
   }
+
+  // claude-code TUI JSONL: assistant message with content array.
+  // Emits one entry per content block: text → assistant_text,
+  // tool_use → tool_call. Matches kanna's session-mapper.
+  if (m.type === "assistant" && inner) {
+    const out: TranscriptEntry[] = []
+    const content = Array.isArray(inner.content) ? inner.content : []
+    const messageId = typeof inner.id === "string" ? inner.id : uuid
+    for (const block of content) {
+      const b = asRecord(block)
+      if (!b) continue
+      if (b.type === "text" && typeof b.text === "string" && b.text.length > 0) {
+        out.push(timestamped({
+          kind: "assistant_text",
+          text: b.text,
+          messageId,
+        } as Omit<TranscriptEntry, "_id" | "createdAt">))
+        continue
+      }
+      if (b.type === "tool_use" && typeof b.name === "string" && typeof b.id === "string") {
+        const input = asRecord(b.input) ?? {}
+        const tool = normalizeToolCall({ toolName: b.name, toolId: b.id, input })
+        out.push(timestamped({
+          kind: "tool_call",
+          tool,
+          messageId,
+        } as Omit<TranscriptEntry, "_id" | "createdAt">))
+      }
+    }
+    return out
+  }
+
+  // claude-code TUI JSONL: user record with tool_result blocks (no user_prompt;
+  // server's chat.send already records the user message, so a synthetic text
+  // user_prompt would duplicate it). tool_result blocks pair with tool_call.
+  if (m.type === "user" && inner) {
+    const out: TranscriptEntry[] = []
+    const content = Array.isArray(inner.content) ? inner.content : []
+    for (const block of content) {
+      const b = asRecord(block)
+      if (!b) continue
+      if (b.type !== "tool_result") continue
+      const toolId = typeof b.tool_use_id === "string" ? b.tool_use_id : ""
+      if (!toolId) continue
+      const raw = b.content
+      const resultContent = typeof raw === "string"
+        ? raw
+        : raw === undefined || raw === null
+          ? null
+          : raw
+      out.push(timestamped({
+        kind: "tool_result",
+        toolId,
+        content: resultContent,
+        isError: b.is_error === true,
+      } as Omit<TranscriptEntry, "_id" | "createdAt">))
+    }
+    return out
+  }
+
+  // claude-code TUI JSONL: turn end marker.
+  if (m.type === "system" && (m as Record<string, unknown>).subtype === "turn_duration") {
+    const durationMs = typeof (m as Record<string, unknown>).durationMs === "number"
+      ? (m as Record<string, unknown>).durationMs as number
+      : 0
+    return [timestamped({
+      kind: "result",
+      success: true,
+      result: "",
+      durationMs,
+      messageId: uuid,
+    } as Omit<TranscriptEntry, "_id" | "createdAt">)]
+  }
+
   return []
 }

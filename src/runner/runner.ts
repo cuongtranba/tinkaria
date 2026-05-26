@@ -4,7 +4,7 @@ import { generateTitleForChat } from "../server/generate-title"
 import { RunnerAgent, type TurnFactory } from "./runner-agent"
 import { NatsCoordinationClient } from "./nats-coordination-client"
 import { RunnerNatsHandler, connectRunner, shutdownConnection } from "./runner-nats"
-import { startClaudeTurn, startCodexTurn, stopAllCodexSessions } from "./turn-factories"
+import { startClaudeTurn, startClaudePtyTurn, startCodexTurn, stopAllCodexSessions, stopAllClaudePtySessions } from "./turn-factories"
 
 const natsUrl = process.env.NATS_URL
 const natsToken = process.env.NATS_TOKEN
@@ -31,6 +31,9 @@ console.warn(LOG_PREFIX, `Runner ${runnerId} connected to NATS at ${natsUrl}`)
 const createTurn: TurnFactory = async (args) => {
   if (args.provider === "claude") {
     return startClaudeTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
+  }
+  if (args.provider === "claude-pty") {
+    return startClaudePtyTurn({ ...args, nc })
   }
   if (args.provider === "codex") {
     return startCodexTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
@@ -60,6 +63,7 @@ async function shutdown() {
   }
 
   stopAllCodexSessions()
+  stopAllClaudePtySessions()
 
   await shutdownConnection(nc)
   console.warn(LOG_PREFIX, `Runner ${runnerId} stopped`)

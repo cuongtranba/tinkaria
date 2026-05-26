@@ -21,6 +21,22 @@
 <h1>mobile-composer-menu — Implementation Notes</h1>
 <p class="muted">Working narrative for <code>docs/stories/mobile-composer-menu/story.md</code>. The story is the contract; this explains how the implementation got there.</p>
 
+<h2>Iteration 2 — trigger placement (in-pill icon)</h2>
+<p>Feedback after iteration 1: the collapsed trigger still occupied a dedicated row below the input pill and the
+unbound-model label ("Default (recommended)") read long. Considered top-navbar placement, but
+<b>rejected it</b>: at submit time <code>getComposerSnapshot()</code> reads
+<code>composerPreferencesRef.current.getSnapshot()</code> (the imperative handle on the mounted
+<code>ComposerPreferenceControls</code>), which carries provider-lock overrides held in that component's local state.
+Moving the control to <code>ChatNavbar</code> would null the ref on mobile and silently drop those overrides from the
+sent message — a correctness regression, not just layout.</p>
+<p><b>Chosen:</b> keep <code>ComposerPreferenceControls</code> mounted in <code>ChatInput</code> (ref/submit intact), but on
+mobile render it as a <b>compact icon-only trigger inside the composer input pill</b> (leading adornment, left of the
+textarea) and drop the bottom toolbar row entirely. Desktop keeps the bottom chip row. The mobile trigger is now
+icon-only (model/mode glyph; Plan Mode blue + Codex Fast Mode emerald preserved); the model name moved to
+<code>aria-label</code>. The <code>ComposerPreferenceControls</code> element is defined once in <code>ChatInput</code> and
+placed via <code>isMobile</code> either inside the pill row or in the desktop toolbar (single mount, ref attaches to
+whichever renders).</p>
+
 <h2>What was built</h2>
 <p>Single-file feature in <code>src/client/components/chat-ui/ChatPreferenceControls.tsx</code> (+ extended
 <code>ChatPreferenceControls.test.tsx</code>). On mobile (<code>useIsMobile()</code>, ≤767px) the inline chip row collapses

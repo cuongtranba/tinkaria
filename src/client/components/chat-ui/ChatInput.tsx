@@ -15,6 +15,7 @@ import { createUiIdentity, createUiIdentityDescriptor, getUiIdentityAttributePro
 import { getAwaitingChatComposerPlaceholderText, getChatComposerPlaceholderText } from "../../lib/quirkyCopy"
 import { cn } from "../../lib/utils"
 import { useIsStandalone } from "../../hooks/useIsStandalone"
+import { useIsMobile } from "../../hooks/useIsMobile"
 import { useChatInputStore } from "../../stores/chatInputStore"
 import { type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { useSkillCompositionStore, computeSkillInsertion, formatSkillCommand } from "../../stores/skillCompositionStore"
@@ -492,6 +493,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerPreferencesRef = useRef<ComposerPreferencesHandle>(null)
   const isStandalone = useIsStandalone()
+  const isMobile = useIsMobile()
   const isTouchDevice = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   const composerPlaceholder = canCancel
     ? getAwaitingChatComposerPlaceholderText(chatId, awaitingPlaceholderStep)
@@ -782,6 +784,24 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   const queueActionDisabled = composerActionsDisabled || !hasText
   const submitActionDisabled = composerActionsDisabled || !hasText
   const showConnectionBadge = reconnectVisualState === "reconnected"
+  const preferenceControls = (
+    <ComposerPreferenceControls
+      key={composerControlsKey}
+      ref={composerPreferencesRef}
+      activeProvider={activeProvider}
+      runtimeModel={runtimeModel}
+      composerState={composerState}
+      providerDefaults={providerDefaults}
+      availableProviders={availableProviders}
+      availableSkills={availableSkills}
+      ribbonVisible={ribbonVisible}
+      toggleRibbon={toggleRibbon}
+      setComposerModel={setComposerModel}
+      setComposerModelOptions={setComposerModelOptions}
+      setComposerPlanMode={setComposerPlanMode}
+      resetComposerFromProvider={resetComposerFromProvider}
+    />
+  )
   return (
     <div>
       {shouldShowQueuedBlock(queuedText) ? (
@@ -838,6 +858,9 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
               </div>
             ) : null}
             <div className="flex min-w-0 items-end gap-2">
+              {isMobile ? (
+                <div className="mb-1 shrink-0">{preferenceControls}</div>
+              ) : null}
               <Textarea
                 ref={setTextareaRefs}
                 placeholder={composerPlaceholder}
@@ -932,26 +955,13 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
           </div>
         </div>
       </div>
-      <div className={cn("overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-3 flex flex-row", isStandalone && "p-5 pt-3")}>
-        <div className="min-w-3"/>
-        <ComposerPreferenceControls
-          key={composerControlsKey}
-          ref={composerPreferencesRef}
-          activeProvider={activeProvider}
-          runtimeModel={runtimeModel}
-          composerState={composerState}
-          providerDefaults={providerDefaults}
-          availableProviders={availableProviders}
-          availableSkills={availableSkills}
-          ribbonVisible={ribbonVisible}
-          toggleRibbon={toggleRibbon}
-          setComposerModel={setComposerModel}
-          setComposerModelOptions={setComposerModelOptions}
-          setComposerPlanMode={setComposerPlanMode}
-          resetComposerFromProvider={resetComposerFromProvider}
-        />
-        <div className="min-w-3"/>
-      </div>
+      {!isMobile ? (
+        <div className={cn("overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-3 flex flex-row", isStandalone && "p-5 pt-3")}>
+          <div className="min-w-3"/>
+          {preferenceControls}
+          <div className="min-w-3"/>
+        </div>
+      ) : null}
     </div>
   )
 })

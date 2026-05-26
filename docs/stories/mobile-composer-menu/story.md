@@ -13,9 +13,21 @@ normal
 On mobile viewports (≤767px, via `useIsMobile()`), the composer preference bar
 (`ChatPreferenceControls`) — today a horizontally-scrolling strip of chips
 (Provider, Model, Skills, Reasoning, Context/Fast Mode, Plan Mode) — collapses
-into a **single trigger: the model indicator**. Tapping it opens a drill-in
+into a **single icon-only trigger placed inside the composer input pill**
+(a leading adornment left of the textarea, mirroring the send button on the
+right). The dedicated bottom toolbar row is **not rendered on mobile**, so the
+composer reclaims that vertical strip. Tapping the icon opens a drill-in
 (master-detail) menu inside one Radix Popover. Desktop (≥768px) keeps the
-current inline chip row, unchanged in both appearance and behavior.
+current inline chip row in the bottom toolbar, unchanged in both appearance and
+behavior.
+
+**Placement note (revised):** the trigger is the in-pill icon, not a bottom row
+and not the top navbar. Moving it to the navbar was rejected: the composer reads
+the selected provider/model/options at submit time via
+`composerPreferencesRef.current.getSnapshot()` (incl. provider-lock overrides
+held in `ComposerPreferenceControls` local state), so the control must stay
+mounted inside `ChatInput`. The in-pill icon keeps that ref intact while
+removing the bottom strip.
 
 ## Relevant Product Docs
 
@@ -25,9 +37,11 @@ current inline chip row, unchanged in both appearance and behavior.
 
 ## Acceptance Criteria
 
-- On a ≤767px viewport, `ChatPreferenceControls` renders a single trigger
-  showing the model icon + model label (e.g. `sonnet[1m]`) + a chevron; the
-  inline chip row is not rendered.
+- On a ≤767px viewport, `ChatPreferenceControls` renders a single **icon-only**
+  trigger (model/mode glyph, no visible label or chevron) placed **inside the
+  composer input pill** as a leading adornment; the model name is carried in the
+  trigger's `aria-label`. Neither the desktop chip row nor a dedicated bottom
+  toolbar row is rendered on mobile.
 - The trigger reflects active non-default modes: Plan Mode shows the `ListTodo`
   icon and blue color; Codex Fast Mode shows its active styling. Defaults
   (Full Access, Standard) show neutral styling.

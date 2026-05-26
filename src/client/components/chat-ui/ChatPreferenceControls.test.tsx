@@ -113,10 +113,12 @@ describe("ChatPreferenceControls (mobile)", () => {
       />
     )
 
-    // single collapsed trigger, carrying the model indicator + c3 identity
+    // single collapsed trigger, carrying the model indicator + c3 identity.
+    // The trigger is icon-only on mobile; the model name lives in the
+    // accessible name (aria-label), not visible chip text.
     expect(html).toContain('data-ui-id="chat.composer.menu.action"')
     expect(html).toContain('data-ui-c3="c3-112"')
-    expect(html).toContain("Sonnet")
+    expect(html).toContain("Composer settings — Sonnet")
     // the per-chip row controls are NOT inline anymore (they live inside the
     // closed popover, which is not mounted in static markup)
     expect(html).not.toContain('data-ui-id="chat.composer.reasoning.action"')

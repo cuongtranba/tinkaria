@@ -1,5 +1,5 @@
 import { memo, useState } from "react"
-import { ArrowLeft, Box, Brain, ChevronDown, ChevronRight, Gauge, ListTodo, LockOpen, Sparkles, SquareMenu, SquareMinus } from "lucide-react"
+import { ArrowLeft, Box, Brain, ChevronRight, Gauge, ListTodo, LockOpen, Sparkles, SquareMenu, SquareMinus } from "lucide-react"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
   CLAUDE_REASONING_OPTIONS,
@@ -421,7 +421,7 @@ export const ChatPreferenceControls = memo(function ChatPreferenceControls({
       : (selectedProvider === "codex" && codexModelOptions?.fastMode ? "text-emerald-500 dark:text-emerald-400" : undefined)
 
     return (
-      <div className={cn("flex items-center", className)}>
+      <div className="flex items-center">
         <Popover
           open={menuOpen}
           onOpenChange={(open) => { setMenuOpen(open); if (!open) setMenuCategory(null) }}
@@ -429,15 +429,15 @@ export const ChatPreferenceControls = memo(function ChatPreferenceControls({
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
+              size="icon"
+              aria-label={`Composer settings — ${modelLabel}`}
               {...getUiIdentityAttributeProps(menuActionDescriptor)}
               className={cn(
-                "flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground [&>svg]:shrink-0 [&>span]:whitespace-nowrap h-auto",
+                "shrink-0 rounded-full h-9 w-9 text-muted-foreground [&>svg]:shrink-0",
                 triggerColor
               )}
             >
-              <TriggerIcon className="h-3.5 w-3.5" />
-              <span>{modelLabel}</span>
-              <ChevronDown className="h-3.5 w-3.5" />
+              <TriggerIcon className="h-5 w-5" />
             </Button>
           </PopoverTrigger>
           <PopoverContent

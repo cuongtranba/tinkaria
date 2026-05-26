@@ -28,7 +28,7 @@ export function requiresCalloutForBind(
   host: string,
   authMode: AuthMode,
 ): BindGuardResult {
-  const isLoopback = LOOPBACK_HOSTS.has(host)
+  const isLoopback = LOOPBACK_HOSTS.has(host.trim().toLowerCase())
   if (!isLoopback && authMode !== "callout") {
     return {
       ok: false,

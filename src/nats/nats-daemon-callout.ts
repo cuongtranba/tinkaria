@@ -88,7 +88,7 @@ const portResult = await new Promise<PortResult>((resolve, reject) => {
   let wsPort: number | null = null
   let buffer = ""
 
-  child.stderr.on("data", (chunk: Buffer) => {
+  const onStderr = (chunk: Buffer) => {
     const text = chunk.toString()
     buffer += text
     const lines = buffer.split("\n")
@@ -106,11 +106,14 @@ const portResult = await new Promise<PortResult>((resolve, reject) => {
       if (tcpPort !== null && wsPort !== null) {
         clearTimeout(timeout)
         child.removeAllListeners("exit")
+        child.stderr.removeListener("data", onStderr)
         resolve({ tcpPort, wsPort })
         return
       }
     }
-  })
+  }
+
+  child.stderr.on("data", onStderr)
 })
 
 const natsUrl = `nats://${host}:${portResult.tcpPort}`

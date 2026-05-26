@@ -374,5 +374,74 @@ healthy. 66/66 tests pass. Typecheck clean. Stage D (full dual-signal + security
   <p>All three signals healthy. Guard not triggered. Default dev path unchanged.</p>
 </div>
 
+
+<h2>Stage D review fixes (2026-05-26)</h2>
+
+<div class="card">
+  <span class="label">Fix 1 — token.ts: ArrayBuffer byteOffset bug (correctness/security)</span>
+  <p>WebCrypto <code>importKey</code> / <code>sign</code> / <code>verify</code> were passed
+  <code>secret.buffer</code> / <code>sig.buffer</code> directly. A <code>Uint8Array</code>
+  from <code>Buffer.from(...)</code> can be a sub-array of a pooled buffer with a non-zero
+  <code>byteOffset</code>, causing HMAC to operate on the wrong bytes.
+  Added <code>exactBuffer(view)</code> helper that slices out exactly the view's bytes:
+  <code>view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer</code>.
+  Applied to all three WebCrypto call sites (importKey ×2, verify). New unit tests:
+  mint-with-sub-view/verify-with-sub-view both pass, confirming the fix.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 2 — token.ts: add exp (expiry) + verify it</span>
+  <p>Tokens previously had no expiry, making them valid forever.
+  Added <code>exp: iat + ttlSeconds</code> to the payload (inside the HMAC'd JSON).
+  Default TTL is 30 days (2592000 s) — generous for the pilot; per-class TTLs + token
+  refresh deferred to PR2. <code>verifyCredentialToken</code> now rejects: expired tokens
+  (<code>now &gt; exp</code>), tokens without <code>exp</code> (no-legacy-format defensive),
+  and tampered <code>exp</code> (HMAC covers the full payload). <code>mintCredentialToken</code>
+  accepts an optional <code>ttlSeconds</code> param (test-only shortening, default unchanged).
+  Tests added: valid, expired-rejected, tampered-exp-rejected, no-exp-rejected.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 3 — responder.ts: listenLoop unhandled rejection</span>
+  <p><code>void this.listenLoop()</code> silently swallowed any throw from the async iterator,
+  causing the responder to die without logging. Changed to
+  <code>void this.listenLoop().catch((err) =&gt; { console.error("[nats-callout] listenLoop fatal:", err) })</code>
+  so any fatal error is logged loudly. No behavior change under normal operation.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 4 — nats-daemon-callout.ts: stderr listener leak</span>
+  <p>The <code>child.stderr.on("data", ...)</code> handler was kept alive for the daemon's
+  entire lifetime after port discovery resolved. Captured the handler as <code>onStderr</code>
+  and called <code>child.stderr.removeListener("data", onStderr)</code> in the resolve branch
+  alongside the existing <code>removeAllListeners("exit")</code>. The listener now fires only
+  until ports are known, then is removed.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 5 — keys.ts: chmod 600 on secrets</span>
+  <p>nkey seeds and token secret were written without explicit permissions, leaving them
+  world-readable under a permissive umask. Added <code>chmodSync(path, 0o600)</code> after
+  the atomic rename in both <code>readOrCreateSeed</code> and <code>readOrCreateTokenSecret</code>.
+  Boot verification confirms all three files show <code>-rw-------</code> (600).</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 6 — nats-bind-guard.ts: case-insensitive loopback match</span>
+  <p><code>NATS_HOST=LOCALHOST</code> was not matched as loopback because the Set lookup
+  is case-sensitive. Changed the lookup to <code>LOOPBACK_HOSTS.has(host.trim().toLowerCase())</code>.
+  Tests added: LOCALHOST, Localhost, and "  localhost  " (whitespace) all match as loopback
+  in token mode.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage D fixes — verification — 2026-05-26</span>
+  <p>Typecheck: <code>bunx @typescript/native-preview --noEmit -p tsconfig.json</code> — clean (0 errors).</p>
+  <p>Tests: <code>bun test src/nats/ src/server/nats-bind-guard.test.ts</code> — <strong>73 pass / 0 fail</strong> across 7 files (includes new token.test.ts with 17 cases + bind-guard 3 new cases + callout integration test).</p>
+  <p>Boot verification — port 3289 — all three components healthy:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3289,"natsWsPort":54760,"natsDaemon":{"url":"nats://127.0.0.1:54761","wsUrl":"ws://127.0.0.1:54760","wsPort":54760,"pid":78572,"ok":true},"natsConnection":{"ok":true,"natsUrl":"nats://127.0.0.1:54761","natsWsUrl":"ws://127.0.0.1:54760","natsWsPort":54760},"runner":{"ok":true,"runnerId":"runner-1779796337631-78491","pid":78574,"registered":true,"heartbeatFresh":true,"lastHeartbeatAt":1779796357722}}</pre>
+  <p>File permissions: all three secret files confirm <code>-rw-------</code> (600) via <code>stat</code>.</p>
+</div>
+
 </body>
 </html>

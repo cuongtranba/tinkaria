@@ -13,7 +13,7 @@
  */
 
 import { join } from "node:path"
-import { mkdirSync, renameSync } from "node:fs"
+import { mkdirSync, renameSync, chmodSync } from "node:fs"
 import { createAccount, createUser, fromSeed } from "@nats-io/nkeys"
 import type { KeyPair } from "@nats-io/nkeys"
 
@@ -53,6 +53,7 @@ async function readOrCreateSeed(
   const tmp = `${seedPath}.tmp.${process.pid}`
   await Bun.write(tmp, seed + "\n")
   renameSync(tmp, seedPath) // atomic
+  chmodSync(seedPath, 0o600) // owner-read/write only
   return seed
 }
 
@@ -69,6 +70,7 @@ async function readOrCreateTokenSecret(secretPath: string): Promise<Uint8Array> 
   const tmp = `${secretPath}.tmp.${process.pid}`
   await Bun.write(tmp, hex + "\n")
   renameSync(tmp, secretPath) // atomic
+  chmodSync(secretPath, 0o600) // owner-read/write only
   return secret
 }
 

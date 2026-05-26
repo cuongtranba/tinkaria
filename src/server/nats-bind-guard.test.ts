@@ -54,4 +54,18 @@ describe("requiresCalloutForBind", () => {
     expect(typeof result.reason).toBe("string")
     expect((result.reason ?? "").length).toBeGreaterThan(0)
   })
+
+  // ── Case-insensitive loopback match ─────────────────────────────────────────
+
+  test("LOCALHOST (uppercase) + token → ok (case-insensitive loopback)", () => {
+    expect(requiresCalloutForBind("LOCALHOST", "token")).toEqual({ ok: true })
+  })
+
+  test("Localhost (mixed-case) + token → ok", () => {
+    expect(requiresCalloutForBind("Localhost", "token")).toEqual({ ok: true })
+  })
+
+  test("  localhost  (whitespace) + token → ok", () => {
+    expect(requiresCalloutForBind("  localhost  ", "token")).toEqual({ ok: true })
+  })
 })

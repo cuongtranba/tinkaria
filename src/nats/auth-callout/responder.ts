@@ -83,7 +83,9 @@ export class CalloutResponder {
     })
 
     this.sub = this.nc.subscribe(CALLOUT_SUBJECT)
-    void this.listenLoop()
+    void this.listenLoop().catch((err) => {
+      console.error("[nats-callout] listenLoop fatal:", err)
+    })
   }
 
   /** Stop the responder and drain the NATS connection. */

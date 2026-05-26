@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import type { AgentProvider } from "../../shared/types"
 
 interface SkillCompositionState {
   usageCounts: Record<string, number>
@@ -47,11 +48,11 @@ export function sortSkillsByFrequency(skills: string[], usageCounts: Record<stri
   return [...skills].sort((a, b) => (usageCounts[b] ?? 0) - (usageCounts[a] ?? 0))
 }
 
-export function getSkillPrefix(provider: "claude" | "codex"): string {
+export function getSkillPrefix(provider: AgentProvider): string {
   return provider === "codex" ? "$" : "/"
 }
 
-export function formatSkillCommand(skill: string, provider: "claude" | "codex"): string {
+export function formatSkillCommand(skill: string, provider: AgentProvider): string {
   return `${getSkillPrefix(provider)}${skill}`
 }
 

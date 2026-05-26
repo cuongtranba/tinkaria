@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-kit-isolation-by-project
-c3-seal: 491c1a7cf9a59f6fcf9d94a1e19a337cb0081f7fbcbb0dbeb38c035c8e907971
+c3-seal: df16a99309d86ee9ac4961feae013d0902b22c128e2feeeb2a523e608d35a36d
 title: define kit as the resilient execution unit with per-kit agent settings
 type: adr
 goal: '[ASSUMED] Keep the multi-node design simple while making it resilient.'
@@ -18,6 +18,7 @@ We want three things only:
 - each `kit` can carry a different set of agent settings, such as system prompt, skills, tools, and other runtime-facing behavior exposed by Claude Code or Codex.
 - a running `kit` should not be taken down just because the hub disappears temporarily.
 At minimum, the system can run with exactly one kit. That single kit represents the system-wide agent executor.
+
 ## Decision
 
 Adopt a simple `hub + kits` model over the existing NATS transport:
@@ -29,6 +30,7 @@ Adopt a simple `hub + kits` model over the existing NATS transport:
 - every kit declares its agent settings up front.
 - if the hub disconnects, a kit keeps active work running, buffers unreconciled events locally, and replays them after reconnect.
 A kit is not the transcript owner and not the orchestration owner. It is the worker daemon with temporary recovery responsibility.
+
 ## Transport
 
 Use the existing embedded NATS transport as the only wire between hub and kit.
@@ -38,6 +40,7 @@ That means:
 - kit connects as a NATS client
 - hub and kit communicate through NATS subjects
 - no extra side-channel protocol is introduced for kit execution
+
 ## Hub Responsibilities
 
 The hub remains the source of truth for:
@@ -49,6 +52,7 @@ The hub remains the source of truth for:
 - approvals and user-facing state
 - durable ingest of turn events
 - replay reconciliation after kit reconnect
+
 ## Kit Responsibilities
 
 A kit is a long-running daemon process that:
@@ -62,6 +66,7 @@ A kit is a long-running daemon process that:
 - buffers unacknowledged events locally until the hub confirms them
 - re-registers and reconciles after reconnect
 At minimum there is one kit in the system. More kits can be added later.
+
 ## Kit Settings
 
 Each kit may expose a different runtime configuration for the agent it runs.
@@ -78,6 +83,7 @@ Examples of kit settings:
 - sandbox or approval defaults
 - max concurrency
 In simple terms, two kits may run the same provider but still behave differently because their settings differ.
+
 ## Simplest Topology
 
 The minimal topology is:
@@ -226,6 +232,7 @@ many kits with different settings
 That gives us multiple agent behaviors without changing the hub role.
 many kits with different settings
 That gives us multiple agent behaviors without changing the hub role.
+
 ## Routing Model
 
 Keep the routing model simple:
@@ -246,6 +253,7 @@ If the hub disconnects:
 - kit keeps trying to reconnect
 - after reconnect, kit re-registers and replays buffered events until the hub catches up
 This keeps the kit resilient without making it the source of truth.
+
 ## Recovery Rule
 
 To support replay safely:
@@ -255,6 +263,7 @@ To support replay safely:
 - kit may resend already-sent events during recovery
 - hub ingest must therefore be duplicate-safe
 The recovery journal inside the kit is only a delivery buffer, not the authoritative transcript.
+
 ## Session Rule
 
 A chat or long-running agent session should stay on the same kit when possible.
@@ -265,6 +274,7 @@ Reason:
 - changing kit settings mid-session can change behavior unexpectedly
 - reconnect recovery is simplest when a running turn stays attached to its original kit
 If we intentionally move a chat to a kit with different settings, the safe default is to start a fresh provider session.
+
 ## Why This Is Better
 
 - keeps the hub small and clear
@@ -272,6 +282,7 @@ If we intentionally move a chat to a kit with different settings, the safe defau
 - supports one-kit systems and many-kit systems with the same mental model
 - allows different agent behavior without scattering prompt or skill logic across the hub
 - makes hub restarts survivable for long-running turns
+
 ## First Implementation Slice
 
 1. extract the execution boundary from the current in-process agent runtime
@@ -282,12 +293,14 @@ If we intentionally move a chat to a kit with different settings, the safe defau
 6. add per-turn sequence numbers plus hub acknowledgements
 7. add a bounded local recovery journal inside the kit
 8. keep all transcript and orchestration truth in the hub
+
 ## Risks
 
 - if kit settings are vague, the hub will not know when two kits are meaningfully different
 - if event sequencing or acknowledgements are wrong, replay can duplicate or drop transcript entries
 - if the kit recovery journal grows without bounds, outages can turn into local disk pressure
 - if the hub starts embedding too much prompt or skill logic again, the split loses value
+
 ## Acceptance Criteria For Design
 
 - the system works with one hub and one kit

@@ -1,6 +1,6 @@
 ---
 id: adr-00000000-c3-adoption
-c3-seal: 51fcf5bf356c0acd3996525850eb6c17f03330c5594a7ba69e1fb9efe1527ed6
+c3-seal: 780154f8f24b124922b85ddbf428024a4c9fa02efd505504db8b33977e557d79
 title: C3 Architecture Documentation Adoption
 type: adr
 goal: Document C3 Architecture Documentation Adoption architecture decisions and responsibilities.
@@ -11,6 +11,7 @@ affects:
 ---
 
 # C3 Architecture Documentation Adoption
+
 ## Goal
 
 Document C3 Architecture Documentation Adoption architecture decisions and responsibilities.

@@ -1,6 +1,6 @@
 ---
 id: ref-mobile-tabbed-page-pattern
-c3-seal: cdceb4eac02ed9902a9cc105c902a1fec915ee4580910af3a9cd3e9e97c16eef
+c3-seal: 082ca2ee1edd0c3e4bd35bea98bfeb56fe2b26ebc221320c0c453996fc3e8fcd
 title: mobile-tabbed-page-pattern
 type: ref
 goal: Standardize the mobile-friendly tabbed page layout so every sub-app screen (Settings, Workspace, future admin surfaces) follows the same responsive pattern — compact header with back navigation, labeled segmented tabs, and sidebar auto-dismiss.
@@ -31,6 +31,7 @@ Pattern:
   <h1 className="text-base font-semibold text-foreground md:text-lg truncate">{title}</h1>
 </div>
 ```
+
 This replaces `PageHeader` for tabbed pages. `PageHeader` with its `pt-16 mb-10` wastes 104px on mobile — 12% of a 844px viewport.
 
 ### 2. SegmentedControl Tabs
@@ -46,6 +47,7 @@ Full-width on mobile, auto-width on desktop:
   alwaysShowLabels  // ← show text labels alongside icons on mobile
 />
 ```
+
 The `alwaysShowLabels` prop bypasses the default `hidden md:inline` on icon+label tabs. Use it when there are ≤ 3 tabs — enough horizontal space for labels at 390px. For 4+ tabs, omit the prop to keep icon-only on mobile with tooltips.
 
 ### 3. Tab Content — No Duplicate Headings
@@ -59,6 +61,7 @@ When navigating to a tabbed page from the sidebar, call `onClose()` after `navig
 ```tsx
 onClick={() => { navigate("/settings"); onClose() }}
 ```
+
 ## Why
 
 The first Settings implementation used `PageHeader` (104px top padding) + icon-only tabs + duplicate section headings. On a 390px×844px mobile viewport, 30% of visible space was decorative chrome with no content. The workspace page had the same issue. This ref prevents future tabbed pages from repeating the mistake.
@@ -70,6 +73,7 @@ The first Settings implementation used `PageHeader` (104px top padding) + icon-o
 3. Tab panels start with description text, not a heading that duplicates the tab label
 4. Sidebar navigation to any tabbed page must include `onClose()` for mobile dismiss
 5. Back arrow navigates to `/` (home) — not browser history — for predictable behavior
+
 ## Examples
 
 **Settings** (`src/client/app/SettingsPage.tsx`): 2 tabs (Providers, Profiles) — uses `alwaysShowLabels`, `Settings` icon on desktop, back arrow on mobile.

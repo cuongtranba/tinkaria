@@ -8,6 +8,7 @@ import {
   type StartTurnCommand,
   type CancelTurnCommand,
   type RespondToolCommand,
+  type StopChatPtyCommand,
   type RunnerRegistration,
   type RunnerHeartbeat,
 } from "../shared/runner-protocol"
@@ -106,6 +107,11 @@ export class RunnerNatsHandler {
     this.subscribeCommand("respond_tool", async (data) => {
       const cmd = JSON.parse(data) as RespondToolCommand
       await this.agent.respondTool(cmd.chatId, cmd.toolUseId, cmd.result)
+    })
+
+    this.subscribeCommand("stop_chat_pty", async (data) => {
+      const cmd = JSON.parse(data) as StopChatPtyCommand
+      this.agent.stopChatPty(cmd.chatId)
     })
 
     this.subscribeCommand("shutdown", async () => {

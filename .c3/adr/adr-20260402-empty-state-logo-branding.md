@@ -1,6 +1,6 @@
 ---
 id: adr-20260402-empty-state-logo-branding
-c3-seal: 2a36434d01fcca40ce5310664791653cdac78c161a10887f55023a4db2e850a2
+c3-seal: 72811a767fb90095bff58d41e416680076ae7232c6f7f6a2dec299fdce0aa4bc
 title: empty-state-logo-branding
 type: adr
 goal: Document empty-state-logo-branding architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-02"
 ---
 
 # empty-state-logo-branding
+
 ## Goal
 
 Document empty-state-logo-branding architecture decisions and responsibilities.

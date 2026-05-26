@@ -1,7 +1,41 @@
 export const STORE_VERSION = 3 as const
 export const PROTOCOL_VERSION = 1 as const
 
-export type AgentProvider = "claude" | "codex"
+export type AgentProvider = "claude" | "codex" | "claude-pty"
+
+// === OAuth token pool (claude-pty auth) ===
+
+export type OAuthTokenStatus = "active" | "limited" | "error" | "disabled"
+
+export interface OAuthTokenEntry {
+  id: string
+  label: string
+  token: string
+  status: OAuthTokenStatus
+  limitedUntil: number | null
+  lastUsedAt: number | null
+  lastErrorAt: number | null
+  lastErrorMessage: string | null
+  addedAt: number
+  /** Per-token concurrent-chat cap. Falls back to ClaudeAuthSettings.concurrencyDefault. */
+  maxConcurrent?: number
+}
+
+export interface ClaudeAuthSettings {
+  tokens: OAuthTokenEntry[]
+  concurrencyDefault: number
+}
+
+export const OAUTH_TOKEN_MAX_CONCURRENT_MIN = 1
+export const OAUTH_TOKEN_MAX_CONCURRENT_MAX = 5
+export const OAUTH_TOKEN_CONCURRENCY_DEFAULT = 1
+export const OAUTH_TOKEN_LABEL_MAX = 64
+export const OAUTH_TOKEN_VALUE_MAX = 1024
+
+export const CLAUDE_AUTH_DEFAULTS: ClaudeAuthSettings = {
+  tokens: [],
+  concurrencyDefault: OAUTH_TOKEN_CONCURRENCY_DEFAULT,
+}
 
 export interface ProviderModelOption {
   id: string
@@ -52,9 +86,15 @@ export interface CodexModelOptions {
   fastMode: boolean
 }
 
+export interface ClaudePtyModelOptions {
+  reasoningEffort: ClaudeReasoningEffort
+  contextWindow: ClaudeContextWindow
+}
+
 export interface ProviderModelOptionsByProvider {
   claude: ClaudeModelOptions
   codex: CodexModelOptions
+  "claude-pty": ClaudePtyModelOptions
 }
 
 export type ModelOptions = Partial<{
@@ -70,6 +110,11 @@ export const DEFAULT_CODEX_MODEL_OPTIONS = {
   reasoningEffort: "high",
   fastMode: false,
 } as const satisfies CodexModelOptions
+
+export const DEFAULT_CLAUDE_PTY_MODEL_OPTIONS = {
+  reasoningEffort: "high",
+  contextWindow: "200k",
+} as const satisfies ClaudePtyModelOptions
 
 export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
   return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
@@ -123,6 +168,19 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
       { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", supportsEffort: false },
     ],
     efforts: [],
+  },
+  {
+    id: "claude-pty",
+    label: "Claude (PTY)",
+    defaultModel: "opus",
+    defaultEffort: "high",
+    supportsPlanMode: true,
+    models: [
+      { id: "opus", label: "Opus", supportsEffort: true, contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS] },
+      { id: "sonnet", label: "Sonnet", supportsEffort: true, contextWindowOptions: [...CLAUDE_CONTEXT_WINDOW_OPTIONS] },
+      { id: "haiku", label: "Haiku", supportsEffort: true },
+    ],
+    efforts: [...CLAUDE_REASONING_OPTIONS],
   },
 ]
 
@@ -309,7 +367,124 @@ export interface AccountInfo {
   subscriptionType?: string
   tokenSource?: string
   apiKeySource?: string
+  oauthKeyMasked?: string | null
+  accountLabel?: string | null
 }
+
+// === claude-pty additions ===
+
+export interface SlashCommand {
+  name: string
+  description: string
+  argumentHint: string
+}
+
+export interface ContextWindowUsageSnapshot {
+  usedTokens: number
+  totalProcessedTokens?: number
+  maxTokens?: number
+  inputTokens?: number
+  cachedInputTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
+  lastUsedTokens?: number
+  lastInputTokens?: number
+  lastCachedInputTokens?: number
+  lastOutputTokens?: number
+  lastReasoningOutputTokens?: number
+  toolUses?: number
+  durationMs?: number
+  compactsAutomatically: boolean
+}
+
+export type McpServerTransport = "stdio" | "http" | "sse" | "ws"
+
+export type McpServerTestResult =
+  | { status: "untested" }
+  | { status: "pending"; startedAt: string }
+  | { status: "ok"; testedAt: string; toolCount: number }
+  | { status: "error"; testedAt: string; message: string }
+
+export interface McpServerBaseFields {
+  id: string
+  name: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+  lastTest: McpServerTestResult
+}
+
+export interface McpServerStdioFields {
+  transport: "stdio"
+  command: string
+  args: string[]
+  env: Record<string, string>
+  cwd?: string
+}
+
+export interface McpServerNetworkFields {
+  transport: "http" | "sse" | "ws"
+  url: string
+  headers: Record<string, string>
+}
+
+export type McpServerConfig =
+  | (McpServerBaseFields & McpServerStdioFields)
+  | (McpServerBaseFields & McpServerNetworkFields)
+
+export type AttachmentKind = "image" | "file"
+
+export interface ChatAttachment {
+  id: string
+  kind: AttachmentKind
+  displayName: string
+  absolutePath: string
+  relativePath: string
+  contentUrl: string
+  mimeType: string
+  size: number
+}
+
+export type SubagentContextScope = "previous-assistant-reply" | "full-transcript"
+
+export interface Subagent {
+  id: string
+  name: string
+  description?: string
+  provider: AgentProvider
+  model: string
+  modelOptions: ClaudeModelOptions | CodexModelOptions
+  systemPrompt: string
+  contextScope: SubagentContextScope
+  createdAt: number
+  updatedAt: number
+}
+
+export type KannaStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "waiting_for_user"
+  | "failed"
+
+export interface PendingToolSnapshot {
+  toolUseId: string
+  toolKind: "ask_user_question" | "exit_plan_mode"
+}
+
+export interface QueuedChatMessage {
+  id: string
+  content: string
+  attachments: ChatAttachment[]
+  createdAt: number
+  provider?: AgentProvider
+  model?: string
+  modelOptions?: ModelOptions
+  planMode?: boolean
+  autoContinue?: { scheduleId: string }
+}
+
+// === end claude-pty additions ===
 
 export interface AskUserQuestionOption {
   label: string
@@ -507,6 +682,16 @@ export type DelegationStatus =
   | "orphaned"
   | "stale"
 
+export interface ContextWindowUpdatedEntry extends TranscriptEntryBase {
+  kind: "context_window_updated"
+  usage: ContextWindowUsageSnapshot
+}
+
+export interface RateLimitEntry extends TranscriptEntryBase {
+  kind: "rate_limit"
+  rateLimit: { resetAt: number; tz: string }
+}
+
 export interface AgentResultEntry extends TranscriptEntryBase {
   kind: "agent_result"
   delegationId: string
@@ -535,6 +720,8 @@ export type TranscriptEntry =
   | ContextClearedEntry
   | InterruptedEntry
   | ContextUsageEntry
+  | ContextWindowUpdatedEntry
+  | RateLimitEntry
   | AgentResultEntry
 
 export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {
@@ -691,6 +878,7 @@ export type HydratedTranscriptMessage =
   | ({ kind: "context_cleared"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "interrupted"; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ kind: "unknown"; json: string; id: string; messageId?: string; timestamp: string; hidden?: boolean })
+  | ({ kind: "rate_limit"; rateLimit: { resetAt: number; tz: string }; id: string; messageId?: string; timestamp: string; hidden?: boolean })
   | ({ id: string; messageId?: string; hidden?: boolean } & HydratedToolCall)
 
 export type TranscriptRenderUnitKind =
@@ -709,6 +897,7 @@ export type TranscriptRenderUnitKind =
   | "context_cleared"
   | "interrupted"
   | "unknown"
+  | "rate_limit"
 
 export interface TranscriptRenderUnitBase<TKind extends TranscriptRenderUnitKind> {
   kind: TKind
@@ -730,6 +919,7 @@ export type TranscriptSingleRenderUnit =
   | (TranscriptRenderUnitBase<"context_cleared"> & { message: Extract<HydratedTranscriptMessage, { kind: "context_cleared" }> })
   | (TranscriptRenderUnitBase<"interrupted"> & { message: Extract<HydratedTranscriptMessage, { kind: "interrupted" }> })
   | (TranscriptRenderUnitBase<"unknown"> & { message: Extract<HydratedTranscriptMessage, { kind: "unknown" }> })
+  | (TranscriptRenderUnitBase<"rate_limit"> & { message: Extract<HydratedTranscriptMessage, { kind: "rate_limit" }> })
 
 export type TranscriptRenderUnit =
   | TranscriptSingleRenderUnit

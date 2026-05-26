@@ -1,6 +1,6 @@
 ---
 id: adr-20260330-harden-coding-rules
-c3-seal: ead4b7526fd5b2b831065af2ffbe454691cb88acfecb648b2ba931b40f16cd69
+c3-seal: bd15485c312d76450c4e7e928dc1ecd5678bf4194dd217a987b6fab232414977
 title: harden-coding-rules
 type: adr
 goal: Codify existing coding patterns as enforceable C3 rules to harden code quality, error handling, and testing conventions.
@@ -23,6 +23,7 @@ Created 5 coding rules extracted from existing golden patterns in the codebase:
 | rule-type-guards | Type validation | is* predicates, normalize* functions, require*/get* duality |
 | rule-prefixed-logging | All logging | LOG_PREFIX constant, severity-appropriate console methods |
 | rule-graceful-fallbacks | External inputs | Normalize with fallback, handle ENOENT/SyntaxError, never crash on bad data |
+
 ## Status
 
 Implemented. All rules wired to relevant components.

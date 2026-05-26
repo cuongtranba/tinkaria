@@ -1,6 +1,6 @@
 ---
 id: ref-pwa
-c3-seal: 058f31659c7944b098da610c7afd259304d68fe98c60d1dd35c025682c7699fb
+c3-seal: b4d4247f22266621c1f81d561426e0cc54ef5e49d37009b50526c485f7f1b840
 title: pwa
 type: ref
 goal: Enable Tinkaria to be installed as a standalone app on mobile and desktop via Progressive Web App (PWA) — homescreen icon, standalone display mode, and service worker lifecycle for future caching and push notifications.
@@ -19,6 +19,7 @@ Minimal hand-rolled PWA: static `manifest.webmanifest` + lightweight `sw.js` + m
 Tinkaria is a WebSocket-heavy real-time app — aggressive caching would fight the live connection model. A minimal service worker provides the installability gate (Chrome/Safari require a SW for Add to Home Screen) without introducing stale-cache bugs. The SW can be extended incrementally for push notifications and shell caching when needed.
 
 ## How
+
 ### Manifest — public/manifest.webmanifest
 
 ```json
@@ -35,6 +36,7 @@ Tinkaria is a WebSocket-heavy real-time app — aggressive caching would fight t
   ]
 }
 ```
+
 ### Service Worker — public/sw.js
 
 No-op fetch handler. `skipWaiting()` + `clients.claim()` for instant activation.
@@ -44,6 +46,7 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", () => {});
 ```
+
 ### Registration — src/main.tsx
 
 ```ts
@@ -53,6 +56,7 @@ if ("serviceWorker" in navigator) {
   })
 }
 ```
+
 ### HTML Meta — index.html
 
 ```html
@@ -63,11 +67,13 @@ if ("serviceWorker" in navigator) {
 <meta name="apple-mobile-web-app-title" content="Tinkaria" />
 <link rel="apple-touch-icon" href="/icon-192.png" />
 ```
+
 ### Extension Points
 
 - **Push notifications**: Add `push` event listener to `sw.js`, server sends via Web Push API (VAPID). Natural triggers: agent completed, tool approval needed, session error.
 - **App shell caching**: Cache `index.html` + JS/CSS bundles in `install` event for offline shell loading.
 - **Background sync**: Queue offline actions in IndexedDB, replay on reconnect.
+
 ### Constraints
 
 - Do NOT cache API/WebSocket responses — real-time data must always be live

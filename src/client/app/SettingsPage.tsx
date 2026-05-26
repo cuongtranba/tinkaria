@@ -1,25 +1,28 @@
 import { useState } from "react"
 import { useNavigate, useOutletContext } from "react-router-dom"
-import { ArrowLeft, Box, Puzzle, Settings, User, Server } from "lucide-react"
+import { ArrowLeft, Box, Puzzle, Settings, Terminal, User, Server } from "lucide-react"
 import { Button } from "../components/ui/button"
 import { SegmentedControl, type SegmentedOption } from "../components/ui/segmented-control"
 import { ProvidersTab } from "./ProvidersTab"
 import { ProfilesTab } from "./ProfilesTab"
 import { ExtensionsTab } from "./ExtensionsTab"
 import { RunnersTab } from "./RunnersTab"
+import { ClaudePtyTab } from "./ClaudePtyTab"
 import type { AppState } from "./useAppState"
 
-export type TinkariaTab = "providers" | "profiles" | "extensions" | "runners"
+export type TinkariaTab = "providers" | "profiles" | "extensions" | "runners" | "claude-pty"
 
 const TAB_OPTIONS: SegmentedOption<TinkariaTab>[] = [
   { value: "providers", label: "Providers", icon: Box, tooltip: "Providers" },
   { value: "profiles", label: "Profiles", icon: User, tooltip: "Profiles" },
   { value: "extensions", label: "Extensions", icon: Puzzle, tooltip: "Extensions" },
   { value: "runners", label: "Runners", icon: Server, tooltip: "Runners" },
+  { value: "claude-pty", label: "Claude PTY", icon: Terminal, tooltip: "Claude PTY" },
 ]
 
 export function normalizeTinkariaTab(value: string | null): TinkariaTab {
-  return value === "profiles" || value === "extensions" || value === "runners" ? value : "providers"
+  if (value === "profiles" || value === "extensions" || value === "runners" || value === "claude-pty") return value
+  return "providers"
 }
 
 export function TinkariaSettingsPanel({
@@ -49,6 +52,7 @@ export function TinkariaSettingsPanel({
         {activeTab === "profiles" && <ProfilesTab state={state} />}
         {activeTab === "extensions" && <ExtensionsTab state={state} />}
         {activeTab === "runners" && <RunnersTab />}
+        {activeTab === "claude-pty" && <ClaudePtyTab state={state} />}
       </div>
     </div>
   )

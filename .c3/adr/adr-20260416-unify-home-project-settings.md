@@ -1,6 +1,6 @@
 ---
 id: adr-20260416-unify-home-project-settings
-c3-seal: 22e3bb9520af2b6be409307459126c72eeba1536dc0a671216cde8f281376a60
+c3-seal: 33ed8527d545a9abcc8c2c71d8bcc2c77c013376772e7d1ea530f44cb972706c
 title: unify-home-project-settings
 type: adr
 goal: Change home page to match project homepage structure, allow project management from home, link into project pages, show brief running sessions, and consolidate scattered settings into one place.
@@ -19,11 +19,13 @@ Change home page to match project homepage structure, allow project management f
 - Preview the two most relevant project sessions on home cards and overview panels.
 - Move homepage preferences and Tinkaria settings into the home Settings tab via a shared `TinkariaSettingsPanel`.
 - Point sidebar footer settings and legacy `/settings` routes at `/?tab=settings`.
+
 ## Risks
 
 - Home routes can lose query-state if tab changes overwrite unrelated params.
 - Project summaries can drift from sidebar project identity when local-workspaces and sidebar snapshots differ.
 - Settings panel reuse can duplicate settings surfaces unless old routes become compatibility entry points.
+
 ## Parent Delta
 
 - Component: c3-117 projects behavior changed by adding home tabs, project-page links, and session previews. Evidence: `src/client/components/LocalDev.tsx`, `src/client/app/LocalWorkspacesPage.tsx`, `src/client/app/SettingsPage.tsx`.
@@ -31,6 +33,7 @@ Change home page to match project homepage structure, allow project management f
 - Container: c3-1 already owns project management and settings UI; no container responsibility change needed.
 - Context: no topology change.
 - Refs/Rules: no shared ref/rule change; changes comply with browse/card vocabulary, UI primitives for buttons, and C3 ui identity descriptors.
+
 ## Verification Plan
 
 - RED/GREEN focused tests for home tabs, project links/session previews, settings merge, sidebar settings link, and legacy redirects.

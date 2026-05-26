@@ -1,6 +1,6 @@
 ---
 id: ref-mcp-app-jtbd
-c3-seal: 2a7a0ad3ff9fa9ca953139e62132611315d0981bad934553fbfe407584d25251
+c3-seal: 4ca5e7bb276ffc18e4bd97f80999b853e69d3a6b3b866d81828d3ae9992d0605
 title: mcp-app-jtbd
 type: ref
 goal: Define MCP Apps adoption around important user jobs rather than infrastructure novelty. The feature is only complete when users can finish the intended job correctly, safely, and without avoidable friction.
@@ -26,6 +26,7 @@ The initial important jobs are:
 2. Answer impact and ownership questions: inspect what a component owns, what uses it, and what might break if it changes.
 3. Continue from overview to action safely: move from project overview into chat or transcript context with the same architectural state, but without letting the app itself execute privileged runtime actions.
 Phase 1 is done only if those jobs are completed with these boundaries:
+
 - read-only app behavior
 - first-party or strict allowlisted origins only
 - lightweight project summaries; lazy detail/session hydration

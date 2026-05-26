@@ -1,6 +1,6 @@
 ---
 id: rule-react-no-effects
-c3-seal: 6b649347967e20df424cd77cd3ee26e617527a836a09a64ba6d0c16e0157b401
+c3-seal: 221b4e32b4e4bba729ab93ff9642c0fc9e1b9d47a7f9d034e78a809cfd686ea3
 title: react-no-effects
 type: rule
 goal: Keep React components declarative by treating Effects as a last-resort escape hatch for external-system synchronization only, and by giving Tinkaria a concrete replacement path for each common Effect misuse.
@@ -24,6 +24,7 @@ Use this replacement matrix instead:
 - `useSyncExternalStore` or a dedicated adapter hook for external subscriptions
 - explicit fetch helpers for pull-based remote server state unless TanStack Query is deliberately adopted later
 Effects are allowed only when synchronizing with an external system outside React and the matrix above cannot express the behavior.
+
 ## Golden Example
 
 ```tsx
@@ -51,6 +52,7 @@ function useSocketStatus(socket: TinkariaTransport) {
   return useSyncExternalStore(socket.onStatus, socket.getStatus, socket.getStatus)
 }
 ```
+
 Repo-specific interpretation:
 
 - Zustand is the default home for shared browser-side state that outlives one component or coordinates multiple components.
@@ -58,9 +60,11 @@ Repo-specific interpretation:
 - TanStack Query is not a generic state manager. If adopted later, it owns pull-based HTTP-style server state, not NATS push state or local UI state.
 - Boundary-only synchronization may still justify an Effect in a dedicated adapter hook/component for browser subscriptions, imperative widgets, layout measurement that CSS cannot express, or imperative subsystem lifecycles such as xterm.js.
 Every allowed Effect must answer:
+
 1. What external system is being synchronized?
 2. Why can this not be expressed during render, by a key, in an event handler, in Zustand, or via a subscription API?
 3. What cleanup restores symmetry on unmount or dependency change?
+
 ## Not This
 
 | Anti-Pattern | Correct | Why Wrong Here |
@@ -71,6 +75,7 @@ Every allowed Effect must answer:
 | chained Effects that update the next state variable | calculate next state in one event handler, reducer, or Zustand action | Creates fragile cascading renders and temporal coupling |
 | component-local Effect subscriptions for shared app state | useSyncExternalStore, Zustand selectors, or one adapter hook | Reimplements store wiring and hides ownership |
 | using TanStack Query for local dialog state, socket push state, or composer drafts | component state, Zustand, or useSyncExternalStore | Query libraries solve remote server-state caching, not local UI orchestration |
+
 ## Scope
 
 Applies to all browser React modules under `src/client/**/*.ts` and `src/client/**/*.tsx`, including hooks. Tinkaria already uses Zustand and does not ship TanStack Query. Until that changes, pull-based remote server state should stay in explicit fetch helpers or be introduced alongside a deliberate Query adoption decision.

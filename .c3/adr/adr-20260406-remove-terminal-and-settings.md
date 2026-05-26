@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-remove-terminal-and-settings
-c3-seal: afe07be6ea7f966eb713d7768256885e261769e637e0ff7474cc4bc74b67b84b
+c3-seal: 1add0b43381a673126474f0a75308c215e75454e0d40b54935455f0d0ccfad0b
 title: Remove embedded terminal and settings surfaces
 type: adr
 goal: Document Remove embedded terminal and settings surfaces architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-06"
 ---
 
 # Remove embedded terminal and settings surfaces
+
 ## Goal
 
 Document Remove embedded terminal and settings surfaces architecture decisions and responsibilities.

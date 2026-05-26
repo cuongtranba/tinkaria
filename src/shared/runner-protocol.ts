@@ -53,6 +53,10 @@ export interface CancelTurnCommand {
   chatId: string
 }
 
+export interface StopChatPtyCommand {
+  chatId: string
+}
+
 export interface RespondToolCommand {
   chatId: string
   toolUseId: string

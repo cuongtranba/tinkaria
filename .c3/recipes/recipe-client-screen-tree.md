@@ -1,6 +1,6 @@
 ---
 id: recipe-client-screen-tree
-c3-seal: e0ac7b38de3e482d0209475fcd82860de5e9a6aed09eb55be70eceb70e09d61a
+c3-seal: cef3bfa422b3729c2af7c463481e2f72086b6c1f2b6a622709328e364821bb5e
 title: client-screen-tree
 type: recipe
 goal: Maintain a fast lookup artifact for the client screen tree so any visible browser surface can be traced quickly from route -> owning C3 component -> semantic Alt+Shift ui id.
@@ -20,6 +20,7 @@ Maintain a fast lookup artifact for the client screen tree so any visible browse
 | Global sidebar shell | c3-113 | mounted on all routes | project groups, chat rows, per-group session picker | chat.sidebar, sidebar.project-group, sidebar.chat-row, sidebar.project-group.sessions.action, sidebar.project-group.sessions.popover, sidebar.project-group.sessions.search.input, sidebar.project-group.sessions.list |
 | UI identity overlay | c3-108 | hold Alt+Shift over any tagged surface | nearest-tag stack, copy action, highlight rect | ids are emitted by tagged surfaces and revealed by the overlay |
 | Workspace coordination page | c3-209 | /workspace/:id | header, 8-panel 2×4 grid (TodosPanel, ClaimsPanel, WorktreesPanel, RulesPanel, RepoPanel, AgentConfigPanel, WorkflowPanel, SandboxPanel) | workspace.page, workspace.todos, workspace.claims, workspace.worktrees, workspace.rules, workspace.repos, workspace.agents, workspace.workflows, workspace.sandbox |
+
 ### Component Tree By Screen
 
 | Screen | Ordered Subtree |
@@ -29,6 +30,7 @@ Maintain a fast lookup artifact for the client screen tree so any visible browse
 | Sidebar overlays | c3-113 sidebar -> LocalProjectsSection -> ChatRow[] + ProjectSectionMenu + SessionPicker |
 | Alt+Shift inspection path | c3-108 ui-identity -> App overlay controller -> UiIdentityOverlay -> DOM data-ui-id stack emitted by route components |
 | /workspace/:id | c3-101 app-shell -> c3-113 sidebar + c3-209 coordination -> TodosPanel + ClaimsPanel + WorktreesPanel + RulesPanel + RepoPanel + AgentConfigPanel + WorkflowPanel(c3-225 workflow) + SandboxPanel(c3-225 sandbox) |
+
 ### ALT+SHIFT Linkage Rules
 
 | What the overlay shows | Owning C3 component |

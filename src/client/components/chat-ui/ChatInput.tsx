@@ -821,7 +821,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
         </div>
       ) : null}
       {availableSkills.length > 0 && ribbonVisible ? (
-        <div className={cn("px-3", isStandalone && "px-5")}>
+        <div className={cn("px-3", isMobile && "pb-2", isStandalone && "px-5")}>
           <div className="max-w-[840px] mx-auto">
             <SkillRibbon
               skills={availableSkills}
@@ -835,7 +835,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
           </div>
         </div>
       ) : null}
-      <div className={cn("px-3 pt-0", isStandalone && "px-5")}>
+      <div className={cn("px-3 pt-0", isMobile && "pb-3", isStandalone && "px-5")}>
         <div
           {...getUiIdentityAttributeProps(composerAreaDescriptor)}
           className={cn(

@@ -128,3 +128,4 @@ export function oauthChangedSubject(): string {
 }
 
 export const ALL_OAUTH_COMMANDS = `${PREFIX}.cmd.oauth.>`
+export const ALL_OAUTH_EVENTS = `${PREFIX}.evt.oauth.>`

@@ -1,10 +1,25 @@
+import { homedir } from "node:os"
+import path from "node:path"
 import { LOG_PREFIX } from "../shared/branding"
 import { readToken } from "../nats/nats-token"
 import { generateTitleForChat } from "../server/generate-title"
 import { RunnerAgent, type TurnFactory } from "./runner-agent"
 import { NatsCoordinationClient } from "./nats-coordination-client"
 import { RunnerNatsHandler, connectRunner, shutdownConnection } from "./runner-nats"
-import { startClaudeTurn, startClaudePtyTurn, startCodexTurn, stopAllCodexSessions, stopAllClaudePtySessions } from "./turn-factories"
+import {
+  startClaudeTurn,
+  startClaudePtyTurn,
+  startCodexTurn,
+  stopAllCodexSessions,
+  stopAllClaudePtySessions,
+  stopClaudePtySession,
+  sweepIdleClaudePtySessions,
+  configureClaudePtyFactory,
+} from "./turn-factories"
+import { OAuthSettingsStore } from "../server/oauth-pool/oauth-settings-store"
+import { OAuthTokenPool } from "../server/oauth-pool/oauth-token-pool"
+import { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
+import { ALL_OAUTH_EVENTS } from "../shared/nats-subjects"
 
 const natsUrl = process.env.NATS_URL
 const natsToken = process.env.NATS_TOKEN
@@ -28,6 +43,73 @@ const nc = await connectRunner({ natsUrl, token: resolvedToken })
 
 console.warn(LOG_PREFIX, `Runner ${runnerId} connected to NATS at ${natsUrl}`)
 
+// ── OAuth pool + PTY registry (PTY lifecycle ownership) ───────────────
+//
+// Both live for the runner process lifetime. The pool is the single
+// source of truth for token reservation/rotation in this runner. The
+// registry persists live PTY pids so a non-graceful crash can SIGKILL
+// orphans on the next boot.
+
+const oauthSettings = new OAuthSettingsStore()
+await oauthSettings.load()
+const oauthPool = new OAuthTokenPool(
+  () => oauthSettings.getTokens(),
+  (id, patch) => oauthSettings.mutateTokenStatus(id, patch),
+  Date.now,
+  () => oauthSettings.getConcurrencyDefault(),
+)
+
+const ptyRegistryPath = path.join(homedir(), ".tinkaria", "cache", "runner-pty-pids.json")
+const ptyRegistry = new ClaudePtyRegistry(ptyRegistryPath)
+try {
+  const reaped = await ptyRegistry.reapStale()
+  if (reaped.length > 0) {
+    console.warn(LOG_PREFIX, `Runner reaped ${reaped.length} orphan PTY child(ren) from previous boot`)
+  }
+} catch (err) {
+  console.warn(LOG_PREFIX, "ptyRegistry.reapStale failed:", err instanceof Error ? err.message : String(err))
+}
+
+configureClaudePtyFactory({ pool: oauthPool, registry: ptyRegistry })
+
+// Reload settings when the server publishes oauth.changed so the runner
+// pool sees user-added tokens without a restart.
+;(async () => {
+  try {
+    const sub = nc.subscribe(ALL_OAUTH_EVENTS)
+    for await (const _ of sub) {
+      try { await oauthSettings.load() } catch (err) {
+        console.warn(LOG_PREFIX, "oauthSettings.load on oauth.changed failed:", err instanceof Error ? err.message : String(err))
+      }
+    }
+  } catch (err) {
+    console.warn(LOG_PREFIX, "oauth.changed subscription terminated:", err instanceof Error ? err.message : String(err))
+  }
+})()
+
+// Idle session sweeper. Defaults: TTL = 10 min, sweep every 60 s. Override
+// via env so operators can tune for memory pressure.
+const claudeIdleMs = positiveIntFromEnv(process.env.TINKARIA_CLAUDE_SESSION_IDLE_MS, 10 * 60 * 1000)
+const claudeSweepMs = positiveIntFromEnv(process.env.TINKARIA_CLAUDE_SESSION_SWEEP_INTERVAL_MS, 60 * 1000)
+const claudeSweepTimer = claudeSweepMs > 0
+  ? setInterval(() => {
+      try {
+        const closed = sweepIdleClaudePtySessions(Date.now(), claudeIdleMs)
+        if (closed > 0) console.log(LOG_PREFIX, `idle sweep closed ${closed} PTY session(s)`)
+      } catch (err) {
+        console.warn(LOG_PREFIX, "idle sweep failed:", err instanceof Error ? err.message : String(err))
+      }
+    }, claudeSweepMs)
+  : null
+claudeSweepTimer?.unref?.()
+
+function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.round(n)
+}
+
 const createTurn: TurnFactory = async (args) => {
   if (args.provider === "claude") {
     return startClaudeTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
@@ -42,7 +124,13 @@ const createTurn: TurnFactory = async (args) => {
 }
 
 const coordinationStore = new NatsCoordinationClient(nc)
-const agent = new RunnerAgent({ nc, createTurn, generateTitle: generateTitleForChat, coordinationStore })
+const agent = new RunnerAgent({
+  nc,
+  createTurn,
+  generateTitle: generateTitleForChat,
+  coordinationStore,
+  stopClaudePtySession,
+})
 const handler = new RunnerNatsHandler({ nc, agent, runnerId })
 await handler.start()
 
@@ -62,6 +150,7 @@ async function shutdown() {
     await agent.cancel(chatId)
   }
 
+  if (claudeSweepTimer) clearInterval(claudeSweepTimer)
   stopAllCodexSessions()
   stopAllClaudePtySessions()
 

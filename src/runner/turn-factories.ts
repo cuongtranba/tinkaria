@@ -1,8 +1,25 @@
 /**
  * Turn factory wrappers for the runner process.
  *
- * Re-exports startClaudeTurn from claude-harness.ts and provides startCodexTurn
- * so the runner can create harness turns for both providers.
+ * Re-exports startClaudeTurn from claude-harness.ts and provides
+ * startCodexTurn / startClaudePtyTurn so the runner can create harness turns
+ * for all providers.
+ *
+ * Lifecycle ownership for claude-pty:
+ *   • `claudePtySessions` — module-level Map<chatId, ClaudePtySession>.
+ *     Mirrors kanna's `claudeSessions` map. PTY handle persists across
+ *     turns so the live `claude` CLI keeps in-memory context.
+ *   • `OAuthTokenPool` — single instance constructed in `runner.ts` and
+ *     handed to the factory at boot. `pickActive(chatId)` reserves a token
+ *     for the chat; `release(chatId)` drops it on turn end / session close.
+ *     `markLimited` / `markError` rotate the token on rate_limit / stream
+ *     error events. Mirrors kanna's `AgentCoordinator` rotation discipline.
+ *   • `ClaudePtyRegistry` — on-disk pidfile registry. Driver writes its pid
+ *     + runtimeDir before sending the first prompt and unregisters during
+ *     cleanup. Boot's `reapStale()` SIGKILLs orphans from a previous crash.
+ *   • Idle sweeper — `sweepIdleClaudePtySessions(now, idleMs)` closes any
+ *     session whose `lastUsedAt` is past the TTL. Scheduled from runner.ts
+ *     so the runner controls cadence + can `unref()` the timer.
  */
 
 export { startClaudeTurn } from "../server/claude-harness"
@@ -11,39 +28,30 @@ import { CodexAppServerManager } from "../server/codex-app-server"
 import type { HarnessToolRequest, HarnessTurn } from "../shared/harness-types"
 import type { CodexReasoningEffort, ServiceTier } from "../shared/types"
 import { startClaudeSessionPTY } from "../server/claude-pty/driver"
-import { OAuthSettingsStore } from "../server/oauth-pool/oauth-settings-store"
 import { ptyDeltaSubject } from "../shared/nats-subjects"
 import { compressPayload } from "../shared/compression"
 import type { NatsConnection } from "@nats-io/transport-node"
 import type { PtyInstanceDelta, PtyInstanceState } from "../shared/pty-instance"
 import type { HarnessEvent } from "../shared/harness-types"
 import type { ClaudeSessionHandle } from "../server/claude-pty/agent-normalizers"
+import type { OAuthTokenPool } from "../server/oauth-pool/oauth-token-pool"
+import type { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
 
 const ptyDeltaEncoder = new TextEncoder()
 function encodeDelta(delta: PtyInstanceDelta): Uint8Array {
   return compressPayload(ptyDeltaEncoder.encode(JSON.stringify(delta)))
 }
 
-/**
- * Long-lived PTY session bookkeeping.
- *
- * Mirrors kanna's `claudeSessions` map in `agent.ts`: the PTY handle persists
- * across turns so the live `claude` CLI process keeps its in-memory context
- * (transcript, tool acks, plan-mode state, etc.). Each `start_turn` for an
- * existing chatId reuses the handle and just calls `handle.sendPrompt`.
- *
- * A single background reader pumps events out of `handle.stream` and routes
- * them to whichever turn is "current" (the one whose HarnessTurn was last
- * returned by `startClaudePtyTurn`). Per-turn streams end on the first
- * `result` transcript entry; the PTY handle itself stays alive.
- */
 interface ClaudePtySession {
   chatId: string
   handle: ClaudeSessionHandle
   baseInstance: PtyInstanceState
-  /** Active turn waiting on the next `result` event. Cleared on turn end. */
   currentTurn: TurnDispatcher | null
   turnCount: number
+  /** Pool reservation id; null when no pool was available (test/fake paths). */
+  activeTokenId: string | null
+  /** Timestamp of the last turn end (or session start). Used by idle sweeper. */
+  lastUsedAt: number
   publishDelta: (delta: PtyInstanceDelta) => void
 }
 
@@ -94,22 +102,83 @@ function createTurnDispatcher(): TurnDispatcher {
 
 const claudePtySessions = new Map<string, ClaudePtySession>()
 
+// Single pool + registry instance shared across all turns. Set by runner.ts at boot.
+let sharedPool: OAuthTokenPool | null = null
+let sharedRegistry: ClaudePtyRegistry | null = null
+
+export function configureClaudePtyFactory(args: {
+  pool: OAuthTokenPool | null
+  registry: ClaudePtyRegistry | null
+}): void {
+  sharedPool = args.pool
+  sharedRegistry = args.registry
+}
+
 function startSessionReader(session: ClaudePtySession): void {
   void (async () => {
+    // `poolRotated` mirrors pty-responders semantics: when rate_limit /
+    // stream error marks the token limited/errored, the pool's
+    // `takeStaleOwners` already drops the reservation for this chat. The
+    // finally{} block must skip its plain `release(chatId)` in that case
+    // so it does not touch unrelated tokens (audit #9d).
+    let poolRotated = false
     try {
       for await (const event of session.handle.stream) {
+        if (event.type === "rate_limit" && event.rateLimit) {
+          console.log("[claude-pty/runner] rate_limit chatId=" + session.chatId, event.rateLimit)
+          if (session.activeTokenId && sharedPool) {
+            try {
+              const stale = sharedPool.takeStaleOwners(session.activeTokenId)
+              sharedPool.markLimited(session.activeTokenId, event.rateLimit.resetAt)
+              poolRotated = true
+              console.log(
+                "[claude-pty/runner] pool token " + session.activeTokenId
+                + " marked limited until " + event.rateLimit.resetAt
+                + "; stale owners=" + stale.length,
+              )
+            } catch (err) {
+              console.warn(
+                "[claude-pty/runner] markLimited failed token=" + session.activeTokenId,
+                err instanceof Error ? err.message : String(err),
+              )
+            }
+          }
+        }
         session.currentTurn?.push(event)
         const entry = (event as { entry?: { kind?: string } }).entry
         if (entry?.kind === "result") {
+          session.lastUsedAt = Date.now()
           session.currentTurn?.end()
           session.currentTurn = null
         }
       }
     } catch (err) {
-      console.warn("[claude-pty/runner] session reader error:", err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn("[claude-pty/runner] session reader error:", message)
+      if (session.activeTokenId && sharedPool) {
+        try {
+          const stale = sharedPool.takeStaleOwners(session.activeTokenId)
+          sharedPool.markError(session.activeTokenId, message)
+          poolRotated = true
+          console.log(
+            "[claude-pty/runner] pool token " + session.activeTokenId
+            + " marked error; stale owners=" + stale.length,
+          )
+        } catch (markErr) {
+          console.warn(
+            "[claude-pty/runner] markError failed token=" + session.activeTokenId,
+            markErr instanceof Error ? markErr.message : String(markErr),
+          )
+        }
+      }
     } finally {
       session.currentTurn?.end()
-      claudePtySessions.delete(session.chatId)
+      if (claudePtySessions.get(session.chatId) === session) {
+        claudePtySessions.delete(session.chatId)
+      }
+      if (!poolRotated && session.activeTokenId && sharedPool) {
+        try { sharedPool.release(session.chatId) } catch { /* swallow */ }
+      }
       session.publishDelta({ type: "removed", chatId: session.chatId })
     }
   })()
@@ -119,6 +188,9 @@ export function stopClaudePtySession(chatId: string): void {
   const session = claudePtySessions.get(chatId)
   if (!session) return
   try { session.handle.close() } catch { /* swallow */ }
+  // Map entry + pool release will be cleared by the background reader's
+  // finally{} block once the stream observes the close. Delete eagerly so
+  // a racing `start_turn` for the same chatId does not reuse this handle.
   claudePtySessions.delete(chatId)
 }
 
@@ -129,7 +201,29 @@ export function stopAllClaudePtySessions(): void {
   claudePtySessions.clear()
 }
 
-// Singleton: one CodexAppServerManager per runner process, manages all Codex child processes.
+/** Test-only inspector for the live session map. */
+export function getClaudePtySessionChatIds(): string[] {
+  return [...claudePtySessions.keys()]
+}
+
+/**
+ * Close any session whose `lastUsedAt` is older than `idleMs` and has no
+ * active turn. Mirrors kanna's `sweepIdleClaudeSessions`. Runs from a
+ * setInterval in runner.ts; the runner owns timer cadence.
+ */
+export function sweepIdleClaudePtySessions(now: number, idleMs: number): number {
+  let closed = 0
+  for (const [chatId, session] of [...claudePtySessions.entries()]) {
+    if (session.currentTurn !== null) continue
+    if (now - session.lastUsedAt < idleMs) continue
+    console.log("[claude-pty/runner] idle TTL eviction chatId=" + chatId + " idleMs=" + (now - session.lastUsedAt))
+    try { session.handle.close() } catch { /* swallow */ }
+    claudePtySessions.delete(chatId)
+    closed += 1
+  }
+  return closed
+}
+
 let codexManager: CodexAppServerManager | null = null
 
 function getCodexManager(binaryPath?: string, extraEnv?: Record<string, string>): CodexAppServerManager {
@@ -173,6 +267,19 @@ export async function startCodexTurn(args: {
   })
 }
 
+function buildPoolUnavailableMessage(reservedFor: string): string {
+  if (!sharedPool) return "OAuth pool is not configured on the runner."
+  if (!sharedPool.hasAnyToken()) {
+    return "No OAuth pool tokens configured. Add one under Settings → Claude PTY."
+  }
+  const summary = sharedPool
+    .describeUnavailability(reservedFor)
+    .filter((u) => u.reason !== "available")
+    .map((u) => (u.label || u.tokenId.slice(0, 8)) + ": " + u.reason)
+    .join("; ")
+  return "No usable OAuth pool token (" + (summary || "all tokens unavailable") + ")."
+}
+
 export async function startClaudePtyTurn(args: {
   chatId: string
   content: string
@@ -188,12 +295,17 @@ export async function startClaudePtyTurn(args: {
   let session = claudePtySessions.get(args.chatId)
 
   if (!session) {
-    const oauthStore = new OAuthSettingsStore()
-    await oauthStore.load()
-    const active = oauthStore.getSnapshot().tokens.find((t) => t.status === "active")
-    if (!active) {
-      throw new Error("No active OAuth pool token. Add one under Settings → Claude PTY.")
+    if (!sharedPool) {
+      throw new Error("Claude PTY runner is not wired to an OAuthTokenPool. Configure via configureClaudePtyFactory().")
     }
+    if (!sharedPool.hasAnyToken()) {
+      throw new Error("No OAuth pool tokens configured. Add one under Settings → Claude PTY.")
+    }
+    const picked = sharedPool.pickActive(args.chatId)
+    if (!picked) {
+      throw new Error(buildPoolUnavailableMessage(args.chatId))
+    }
+    sharedPool.markUsed(picked.id)
 
     const now = Date.now()
     const baseInstance: PtyInstanceState = {
@@ -202,7 +314,7 @@ export async function startClaudePtyTurn(args: {
       pid: null,
       cwd: args.localPath,
       model: args.model,
-      accountLabel: active.label,
+      accountLabel: picked.label,
       oauthMasked: null,
       phase: "spawning",
       startedAt: now,
@@ -243,12 +355,14 @@ export async function startClaudePtyTurn(args: {
         planMode: args.planMode,
         sessionToken: args.sessionToken,
         forkSession: false,
-        oauthToken: active.token,
-        oauthLabel: active.label,
+        oauthToken: picked.token,
+        oauthLabel: picked.label,
+        ptyRegistry: sharedRegistry ?? undefined,
         onToolRequest: args.onToolRequest as never,
       })
     } catch (err) {
       publishDelta({ type: "removed", chatId: args.chatId })
+      try { sharedPool.release(args.chatId) } catch { /* swallow */ }
       throw err
     }
 
@@ -260,6 +374,8 @@ export async function startClaudePtyTurn(args: {
       baseInstance,
       currentTurn: null,
       turnCount: 0,
+      activeTokenId: picked.id,
+      lastUsedAt: Date.now(),
       publishDelta,
     }
     claudePtySessions.set(args.chatId, session)
@@ -269,6 +385,7 @@ export async function startClaudePtyTurn(args: {
   const dispatcher = createTurnDispatcher()
   session.currentTurn = dispatcher
   session.turnCount += 1
+  session.lastUsedAt = Date.now()
   session.publishDelta({
     type: "updated",
     instance: {
@@ -289,12 +406,18 @@ export async function startClaudePtyTurn(args: {
         await session!.handle.interrupt()
       } finally {
         dispatcher.end()
-        if (session!.currentTurn === dispatcher) session!.currentTurn = null
+        if (session!.currentTurn === dispatcher) {
+          session!.currentTurn = null
+          session!.lastUsedAt = Date.now()
+        }
       }
     },
     close: () => {
       dispatcher.end()
-      if (session!.currentTurn === dispatcher) session!.currentTurn = null
+      if (session!.currentTurn === dispatcher) {
+        session!.currentTurn = null
+        session!.lastUsedAt = Date.now()
+      }
     },
   }
 }

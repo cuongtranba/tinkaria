@@ -28,7 +28,7 @@
 
 <h1>PR1 — Secure NATS Transport &amp; Isolation</h1>
 <p class="sub">Working narrative for the high-risk story packet ·
-<span class="status">packet stage — not yet implemented</span></p>
+<span class="status">Phase-1 spike done — Path A confirmed</span></p>
 
 <p>This is the paper trail for <em>how</em> PR1 gets built. The contract lives in
 <code>execplan.md</code> / <code>overview.md</code> / <code>design.md</code> /
@@ -36,11 +36,42 @@
 choice. Updated as work proceeds.</p>
 
 <h2>Current stage</h2>
-<p>Packet authored from a verified read of the current code (NATS daemon, token
-auth, <code>/auth/token</code>, orchestrator/runner connects, subject namespace).
-<strong>No implementation code written yet.</strong> Phase 1 (the auth-callout
-feasibility spike) is the next action and is gated on human confirmation of the
-Path A/B fork.</p>
+<p>Packet authored from a verified read of the current code. <strong>Phase-1
+auth-callout feasibility spike complete — Path A confirmed</strong> (embedded
+bundled binary). No production code written yet; the responder is the next
+implementation step. Awaiting human go-ahead at the gate.</p>
+
+<h2>Spike result — Phase 1 (2026-05-26)</h2>
+<div class="card">
+  <span class="label">Verdict — Path A feasible &amp; preferred</span>
+  <p>The <code>@lagz0ne/nats-embedded</code> wrapper bundles the <strong>official
+  <code>nats-server</code> v2.12.5</strong> (past the 2.10 auth-callout floor) and
+  exposes <code>config:</code>/<code>args:</code> escape hatches. Running the
+  bundled binary directly with an <code>auth_callout</code> config:
+  a normal client got <strong><code>Authorization Violation</code></strong>
+  (callout fires, no responder → denied = server enforces it); the
+  <code>auth_users</code> service account connected (documented bypass). So
+  isolation is enforceable on the embedded path — <strong>no external
+  <code>nats-server</code> needed</strong>, the ops-change gate is moot.</p>
+</div>
+<div class="card open">
+  <span class="label">Caveat — wrapper include bug (drive the binary directly)</span>
+  <p>The wrapper's <code>websocket:true</code> + <code>config:</code> combo emits
+  <code>include '&lt;abs-path&gt;'</code> into a temp file that nats-server
+  mis-resolves against the temp dir (<code>/tmp/&hellip;/Volumes/&hellip;</code> →
+  not found). And <code>wsPort</code> discovery only waits when the wrapper's own
+  <code>websocket</code> option is set. <b>Plan:</b> generate our own callout
+  config and spawn the bundled binary (<code>resolveBinary()</code>) directly,
+  discovering ports via stderr / ports-file — the shape
+  <code>nats-daemon.ts</code> already uses.</p>
+</div>
+<div class="card open">
+  <span class="label">Next risk — the responder needs <code>@nats-io/jwt</code></span>
+  <p><code>@nats-io/nkeys</code> (2.0.3) is installed; <code>@nats-io/jwt</code> is
+  <strong>not</strong> — it must be added to sign the user JWT the callout returns.
+  Standard nats.js work (canonical auth-callout example: nkeys + jwt
+  <code>encodeUser</code>/authorization-response). Not a research risk.</p>
+</div>
 
 <h2>Design decisions (where the concept was ambiguous)</h2>
 
@@ -84,14 +115,12 @@ Path A/B fork.</p>
 
 <h2>Open questions (each with a recommendation)</h2>
 
-<div class="card open">
-  <span class="label">Q1 — Embedded auth-callout support? (blocking)</span>
-  <p><code>@lagz0ne/nats-embedded</code>'s <code>NatsServer.start()</code> exposes
-  no auth-callout option. Can it pass raw NATS config / an operator JWT?</p>
-  <p class="rec"><b>Recommendation:</b> time-boxed spike first. Prefer <b>Path A</b>
-  (embedded) to keep single-binary ops; fall back to <b>Path B</b> (external
-  <code>nats-server</code> via the existing <code>NATS_MODE=external</code> seam)
-  if not. Confirm with human at the spike gate before building.</p>
+<div class="card">
+  <span class="label">Q1 — Embedded auth-callout support? ✓ RESOLVED (Path A)</span>
+  <p>Answered by the Phase-1 spike: yes. The bundled binary is official
+  <code>nats-server</code> v2.12.5 and enforces <code>auth_callout</code> via a
+  config file. Deliver config by driving the binary directly (not the wrapper's
+  <code>websocket+config</code> combo). See "Spike result" above.</p>
 </div>
 
 <div class="card open">

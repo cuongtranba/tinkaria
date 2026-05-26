@@ -4,7 +4,7 @@ Date: 2026-05-26
 
 ## Status
 
-Proposed
+Accepted — Path A confirmed by the Phase-1 spike (2026-05-26). See "Spike Result".
 
 ## Context
 
@@ -36,14 +36,16 @@ PR1 is sequenced first because every later epic assumes scoped credentials.
    the callout (never expose a shared-token bus on the tailnet). Confidentiality
    is provided by **WireGuard**; WS `no_tls` may remain within the tailnet as a
    documented trust assumption.
-4. **Open fork, decided by a time-boxed spike (Phase 1):**
-   - **Path A** — embedded `@lagz0ne/nats-embedded` *if* it can express
-     auth-callout via raw config / operator JWT passthrough. Preferred (keeps
-     single-binary ops).
-   - **Path B** — run an external `nats-server` configured with `auth_callout`,
-     reusing the existing `NATS_MODE=external` seam. Accepted if A is infeasible.
-   - Fallback — static per-account NATS users if callout is unavailable on both;
-     loses dynamic per-`runnerId` scoping and does not extend to PR2.
+4. **Fork resolved by the Phase-1 spike → Path A.** Use the embedded
+   `@lagz0ne/nats-embedded` bundled binary (official `nats-server` **v2.12.5**,
+   well past the 2.10 auth-callout floor). **Integration caveat:** drive the
+   bundled binary (`resolveBinary()`) with our **own generated callout config**
+   and discover ports directly — do **not** use the wrapper's `websocket` option
+   together with `config:` (it writes an `include '<abs-path>'` that nats-server
+   mis-resolves against the temp-config dir; see "Spike Result"). This keeps the
+   single-binary deployment (no external `nats-server`, so the ops-change gate is
+   moot). Path B (external `nats-server`) is the documented fallback only if we
+   later need it; static per-account users remain the last-resort fallback.
 5. PR1 scopes only the **server-spawned** runner (`runner-manager` mints its
    scoped creds at spawn). Per-user pairing creds are **PR2**; the subject policy
    is unchanged between them.
@@ -61,6 +63,41 @@ PR1 is sequenced first because every later epic assumes scoped credentials.
   confirm with the human at the spike gate.
 - C3 architecture docs: this decision predates implementation; update
   `docs/ARCHITECTURE.md` and C3 topology when PR1 lands.
+
+## Spike Result (2026-05-26, Phase 1)
+
+Run in the PR1 worktree against the bundled binary (throwaway probe, removed):
+
+1. **Binary capability.** `resolveBinary()` →
+   `@lagz0ne/nats-embedded-darwin-arm64/nats-server`, **v2.12.5**. The wrapper is
+   a thin manager over the *official* `nats-server`, with `config:` / `args:`
+   escape hatches and `NATS_EMBEDDED_BINARY` override — so auth-callout (a
+   standard 2.10+ feature) is available.
+2. **Callout enforced (running proof).** Started the bundled binary directly with
+   an `authorization { auth_callout { issuer, auth_users, account } }` + `accounts`
+   config. Server reached "Server is ready". Then:
+   - a **normal client** (`alice`) → **`Authorization Violation`** (callout fires,
+     no responder answers → connection denied — proves the server *enforces* the
+     callout), and
+   - the `auth_service` user listed in `auth_users` → **connected** (documented
+     callout bypass for the responder's own account).
+3. **Wrapper bug found.** Using the wrapper's `websocket: true` **and** `config:`
+   together makes `buildConfig` emit `include '<absolute-config-path>'` into a
+   temp file; nats-server joins that onto the temp-config dir
+   (`/tmp/.../Volumes/.../callout.conf`) → "error parsing include file … no such
+   file". So the callout config must **not** be delivered via that combination.
+4. **Port discovery.** The wrapper learns `wsPort` only when *its own*
+   `websocket` option is set (it waits on the WS "Listening" stderr line). Passing
+   a self-contained config (with a `websocket{}` block) via `config:` alone makes
+   WS-port discovery racy. → drive the binary directly and parse ports / use a
+   ports file (`portsFileDir`), the shape `nats-daemon.ts` already uses.
+
+**Remaining implementation risk (next, not blocking the fork):** the callout
+**responder** must return a *signed user JWT*. `@nats-io/nkeys` (2.0.3) is
+present; **`@nats-io/jwt` is not installed** and must be added. The canonical
+nats.js auth-callout example (nkeys + jwt `encodeUser` / authorization-response
+encoding) is the reference. This is standard, documented work — not a research
+risk.
 
 ## Verification
 

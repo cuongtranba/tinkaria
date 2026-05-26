@@ -39,9 +39,31 @@ curl -s -XPOST localhost:3287/api/pairing/exchange -d '{"code":"…"}'  # → cr
 # start paired runner from the stored credential; confirm registry + heartbeat
 ```
 
-## Acceptance Evidence
+## Acceptance Evidence (2026-05-26 — team-lead independent E2E, port 3284)
 
-Add after verification. Must include: the issued code + successful exchange; the
-externally-launched runner's callout `decision=grant class=runner:<id>` line and
-its registry entry/heartbeat; a rejected reused/expired code; the `0600` secret
-file; and the PR1 isolation test still green.
+Reproduced end-to-end on a dedicated port (never :3210):
+
+- **Issue:** `POST /api/pairing/code` → `l7w5i-7tp44-7ierwt` (callout mode).
+- **Pair:** `runner.ts pair --server … --code …` wrote
+  `/tmp/pr2home_gate/runner-secret.json` `-rw-------` (321B), runnerId
+  `runner-1779803611398-30530`.
+- **Externally-launched runner** (no `NATS_URL`/`NATS_TOKEN` env, only
+  `TINKARIA_RUNNER_HOME`): `Loading credential from file …` → `connected to NATS`
+  → `ready`.
+- **Callout grant for the paired runner** (server log):
+  `decision=grant class=runner:runner-1779803611398-30530 … detail=ok`.
+- **Reused code → `410 {"error":"consumed"}`.**
+- `/health` green (natsDaemon + natsConnection + the server-spawned runner).
+- **Tests:** `bun test src/runner/ src/server/pairing-store.test.ts src/nats/`
+  → 109/0 (re-run; one earlier failure was a parallel-embedded-NATS flake).
+  Typecheck clean. PR1 `callout.integration` still green (paired runners reuse the
+  scope).
+
+**Caveat:** `/health` tracks only server-spawned runners; the paired runner's
+presence is confirmed via the callout grant + KV self-registration. A "list all
+runners" surface (incl. paired) is a follow-up (PR3 territory).
+
+**Branch note:** this branch (`feat/personal-runners-pr2-pairing`) must rebase
+onto the corrected PR1 tip (`a14bd71`+) before integration to inherit PR1's
+Stage-D fixes to keys/responder/daemon-callout/bind-guard (PR2 re-fixed token.ts
+itself). See harness backlog #4.

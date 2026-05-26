@@ -26,6 +26,7 @@ function createTransportWithCommand(command: AppTransport["command"]): AppTransp
     subscribe() { return () => {} },
     subscribeTerminal() { return () => {} },
     command,
+    rawRequest: async () => ({}) as never,
     ensureHealthyConnection: async () => {},
   }
 }

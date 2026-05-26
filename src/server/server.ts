@@ -12,6 +12,7 @@ import { generateAuthToken } from "./nats-auth"
 import { readToken } from "../nats/nats-token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
+import { registerPtyResponders } from "./pty-responders"
 import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { RunnerProxy } from "./runner-proxy"
@@ -694,6 +695,45 @@ export async function startServer(options: StartServerOptions = {}) {
     runtimeRegistry,
   })
 
+  const ptyResponders = registerPtyResponders({ nc: natsConnector.nc, store })
+
+  // Boot-time self-test: round-trip pty.snapshot through NATS to prove the
+  // responder is reachable. Logs a single line so /health smoke can confirm.
+  ;(async () => {
+    try {
+      const { ptyCommandSubject } = await import("../shared/nats-subjects")
+      const { compressPayload, decompressPayload } = await import("../shared/compression")
+      const enc = new TextEncoder()
+      const dec = new TextDecoder()
+      const reply = await natsConnector.nc.request(
+        ptyCommandSubject("pty.snapshot"),
+        compressPayload(enc.encode("{}")),
+        { timeout: 2000 },
+      )
+      const text = dec.decode(await decompressPayload(reply.data))
+      console.log(LOG_PREFIX, "claude-pty self-test pty.snapshot:", text)
+
+      // Spawn smoke: prove driver invocation reaches verifyPtyAuth by issuing
+      // pty.spawn with no OAuth token. Expected reply: {ok:false, error:"…OAuth pool token…"}.
+      const spawnReply = await natsConnector.nc.request(
+        ptyCommandSubject("pty.spawn"),
+        compressPayload(enc.encode(JSON.stringify({
+          chatId: "smoke-spawn-no-token",
+          projectId: "smoke",
+          cwd: process.cwd(),
+          model: "opus",
+          oauthToken: null,
+          oauthLabel: "smoke-test",
+        }))),
+        { timeout: 2000 },
+      )
+      const spawnText = dec.decode(await decompressPayload(spawnReply.data))
+      console.log(LOG_PREFIX, "claude-pty self-test pty.spawn (no token):", spawnText)
+    } catch (err) {
+      console.warn(LOG_PREFIX, "claude-pty self-test failed:", err instanceof Error ? err.message : String(err))
+    }
+  })().catch(() => undefined)
+
   const distDir = path.join(import.meta.dir, "..", "..", "dist", "client")
 
   // Warm up the synthetic INFO cache used by the lazy-upstream proxy path.
@@ -804,6 +844,7 @@ export async function startServer(options: StartServerOptions = {}) {
     clearInterval(natsWsCounterInterval)
     orchestrator.destroy()
     responders.dispose()
+    ptyResponders.dispose()
     publisher.dispose()
     terminals.closeAll()
     transcriptConsumer.stop()

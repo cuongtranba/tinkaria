@@ -84,3 +84,28 @@ export function sandboxEventSubject(workspaceId: string): string {
 
 /** Wildcard: all sandbox events */
 export const ALL_SANDBOX_EVENTS = `${PREFIX}.evt.sandbox.>`
+
+// === claude-pty subjects ===
+
+export type PtyCommandType =
+  | "pty.spawn"
+  | "pty.input"
+  | "pty.resize"
+  | "pty.cancel"
+  | "pty.exit"
+  | "pty.snapshot"
+
+export function ptyCommandSubject(commandType: PtyCommandType): string {
+  return `${PREFIX}.cmd.${commandType}`
+}
+
+export function ptyDeltaSubject(): string {
+  return `${PREFIX}.evt.pty.delta`
+}
+
+export function ptyInstanceEventSubject(chatId: string): string {
+  return `${PREFIX}.evt.pty.${chatId}`
+}
+
+export const ALL_PTY_COMMANDS = `${PREFIX}.cmd.pty.>`
+export const ALL_PTY_EVENTS = `${PREFIX}.evt.pty.>`

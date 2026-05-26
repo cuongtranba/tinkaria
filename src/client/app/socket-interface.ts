@@ -22,5 +22,11 @@ export interface AppTransport {
     }
   ): () => void
   command<TResult = unknown>(command: ClientCommand, options?: { timeoutMs?: number }): Promise<TResult>
+  /**
+   * Low-level request/reply on a raw NATS subject. Used by additive
+   * subsystems (claude-pty) that operate outside the ClientCommand union.
+   * Payload is JSON-encoded; reply is gzip-decompressed then JSON-parsed.
+   */
+  rawRequest<TResult = unknown>(subject: string, payload: unknown, options?: { timeoutMs?: number }): Promise<TResult>
   ensureHealthyConnection(): Promise<void>
 }

@@ -180,6 +180,8 @@ function hydrateTranscriptEntries(entries: TranscriptEntry[]): RenderMessage[] {
         break
       case "context_usage":
         break
+      case "context_window_updated":
+        break
       case "agent_result":
         messages.push({
           message: { ...createBaseMessage(entry), kind: "unknown", json: JSON.stringify(entry, null, 2) },

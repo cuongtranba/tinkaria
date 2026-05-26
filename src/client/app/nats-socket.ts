@@ -209,6 +209,24 @@ export class NatsSocket implements AppTransport {
     return response.result as TResult
   }
 
+  async rawRequest<TResult = unknown>(
+    subject: string,
+    payload: unknown,
+    options?: { timeoutMs?: number },
+  ): Promise<TResult> {
+    if (!this.nc) {
+      throw new Error("Not connected")
+    }
+    const body = encoder.encode(JSON.stringify(payload ?? {}))
+    const reply = await this.nc.request(subject, body, { timeout: options?.timeoutMs ?? 30_000 })
+    const decoded = await decompressPayload(reply.data)
+    try {
+      return JSON.parse(decoder.decode(decoded)) as TResult
+    } catch {
+      throw new Error("Invalid JSON response from raw subject")
+    }
+  }
+
   ensureHealthyConnection(): Promise<void> {
     if (!this.nc || this.currentStatus !== "connected") {
       void this.reconnectNow()

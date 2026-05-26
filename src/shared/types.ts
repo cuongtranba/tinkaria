@@ -309,7 +309,124 @@ export interface AccountInfo {
   subscriptionType?: string
   tokenSource?: string
   apiKeySource?: string
+  oauthKeyMasked?: string | null
+  accountLabel?: string | null
 }
+
+// === claude-pty additions ===
+
+export interface SlashCommand {
+  name: string
+  description: string
+  argumentHint: string
+}
+
+export interface ContextWindowUsageSnapshot {
+  usedTokens: number
+  totalProcessedTokens?: number
+  maxTokens?: number
+  inputTokens?: number
+  cachedInputTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
+  lastUsedTokens?: number
+  lastInputTokens?: number
+  lastCachedInputTokens?: number
+  lastOutputTokens?: number
+  lastReasoningOutputTokens?: number
+  toolUses?: number
+  durationMs?: number
+  compactsAutomatically: boolean
+}
+
+export type McpServerTransport = "stdio" | "http" | "sse" | "ws"
+
+export type McpServerTestResult =
+  | { status: "untested" }
+  | { status: "pending"; startedAt: string }
+  | { status: "ok"; testedAt: string; toolCount: number }
+  | { status: "error"; testedAt: string; message: string }
+
+export interface McpServerBaseFields {
+  id: string
+  name: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+  lastTest: McpServerTestResult
+}
+
+export interface McpServerStdioFields {
+  transport: "stdio"
+  command: string
+  args: string[]
+  env: Record<string, string>
+  cwd?: string
+}
+
+export interface McpServerNetworkFields {
+  transport: "http" | "sse" | "ws"
+  url: string
+  headers: Record<string, string>
+}
+
+export type McpServerConfig =
+  | (McpServerBaseFields & McpServerStdioFields)
+  | (McpServerBaseFields & McpServerNetworkFields)
+
+export type AttachmentKind = "image" | "file"
+
+export interface ChatAttachment {
+  id: string
+  kind: AttachmentKind
+  displayName: string
+  absolutePath: string
+  relativePath: string
+  contentUrl: string
+  mimeType: string
+  size: number
+}
+
+export type SubagentContextScope = "previous-assistant-reply" | "full-transcript"
+
+export interface Subagent {
+  id: string
+  name: string
+  description?: string
+  provider: AgentProvider
+  model: string
+  modelOptions: ClaudeModelOptions | CodexModelOptions
+  systemPrompt: string
+  contextScope: SubagentContextScope
+  createdAt: number
+  updatedAt: number
+}
+
+export type KannaStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "waiting_for_user"
+  | "failed"
+
+export interface PendingToolSnapshot {
+  toolUseId: string
+  toolKind: "ask_user_question" | "exit_plan_mode"
+}
+
+export interface QueuedChatMessage {
+  id: string
+  content: string
+  attachments: ChatAttachment[]
+  createdAt: number
+  provider?: AgentProvider
+  model?: string
+  modelOptions?: ModelOptions
+  planMode?: boolean
+  autoContinue?: { scheduleId: string }
+}
+
+// === end claude-pty additions ===
 
 export interface AskUserQuestionOption {
   label: string
@@ -507,6 +624,11 @@ export type DelegationStatus =
   | "orphaned"
   | "stale"
 
+export interface ContextWindowUpdatedEntry extends TranscriptEntryBase {
+  kind: "context_window_updated"
+  usage: ContextWindowUsageSnapshot
+}
+
 export interface AgentResultEntry extends TranscriptEntryBase {
   kind: "agent_result"
   delegationId: string
@@ -535,6 +657,7 @@ export type TranscriptEntry =
   | ContextClearedEntry
   | InterruptedEntry
   | ContextUsageEntry
+  | ContextWindowUpdatedEntry
   | AgentResultEntry
 
 export interface HydratedToolCallBase<TKind extends string, TInput, TResult> {

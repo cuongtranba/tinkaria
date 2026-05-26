@@ -126,43 +126,73 @@ export const RichContentBlock = memo(function RichContentBlock({
     }
   }, [rawContent])
 
+  const viewerToolbarControl = viewerState.type === "embed" ? (
+    <>
+      <ViewerToolbar state={viewerState} dispatch={dispatch} />
+      <div className="mx-0.5 h-3 w-px bg-border" aria-hidden="true" />
+    </>
+  ) : null
+
+  const copyControl = rawContent ? (
+    <IconButton
+      ariaLabel={copied ? "Copied" : "Copy content"}
+      onClick={handleCopy}
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-green-400" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+    </IconButton>
+  ) : null
+
+  const expandControl = (
+    <IconButton
+      ariaLabel={expanded ? "Collapse content" : "Expand content"}
+      onClick={() => setExpanded((prev) => !prev)}
+    >
+      <ChevronRight
+        className={cn(
+          "h-3.5 w-3.5 transition-transform duration-200",
+          expanded && "rotate-90"
+        )}
+      />
+    </IconButton>
+  )
+
+  const fullscreenControl = (
+    <IconButton
+      ariaLabel="Open in overlay"
+      onClick={() => setOverlayOpen(true)}
+    >
+      <Maximize2 className="h-3.5 w-3.5" />
+    </IconButton>
+  )
+
+  // Desktop: all controls together (in the card header / floating group).
   const controls = (
     <div className="flex items-center gap-0.5" data-controls="true">
-      {viewerState.type === "embed" && (
-        <>
-          <ViewerToolbar state={viewerState} dispatch={dispatch} />
-          <div className="mx-0.5 h-3 w-px bg-border" aria-hidden="true" />
-        </>
-      )}
-      {rawContent ? (
-        <IconButton
-          ariaLabel={copied ? "Copied" : "Copy content"}
-          onClick={handleCopy}
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-green-400" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </IconButton>
-      ) : null}
-      <IconButton
-        ariaLabel={expanded ? "Collapse content" : "Expand content"}
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <ChevronRight
-          className={cn(
-            "h-3.5 w-3.5 transition-transform duration-200",
-            expanded && "rotate-90"
-          )}
-        />
-      </IconButton>
-      <IconButton
-        ariaLabel="Open in overlay"
-        onClick={() => setOverlayOpen(true)}
-      >
-        <Maximize2 className="h-3.5 w-3.5" />
-      </IconButton>
+      {viewerToolbarControl}
+      {copyControl}
+      {expandControl}
+      {fullscreenControl}
+    </div>
+  )
+
+  // Mobile card chrome splits the controls: view/action controls (zoom, copy,
+  // fullscreen) sit on the top edge; only the expand toggle sits on the bottom
+  // edge next to the content's expand affordance.
+  const mobileTopControls = (
+    <div className="flex items-center gap-0.5" data-controls="true">
+      {viewerToolbarControl}
+      {copyControl}
+      {fullscreenControl}
+    </div>
+  )
+
+  const mobileBottomControls = (
+    <div className="flex items-center gap-0.5" data-controls="true">
+      {expandControl}
     </div>
   )
 
@@ -207,16 +237,14 @@ export const RichContentBlock = memo(function RichContentBlock({
               <span className="truncate font-medium text-muted-foreground">
                 {displayTitle}
               </span>
-              {!isMobile ? (
-                <div className="ml-auto">{controls}</div>
-              ) : null}
+              <div className="ml-auto">{isMobile ? mobileTopControls : controls}</div>
             </div>
 
             {content}
 
             {isMobile ? (
               <div className="flex items-center justify-end px-2.5 py-1.5 bg-muted/50 border-t border-border">
-                {controls}
+                {mobileBottomControls}
               </div>
             ) : null}
           </>

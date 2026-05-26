@@ -341,7 +341,11 @@ export const markdownComponents = {
   },
 
   code: ({ children, className, ...props }: ComponentPropsWithoutRef<"code">) => {
-    const isInline = !className
+    const rawText = extractText(children)
+    // A language-less fenced block (e.g. ASCII-art diagrams) gets no className
+    // from react-markdown; treat multi-line content as a block so its whitespace
+    // is preserved (monospace, scrollable) instead of wrapping like inline code.
+    const isInline = !className && !rawText.includes("\n")
     if (isInline) {
       return <code className="break-normal [overflow-wrap:anywhere] px-1 bg-border/60 dark:[.no-pre-highlight_&]:bg-background dark:[.text-pretty_&]:bg-neutral [.no-code-highlight_&]:!bg-transparent py-0.5 rounded text-sm whitespace-normal" {...props}>{children}</code>
     }
@@ -349,7 +353,6 @@ export const markdownComponents = {
     const language = typeof className === "string"
       ? className.match(/language-(\S+)/)?.[1] ?? null
       : null
-    const rawText = extractText(children)
     const preset = language ? getLanguagePreset(language) : undefined
     const highlighted = highlight(rawText, preset)
 

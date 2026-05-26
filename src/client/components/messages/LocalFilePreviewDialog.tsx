@@ -173,7 +173,7 @@ export function LocalFilePreviewContent({
   if (renderer.kind === "embed") {
     return (
       <div className="w-full max-w-full">
-        <EmbedRenderer format={renderer.format} source={preview.content} />
+        <EmbedRenderer format={renderer.format} source={preview.content} fillHeight />
       </div>
     )
   }

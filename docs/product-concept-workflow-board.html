@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Product Concept: Workflow Board</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 15px/1.7 -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 56rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; background: #fafafa; color: #1a1a2e; }
+
+  h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: .25rem; }
+  .subtitle { color: #64748b; font-size: 1rem; margin-bottom: 2rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.5rem; padding-bottom: .4rem; border-bottom: 2px solid #e2e8f0; color: #0f172a; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; color: #334155; }
+  p { margin: .6rem 0; }
+  ul, ol { margin: .5rem 0 .5rem 1.5rem; }
+  li { margin: .25rem 0; }
+
+  code { background: #f1f5f9; padding: .1rem .35rem; border-radius: .25rem; font-size: .85em; color: #7c3aed; }
+  strong { color: #0f172a; }
+
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0; font-size: .9rem; }
+  th, td { border: 1px solid #e2e8f0; padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; color: #475569; }
+
+  .callout { background: #eff6ff; border-left: 4px solid #3b82f6; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 .5rem .5rem 0; }
+  .callout.warn { background: #fefce8; border-left-color: #eab308; }
+  .callout.green { background: #f0fdf4; border-left-color: #22c55e; }
+  .callout p { margin: .2rem 0; }
+  .callout-label { font-weight: 700; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .2rem; }
+  .callout.green .callout-label { color: #16a34a; }
+  .callout .callout-label { color: #2563eb; }
+  .callout.warn .callout-label { color: #ca8a04; }
+
+  .tag { display: inline-block; padding: .15rem .5rem; border-radius: 9999px; font-size: .75rem; font-weight: 600; }
+  .tag-blue { background: #dbeafe; color: #1e40af; }
+  .tag-violet { background: #ede9fe; color: #6d28d9; }
+  .tag-emerald { background: #d1fae5; color: #065f46; }
+  .tag-amber { background: #fef3c7; color: #92400e; }
+  .tag-gray { background: #f1f5f9; color: #475569; }
+
+  .muted { color: #94a3b8; }
+  .accent { color: #7c3aed; }
+
+  .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem; margin: 1rem 0; font-size: .8rem; }
+  .board-col { background: #f8fafc; border-radius: .5rem; padding: .5rem; min-height: 8rem; }
+  .board-col h4 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: .4rem; padding-bottom: .3rem; border-bottom: 2px solid; }
+  .board-col.inbox h4 { border-color: #94a3b8; }
+  .board-col.ready h4 { border-color: #3b82f6; }
+  .board-col.session h4 { border-color: #22c55e; }
+  .board-col.review h4 { border-color: #f59e0b; }
+  .board-col.done h4 { border-color: #8b5cf6; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: .35rem; padding: .4rem .5rem; margin-bottom: .35rem; font-size: .75rem; line-height: 1.4; }
+  .card .card-id { font-weight: 600; color: #7c3aed; }
+  .card .card-meta { color: #94a3b8; font-size: .65rem; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+  .dot-green { background: #22c55e; }
+  .dot-amber { background: #f59e0b; }
+  .dot-gray { background: #94a3b8; }
+
+  .flow { display: flex; align-items: center; gap: .5rem; margin: 1.25rem 0; flex-wrap: wrap; }
+  .flow-step { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .5rem; padding: .5rem .75rem; font-size: .8rem; text-align: center; min-width: 7rem; }
+  .flow-step strong { display: block; font-size: .9rem; }
+  .flow-arrow { color: #cbd5e1; font-size: 1.2rem; }
+
+  .persona { background: #fff; border: 1px solid #e2e8f0; border-radius: .75rem; padding: 1rem 1.25rem; margin: .75rem 0; }
+  .persona-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+  .persona-icon { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+  .persona-name { font-weight: 700; font-size: 1rem; }
+
+  .comparison { margin: 1rem 0; }
+
+  .section-divider { border: none; border-top: 1px solid #e2e8f0; margin: 2.5rem 0 0; }
+
+  .ticket-mock { background: #fff; border: 1px solid #e2e8f0; border-radius: .75rem; padding: 1rem 1.25rem; margin: 1rem 0; max-width: 28rem; }
+  .ticket-mock h4 { margin: 0 0 .75rem; font-size: .95rem; }
+  .progress-row { display: flex; align-items: center; gap: .5rem; margin: .3rem 0; font-size: .8rem; }
+  .progress-bar { flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; }
+  .btn-mock { display: inline-block; background: #7c3aed; color: #fff; font-size: .8rem; font-weight: 600; padding: .4rem 1rem; border-radius: .4rem; margin-top: .75rem; }
+
+  @media (max-width: 640px) {
+    .board { grid-template-columns: repeat(2, 1fr); }
+    .flow { flex-direction: column; align-items: stretch; }
+    .flow-arrow { transform: rotate(90deg); text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Workflow Board</h1>
+<p class="subtitle">Product concept for Tinkaria &mdash; team planning surface that bridges directly into agent sessions</p>
+<p class="muted">May 2026 &middot; Internal &middot; Draft for squad review (PM, Design, QA, Dev)</p>
+
+<!-- ───────────────────────────────── -->
+<h2>Background &amp; Motivation</h2>
+
+<p>We studied <a href="https://github.com/openai/symphony">OpenAI's Symphony</a>, an open-source daemon that polls Linear for issues and autonomously dispatches Codex agents to work on them. Symphony proves a useful concept: <strong>an issue tracker can drive autonomous agent execution</strong>. But it's a headless Elixir daemon &mdash; no team collaboration, no steering, no context preparation. Agents run solo.</p>
+
+<p>Meanwhile, Tinkaria already excels at the <em>session experience</em>: rich artifact rendering, conversational follow-up, sub-agent orchestration, multi-provider support. What Tinkaria lacks is the layer <em>before</em> a session starts &mdash; the place where a team plans work, accumulates context per ticket, and hands it off to a dev who launches a session.</p>
+
+<div class="callout green">
+  <div class="callout-label">Core insight</div>
+  <p>The biggest context loss in software teams isn't during coding &mdash; it's in the handoff between <em>"here's what we need"</em> and <em>"here's an agent working on it."</em> Requirements live in Jira, designs in Figma, discussions in Slack, acceptance criteria in someone's head. The dev reconstructs all of this manually at session start.</p>
+  <p><strong>The Workflow Board eliminates that handoff loss.</strong> The team accumulates context on a ticket. The dev clicks one button. The agent session starts with everything pre-loaded.</p>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>What This Is (and Is Not)</h2>
+
+<table>
+  <tr><th>This IS</th><th>This is NOT</th></tr>
+  <tr>
+    <td>A <strong>team planning surface</strong> where PM, Designer, QA, and Dev collaborate on tickets before execution begins</td>
+    <td>A Jira/Linear replacement (no epics, sprints, story points, custom workflows, reporting)</td>
+  </tr>
+  <tr>
+    <td>A <strong>context accumulator</strong> per ticket &mdash; requirements, design specs, acceptance criteria, technical context, team discussion</td>
+    <td>An autonomous dispatch engine like Symphony (a human always starts the session)</td>
+  </tr>
+  <tr>
+    <td>A <strong>zero-friction bridge</strong> from ticket to Tinkaria session, with all context pre-loaded</td>
+    <td>A standalone PM tool &mdash; without Tinkaria sessions, this is a worse Linear</td>
+  </tr>
+  <tr>
+    <td>A <strong>review surface</strong> where session artifacts (PRs, screenshots, test results) flow back to the ticket</td>
+    <td>A dev-only tool &mdash; the board is for the whole squad</td>
+  </tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>The Board</h2>
+
+<p>Five columns. Intentionally simple. No customization. The board exists to move context from left to right, not to be a project management tool.</p>
+
+<div class="board">
+  <div class="board-col inbox">
+    <h4>Inbox</h4>
+    <div class="card"><span class="card-id">#186</span> Add rate limiting<br/><span class="card-meta">Created 2h ago &middot; needs context</span></div>
+    <div class="card"><span class="card-id">#187</span> Fix CSV export<br/><span class="card-meta">Created 1h ago</span></div>
+  </div>
+  <div class="board-col ready">
+    <h4>Ready</h4>
+    <div class="card"><span class="card-id">#182</span> Category filter<br/><span class="card-meta">Readiness: 100%</span></div>
+    <div class="card"><span class="card-id">#183</span> Email templates<br/><span class="card-meta">Readiness: 88%</span></div>
+  </div>
+  <div class="board-col session">
+    <h4>In Session</h4>
+    <div class="card"><span class="dot dot-green"></span><span class="card-id">#179</span> Auth refactor<br/><span class="card-meta">Claude Opus &middot; 12m &middot; turn 3</span></div>
+    <div class="card"><span class="dot dot-green"></span><span class="card-id">#181</span> Dashboard filters<br/><span class="card-meta">Codex &middot; 4m &middot; turn 1</span></div>
+    <div class="card"><span class="dot dot-amber"></span><span class="card-id">#180</span> API pagination<br/><span class="card-meta">Claude Sonnet &middot; STALLED</span></div>
+  </div>
+  <div class="board-col review">
+    <h4>Review</h4>
+    <div class="card"><span class="card-id">#176</span> Search indexing<br/><span class="card-meta">PR #312 &middot; 3 files</span></div>
+    <div class="card"><span class="card-id">#177</span> Notifications<br/><span class="card-meta">PR #313 &middot; 7 files</span></div>
+  </div>
+  <div class="board-col done">
+    <h4>Done</h4>
+    <div class="card"><span class="card-id">#172</span> User avatars<br/><span class="card-meta">Shipped today</span></div>
+    <div class="card"><span class="card-id">#174</span> DB migration<br/><span class="card-meta">Shipped today</span></div>
+  </div>
+</div>
+
+<table>
+  <tr><th>Column</th><th>What it means</th><th>Who acts</th></tr>
+  <tr><td><strong>Inbox</strong></td><td>New ticket. Needs context before anyone starts working.</td><td>PM creates; whole team enriches</td></tr>
+  <tr><td><strong>Ready</strong></td><td>Context complete. Requirements, design, and acceptance criteria are all present. A dev can confidently pick this up.</td><td>Dev picks up</td></tr>
+  <tr><td><strong>In Session</strong></td><td>A Tinkaria session is actively working on it. Team can peek at live progress.</td><td>Dev + Agent (team observes)</td></tr>
+  <tr><td><strong>Review</strong></td><td>Session produced artifacts (PR, screenshots, test results). Needs team sign-off.</td><td>PM + Designer + QA review</td></tr>
+  <tr><td><strong>Done</strong></td><td>Accepted and shipped.</td><td>&mdash;</td></tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>The Ticket &mdash; Context Pack</h2>
+
+<p>A ticket is <strong>not</strong> a Jira clone. It is a structured container where the team deposits everything an agent needs to do the work. Each contribution type has a clear owner.</p>
+
+<div class="ticket-mock">
+  <h4><span class="card-id">#182</span> Add category filter to dashboard</h4>
+  <div class="progress-row">
+    <span>Requirements</span>
+    <span class="progress-bar"><span class="progress-fill" style="width:100%; background:#3b82f6;"></span></span>
+    <span class="tag tag-blue">PM</span>
+  </div>
+  <div class="progress-row">
+    <span>Design specs</span>
+    <span class="progress-bar"><span class="progress-fill" style="width:80%; background:#8b5cf6;"></span></span>
+    <span class="tag tag-violet">Designer</span>
+  </div>
+  <div class="progress-row">
+    <span>Acceptance criteria</span>
+    <span class="progress-bar"><span class="progress-fill" style="width:100%; background:#22c55e;"></span></span>
+    <span class="tag tag-emerald">QA</span>
+  </div>
+  <div class="progress-row">
+    <span>Technical context</span>
+    <span class="progress-bar"><span class="progress-fill" style="width:100%; background:#64748b;"></span></span>
+    <span class="tag tag-gray">Auto</span>
+  </div>
+  <div class="progress-row">
+    <span>Discussion</span>
+    <span class="progress-bar"><span class="progress-fill" style="width:60%; background:#f59e0b;"></span></span>
+    <span class="tag tag-amber">Team</span>
+  </div>
+  <p style="margin-top:.75rem; font-size:.85rem;">Readiness: <strong>88%</strong></p>
+  <div class="btn-mock">Start Session</div>
+</div>
+
+<h3>Context contributions explained</h3>
+
+<table>
+  <tr><th>Layer</th><th>Owner</th><th>What goes in</th></tr>
+  <tr>
+    <td><strong>Requirements</strong></td>
+    <td>PM</td>
+    <td>What to build and why. User stories, business justification, constraints, scope boundaries. The "what" and "why" &mdash; never the "how."</td>
+  </tr>
+  <tr>
+    <td><strong>Design specs</strong></td>
+    <td>Designer</td>
+    <td>Visual references: Figma links, annotated mockups, design tokens, component names to reuse, spacing/layout notes. Anything the agent needs to match the intended look and feel.</td>
+  </tr>
+  <tr>
+    <td><strong>Acceptance criteria</strong></td>
+    <td>QA</td>
+    <td>Checkboxes that define "done." Testable conditions: "Filter dropdown shows all categories from API," "Empty state displays when no results," "Works at 375px viewport." These directly inform both the agent's implementation and the verification session later.</td>
+  </tr>
+  <tr>
+    <td><strong>Technical context</strong></td>
+    <td>Auto-gathered</td>
+    <td>Populated automatically via code intelligence (GitNexus): affected files, blast radius, related recent changes, dependency graph for the relevant code area. The dev doesn't need to explain "the code is in src/server/auth.ts" &mdash; the system already knows.</td>
+  </tr>
+  <tr>
+    <td><strong>Discussion</strong></td>
+    <td>Team</td>
+    <td>Comments, decisions, resolved questions. "We decided to use the existing Card component, not build a new one." "PM confirmed: no pagination needed in v1." These prevent the agent from re-debating settled decisions.</td>
+  </tr>
+</table>
+
+<h3>The readiness indicator</h3>
+
+<p>Each ticket shows a completion percentage based on which context layers have been filled. This is the <strong>forcing function</strong> that prevents the most common failure mode in software teams: a developer starts building before the problem is well-defined.</p>
+
+<div class="callout warn">
+  <div class="callout-label">Why this matters</div>
+  <p>Without a readiness gate, the default behavior is: PM writes a one-line title, dev picks it up, spends the first 30 minutes of the session explaining context to the agent that the team should have provided upfront. The readiness indicator makes "not ready" visible and socially acceptable &mdash; it's not blocking the dev, it's protecting them.</p>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>The Bridge &mdash; "Start Session"</h2>
+
+<p>This is the product's defining moment. When a dev clicks <strong>Start Session</strong> on a ticket:</p>
+
+<ol>
+  <li>The system assembles a <strong>Context Pack</strong> from all ticket contributions (requirements, designs, criteria, technical context, discussion).</li>
+  <li>A Tinkaria session opens with the Context Pack injected as initial context &mdash; the agent can read it immediately.</li>
+  <li>The agent already knows: what to build, what it should look like, how it will be tested, what code it touches, and what decisions the team already made.</li>
+  <li>The dev starts at <em>"let's implement"</em> &mdash; not <em>"let me explain what I need."</em></li>
+</ol>
+
+<div class="callout green">
+  <div class="callout-label">Key detail</div>
+  <p>The session is a <strong>normal Tinkaria session</strong>. All existing features work: rich artifact rendering, follow-up, sub-agent spawning, model selection, plan mode. The only difference is how the session starts &mdash; pre-loaded with team context instead of a cold prompt. <strong>This preserves Tinkaria's core identity</strong> as a conversation-first agent UI.</p>
+</div>
+
+<p>The ticket on the board transitions to <strong>In Session</strong>. Team members can see which dev is working on it, how long the session has been running, and optionally peek at live progress.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>Artifact Flow-Back</h2>
+
+<p>When a session produces results, they attach to the ticket automatically:</p>
+
+<table>
+  <tr><th>Artifact</th><th>How it appears on the ticket</th></tr>
+  <tr><td>PR created</td><td>Link + diff summary + file count. Clickable, opens in Tinkaria or GitHub.</td></tr>
+  <tr><td>Screenshots</td><td>Inline thumbnails rendered on the card. Tinkaria already handles image rendering well.</td></tr>
+  <tr><td>Test results</td><td>Pass/fail summary with expandable detail. Maps to QA's acceptance criteria checkboxes.</td></tr>
+  <tr><td>Agent decisions</td><td>A brief decision log: "Chose X because Y." Visible to the team so they understand the implementation rationale.</td></tr>
+  <tr><td>Session transcript</td><td>Expandable, read-only view for non-dev team members. Full conversational history.</td></tr>
+</table>
+
+<p>The ticket moves to <strong>Review</strong>. The team reviews everything where they planned it &mdash; no context-switching to GitHub, then Figma, then back to Linear.</p>
+
+<!-- ───────────────────────────────── -->
+<hr class="section-divider" />
+<h2>How Each Role Uses the Board</h2>
+
+<div class="persona">
+  <div class="persona-header">
+    <div class="persona-icon" style="background:#dbeafe;">&#128203;</div>
+    <div class="persona-name">Product Manager</div>
+  </div>
+  <h3>Day-to-day</h3>
+  <ul>
+    <li><strong>Creates tickets</strong> in Inbox with requirements: what to build, why, scope boundaries.</li>
+    <li><strong>Checks readiness</strong> before moving tickets to Ready. Pings designer or QA if their contributions are missing.</li>
+    <li><strong>Monitors the board</strong> for overall sprint health: how many tickets in each column, which are stalled, which are in review.</li>
+    <li><strong>Peeks into active sessions</strong> to see real-time progress without scheduling a standup or pinging the dev.</li>
+    <li><strong>Reviews in the Review column</strong>: checks that the implementation matches requirements by looking at artifacts on the ticket.</li>
+  </ul>
+  <h3>What PM gets</h3>
+  <p><strong>Visibility without status meetings.</strong> The board is the standup. Every ticket's state is visible, every session's progress is observable, every artifact is reviewable &mdash; all in one place. The readiness indicator prevents premature starts. Cycle time from Ready &rarr; Done is measurable per ticket.</p>
+</div>
+
+<div class="persona">
+  <div class="persona-header">
+    <div class="persona-icon" style="background:#ede9fe;">&#127912;</div>
+    <div class="persona-name">Designer</div>
+  </div>
+  <h3>Day-to-day</h3>
+  <ul>
+    <li><strong>Attaches design specs</strong> to tickets in Inbox: Figma links, annotated screenshots, component references, spacing/layout notes, design tokens.</li>
+    <li><strong>This context flows directly into the agent session</strong> when a dev picks the ticket up. The agent sees the mockups and design notes &mdash; not a dev's paraphrased interpretation of them.</li>
+    <li><strong>Reviews UI artifacts</strong> in the Review column: screenshots of what the agent built, compared side-by-side with the original design.</li>
+    <li><strong>Drops feedback</strong> as a comment ("Bottom margin should be 16px not 8px"). The dev can launch a follow-up session with that feedback pre-loaded.</li>
+  </ul>
+  <h3>What Designer gets</h3>
+  <p><strong>Design intent reaches the agent directly.</strong> Today, a designer puts mockups in Figma, a dev interprets them (often lossy), and the agent never sees the original. Here, the designer's exact specifications are part of the Context Pack. Visual QA happens where the design spec lives.</p>
+</div>
+
+<div class="persona">
+  <div class="persona-header">
+    <div class="persona-icon" style="background:#d1fae5;">&#128270;</div>
+    <div class="persona-name">QA Engineer</div>
+  </div>
+  <h3>Day-to-day</h3>
+  <ul>
+    <li><strong>Writes acceptance criteria</strong> as checkboxes on tickets before they leave Inbox. These criteria directly inform the agent's implementation (it knows what "done" means).</li>
+    <li><strong>When a ticket reaches Review</strong>, clicks <strong>"Start Verification Session"</strong> &mdash; a Tinkaria session opens with the original context <em>plus</em> the implementation artifacts (PR diff, test files, screenshots).</li>
+    <li><strong>Works with the agent to verify</strong>: "Run the filter tests with an empty database." "Take a screenshot at 375px width." "Check the API response when category is null."</li>
+    <li><strong>Results link back to the ticket.</strong> QA checks off acceptance criteria, moves to Done, or kicks back with notes for a follow-up session.</li>
+  </ul>
+  <h3>What QA gets</h3>
+  <p><strong>Acceptance criteria inform the implementation AND the verification.</strong> The same checkboxes that guided the agent's work become the verification checklist. QA gets agent-assisted testing in-platform &mdash; they don't manually click through the app, they describe what to check and the agent does it. The verification session is a first-class Tinkaria session with full artifact rendering.</p>
+</div>
+
+<div class="persona">
+  <div class="persona-header">
+    <div class="persona-icon" style="background:#fef3c7;">&#9000;</div>
+    <div class="persona-name">Developer</div>
+  </div>
+  <h3>Day-to-day</h3>
+  <ul>
+    <li><strong>Scans the Ready column</strong> &mdash; these tickets have complete context. No guesswork about what's expected.</li>
+    <li><strong>Clicks "Start Session"</strong> on a ticket. Tinkaria opens with full context pre-loaded: requirements, designs, acceptance criteria, affected code paths, team decisions.</li>
+    <li><strong>Starts at implementation, not orientation.</strong> First message to the agent is "Let's start with the filter component," not "So here's what we're building..."</li>
+    <li><strong>Uses all of Tinkaria's existing features:</strong> artifact rendering, follow-up, sub-agent spawning for parallel subtasks, model/provider selection.</li>
+    <li><strong>When done</strong>, marks the session complete. PR link, test results, and screenshots auto-attach to the ticket. It moves to Review.</li>
+  </ul>
+  <h3>What Dev gets</h3>
+  <p><strong>Sessions start at "let's build" instead of "let me explain."</strong> Context preparation is the team's job, done incrementally on the ticket, not a solo activity crammed into the first 10 minutes of a session. The dev also benefits from knowing that acceptance criteria are pre-defined &mdash; there's no ambiguity about what "done" means.</p>
+</div>
+
+<!-- ───────────────────────────────── -->
+<hr class="section-divider" />
+<h2>The Full Flow</h2>
+
+<div class="flow">
+  <div class="flow-step" style="border-color:#94a3b8;">
+    <strong>Plan</strong>
+    Team accumulates context<br/><span class="muted">PM + Designer + QA</span>
+  </div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step" style="border-color:#3b82f6;">
+    <strong>Ready Gate</strong>
+    Context complete?<br/><span class="muted">Readiness indicator</span>
+  </div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step" style="border-color:#22c55e;">
+    <strong>Execute</strong>
+    Dev + Agent in session<br/><span class="muted">Tinkaria's full UX</span>
+  </div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step" style="border-color:#f59e0b;">
+    <strong>Review</strong>
+    Team reviews artifacts<br/><span class="muted">Same place they planned</span>
+  </div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step" style="border-color:#8b5cf6;">
+    <strong>Ship</strong>
+    Accepted &amp; merged<br/><span class="muted">Done</span>
+  </div>
+</div>
+
+<h3>Transition details</h3>
+
+<table>
+  <tr><th>Transition</th><th>What happens</th><th>Who triggers</th></tr>
+  <tr>
+    <td><strong>Inbox &rarr; Ready</strong></td>
+    <td>PM writes requirements. Designer attaches specs. QA writes acceptance criteria. System auto-enriches technical context. Team resolves open questions in discussion. Readiness indicator hits threshold.</td>
+    <td>PM moves when satisfied</td>
+  </tr>
+  <tr>
+    <td><strong>Ready &rarr; In Session</strong></td>
+    <td>Dev clicks "Start Session." Context Pack assembled from all contributions. Tinkaria session opens with context pre-loaded. Ticket shows session metadata (provider, model, elapsed time, turn count).</td>
+    <td>Dev clicks button</td>
+  </tr>
+  <tr>
+    <td><strong>In Session &rarr; Review</strong></td>
+    <td>Dev completes session. Artifacts (PR, screenshots, test results, decision log) auto-attach to ticket. Ticket moves to Review. Team gets notified.</td>
+    <td>Dev marks session complete</td>
+  </tr>
+  <tr>
+    <td><strong>Review &rarr; Done</strong></td>
+    <td>PM confirms requirements met. Designer reviews UI artifacts. QA runs verification session. All sign off. Ticket moves to Done.</td>
+    <td>Last reviewer approves</td>
+  </tr>
+  <tr>
+    <td><strong>Review &rarr; In Session</strong> (rework)</td>
+    <td>Review feedback attached to ticket. Dev launches a follow-up session with original context + review notes. Iterates.</td>
+    <td>Reviewer kicks back</td>
+  </tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Concrete Scenarios</h2>
+
+<h3>Scenario 1: Standard feature ticket</h3>
+<ol>
+  <li>PM creates ticket <code>#182 Add category filter to dashboard</code> with requirements: what the filter should do, which page, which data source.</li>
+  <li>Designer attaches a mockup showing the filter placement, a note about reusing the existing <code>Select</code> component, and spacing guidelines.</li>
+  <li>QA writes acceptance criteria:
+    <ul>
+      <li>Filter shows all categories from <code>GET /api/categories</code></li>
+      <li>Selecting a category filters the dashboard list</li>
+      <li>"All" option clears the filter</li>
+      <li>Filter persists across page navigation</li>
+      <li>Empty state when no results match</li>
+    </ul>
+  </li>
+  <li>Technical context auto-populates: affected files (<code>DashboardPage.tsx</code>, <code>api/categories.ts</code>), blast radius (3 direct callers), related recent change (#174 modified the same API).</li>
+  <li>Readiness hits 100%. PM moves to Ready.</li>
+  <li>Dev picks it up, clicks "Start Session." The Tinkaria session opens. Agent already knows what to build, what it should look like, how to test it, what code to touch, and that #174 recently changed the same API. Dev says: "Let's start with the API hook, then the UI component." Session runs with full Tinkaria UX.</li>
+  <li>Session finishes. PR #350 created, 4 files changed, screenshots attached. Ticket moves to Review.</li>
+  <li>Designer opens the screenshots, compares with mockup. Spacing matches. Approves.</li>
+  <li>QA clicks "Start Verification Session." Works with agent: "Run the filter with no categories in the database." Agent runs the test, screenshots the empty state. QA checks all boxes. Approves.</li>
+  <li>PM confirms requirements met. Ticket moves to Done.</li>
+</ol>
+
+<h3>Scenario 2: Rework loop</h3>
+<ol>
+  <li>Ticket #177 reaches Review. Designer notices the notification badge is using red instead of the brand amber.</li>
+  <li>Designer adds a comment: "Badge should be amber (#F59E0B), not red. See design system tokens." Kicks the ticket back.</li>
+  <li>Ticket returns to In Session. Dev launches a follow-up session. The agent starts with: the original context + implementation from the first session + the designer's feedback. Dev says: "Fix the badge color per the review comment." Agent makes the one-line change, updates the screenshot.</li>
+  <li>Ticket returns to Review. Designer confirms. Done.</li>
+</ol>
+
+<h3>Scenario 3: Stalled session</h3>
+<ol>
+  <li>Ticket #180 is In Session. The agent encounters a test failure it can't resolve after 2 retries. The card shows an amber dot and "STALLED."</li>
+  <li>Dev notices on the board. Clicks the card, sees the agent's transcript: it's failing because a test fixture references a removed column.</li>
+  <li>Dev types a steer message: "The fixture was updated in PR #348, pull main and re-run the migration." Agent resumes, pulls, re-runs. Tests pass.</li>
+  <li>Session completes normally. Ticket moves to Review.</li>
+</ol>
+
+<!-- ───────────────────────────────── -->
+<h2>Why Not Just Use Linear/Jira + Tinkaria Separately?</h2>
+
+<table>
+  <tr><th>Separate tools</th><th>Workflow Board</th></tr>
+  <tr>
+    <td>Dev reads Jira ticket, then manually tells the agent what to build. Context is paraphrased, filtered, lossy.</td>
+    <td>Dev clicks "Start Session." Context transfers verbatim &mdash; requirements, mockups, criteria, code paths, team decisions. Zero paraphrasing.</td>
+  </tr>
+  <tr>
+    <td>PM checks Jira for status, then Slacks the dev for real progress. Two-tool dance.</td>
+    <td>PM looks at the board. The In Session card shows live status. PM can peek at the transcript.</td>
+  </tr>
+  <tr>
+    <td>QA reads the Jira description, opens the PR on GitHub, manually tests in the app, reports back in Jira.</td>
+    <td>QA opens the Review card, sees the artifacts inline, launches a verification session with agent assistance on the same platform.</td>
+  </tr>
+  <tr>
+    <td>Designer puts mockups in Figma, links in Jira. Dev might not open the link. Agent never sees it.</td>
+    <td>Designer's specs are part of the Context Pack. The agent reads them at session start. Design intent is preserved.</td>
+  </tr>
+  <tr>
+    <td>Session results (PR, screenshots) are manually linked back to the Jira ticket. Often forgotten.</td>
+    <td>Artifacts auto-attach to the ticket. Always present. Review happens in-place.</td>
+  </tr>
+</table>
+
+<div class="callout">
+  <div class="callout-label">The difference in one line</div>
+  <p>Separate tools: <strong>plan somewhere, execute somewhere else, review in a third place.</strong><br/>
+  Workflow Board: <strong>plan, execute, and review on the same surface</strong> &mdash; with the agent session as the execution engine.</p>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>Competitive Landscape</h2>
+
+<table>
+  <tr><th>Tool</th><th>Strength</th><th>Gap</th></tr>
+  <tr><td><strong>Linear / Jira</strong></td><td>Excellent project management, workflows, reporting</td><td>Zero execution capability. Context leaks at the plan&rarr;code handoff.</td></tr>
+  <tr><td><strong>Cursor / Windsurf</strong></td><td>Great single-session agent UX</td><td>No team planning surface. Solo developer tool. No board awareness.</td></tr>
+  <tr><td><strong>Symphony</strong></td><td>Autonomous issue&rarr;agent dispatch</td><td>Headless. No team collaboration. No steering. No context preparation.</td></tr>
+  <tr><td><strong>GitHub Projects</strong></td><td>Board + code in one platform</td><td>No agent sessions. Execution is still manual.</td></tr>
+  <tr><td><strong>Devin</strong></td><td>Autonomous software engineer</td><td>Black box. Team can't contribute context beforehand or steer during execution.</td></tr>
+  <tr>
+    <td><strong>Tinkaria Board</strong></td>
+    <td colspan="2">Team plans on the board. Context accumulates per ticket. Dev picks a ticket and launches into a full Tinkaria session with pre-loaded context. Artifacts flow back for team review. <strong>Plan, execute, and review &mdash; one platform.</strong></td>
+  </tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Integration Strategy</h2>
+
+<h3>Phase 1: Built-in board</h3>
+<p>Simple, opinionated, no external dependencies. The board lives inside Tinkaria. Tickets are created and managed here. The team uses the board as their primary planning and review surface for agent-assisted work.</p>
+<p><span class="tag tag-blue">Ship first</span> &mdash; this is the core product. It works standalone without any external tracker.</p>
+
+<h3>Phase 2: Tracker sync (optional)</h3>
+<p>For teams that already use Linear or GitHub Issues: two-way sync so the board reflects external tracker state. Issues created in Linear appear on the board with context ready to enrich. Status changes sync both ways.</p>
+<p><span class="tag tag-gray">Ship later</span> &mdash; meets teams where they are, but doesn't block the core experience.</p>
+
+<div class="callout warn">
+  <div class="callout-label">Scope guard</div>
+  <p>Phase 2 does NOT turn the board into a full Linear client. It syncs <em>titles, descriptions, and status</em>. The context enrichment (design specs, acceptance criteria, technical context, discussion) always happens on the Tinkaria board. The external tracker is the source of truth for what work exists; the board is the source of truth for execution context.</p>
+</div>
+
+<!-- ───────────────────────────────── -->
+<h2>Open Questions for the Team</h2>
+
+<table>
+  <tr><th>#</th><th>Question</th><th>Who should weigh in</th></tr>
+  <tr><td>1</td><td>Should the readiness indicator be a hard gate (can't click "Start Session" until threshold is met) or a soft warning (dev can override)?</td><td>PM + Dev</td></tr>
+  <tr><td>2</td><td>How much of the session transcript should be visible to non-dev team members? Full transcript vs. summary vs. artifacts-only?</td><td>PM + Designer + QA</td></tr>
+  <tr><td>3</td><td>Should QA's "Start Verification Session" be a separate session type with different agent behavior, or a normal session with extra context?</td><td>QA + Dev</td></tr>
+  <tr><td>4</td><td>Do we need a notification system (email, Slack webhook) for column transitions, or is the board itself sufficient?</td><td>PM</td></tr>
+  <tr><td>5</td><td>Should the board support multiple boards per workspace (e.g., one per sprint) or one board with filtering?</td><td>PM + Designer</td></tr>
+  <tr><td>6</td><td>For Phase 2 sync: GitHub Issues first, Linear first, or both in parallel?</td><td>Dev + PM</td></tr>
+  <tr><td>7</td><td>Should tickets support file attachments beyond links (e.g., uploaded images, PDFs), or is linking to Figma/Google Docs sufficient?</td><td>Designer</td></tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Summary</h2>
+
+<p>The Workflow Board is not a project management tool and not an autonomous dispatch engine. It is a <strong>context accumulator that bridges team planning into agent sessions</strong>.</p>
+
+<ul>
+  <li><strong>For PM:</strong> Visibility without status meetings. Requirements reach the agent unfiltered.</li>
+  <li><strong>For Designer:</strong> Design specs become part of the agent's working context. Visual QA in-platform.</li>
+  <li><strong>For QA:</strong> Acceptance criteria inform implementation AND verification. Agent-assisted testing.</li>
+  <li><strong>For Dev:</strong> Sessions start at "let's build" with full team context pre-loaded.</li>
+  <li><strong>For the team:</strong> Plan, execute, and review in one place. No handoff loss.</li>
+</ul>
+
+<div class="callout green">
+  <div class="callout-label">The pitch</div>
+  <p><strong>Every other tool makes you plan in one place, code in another, and review in a third.</strong> Tinkaria's Workflow Board connects all three: the context your team accumulates during planning becomes the agent's working context during execution, and the agent's output becomes the team's review material &mdash; all on the same platform.</p>
+</div>
+
+<p class="muted" style="margin-top:3rem; font-size:.8rem;">Tinkaria &middot; Product Concept &middot; Workflow Board &middot; May 2026 &middot; Internal Draft</p>
+
+</body>
+</html>

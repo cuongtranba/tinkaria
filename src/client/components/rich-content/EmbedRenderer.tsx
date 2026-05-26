@@ -1,10 +1,16 @@
 import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { render as renderPug } from "../../../shared/puggy"
+import { cn, generateUUID } from "../../lib/utils"
 import { clampEmbedZoom, useContentViewer } from "./ContentViewerContext"
 
 const EMBED_LANGUAGES = new Set(["mermaid", "d2", "svg", "iframe", "diashort", "html", "pug"])
 const TAILWIND_BROWSER_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
-const DEFAULT_EMBED_STYLE = "html,body{margin:0;min-height:100%;background:transparent;}body{padding:1rem;font-family:Inter,ui-sans-serif,system-ui,sans-serif;}"
+// Zero-specificity (:where) base so a self-contained document's own styles
+// (e.g. `body{background:#fafafa}`) always win. Without :where, these rules —
+// injected after the document's <style> — would override its background/padding/
+// font, leaving the page transparent (dark app surface shows through) and its
+// dark body text unreadable. Standalone fragments still get these as fallbacks.
+const DEFAULT_EMBED_STYLE = ":where(html),:where(body){margin:0;min-height:100%;}:where(body){background:transparent;padding:1rem;font-family:Inter,ui-sans-serif,system-ui,sans-serif;}"
 
 export function isEmbedLanguage(language: string | null): boolean {
   return language !== null && EMBED_LANGUAGES.has(language)
@@ -13,6 +19,9 @@ export function isEmbedLanguage(language: string | null): boolean {
 interface EmbedRendererProps {
   format: string
   source: string
+  // When true (full-screen preview), the HTML/Pug iframe fills the viewport
+  // height instead of the fixed inline preview height.
+  fillHeight?: boolean
 }
 
 type EmbedWheelZoomIntent = "in" | "out" | null
@@ -20,17 +29,18 @@ type EmbedWheelZoomIntent = "in" | "out" | null
 export const EmbedRenderer = memo(function EmbedRenderer({
   format,
   source,
+  fillHeight = false,
 }: EmbedRendererProps) {
   if (format === "mermaid") {
     return <MermaidDiagram source={source} />
   }
 
   if (format === "html") {
-    return <HtmlEmbed source={source} />
+    return <HtmlEmbed source={source} fillHeight={fillHeight} />
   }
 
   if (format === "pug") {
-    return <PugEmbed source={source} />
+    return <PugEmbed source={source} fillHeight={fillHeight} />
   }
 
   if (format === "svg") {
@@ -270,7 +280,7 @@ function ZoomableEmbedViewport({
   )
 }
 
-function HtmlEmbed({ source }: { source: string }) {
+function HtmlEmbed({ source, fillHeight = false }: { source: string; fillHeight?: boolean }) {
   const { mode, zoom, adjustZoom } = useEmbedState()
   const htmlSource = createHtmlEmbedDocument(source)
 
@@ -283,7 +293,12 @@ function HtmlEmbed({ source }: { source: string }) {
             srcDoc={htmlSource}
             title="HTML content"
             sandbox="allow-scripts"
-            className="block h-[420px] w-full border-0 bg-background"
+            className={cn(
+              "block w-full border-0 bg-background",
+              // Full-screen preview fills the viewport height; inline transcript
+              // embeds keep the fixed preview height.
+              fillHeight ? "h-[calc(100dvh-8rem)]" : "h-[420px]"
+            )}
           />
         </ZoomableEmbedViewport>
       ) : (
@@ -295,7 +310,7 @@ function HtmlEmbed({ source }: { source: string }) {
   )
 }
 
-function PugEmbed({ source }: { source: string }) {
+function PugEmbed({ source, fillHeight = false }: { source: string; fillHeight?: boolean }) {
   const { mode } = useEmbedState()
   if (mode === "source") {
     return (
@@ -323,7 +338,7 @@ function PugEmbed({ source }: { source: string }) {
     )
   }
 
-  return <HtmlEmbed source={rendered.html} />
+  return <HtmlEmbed source={rendered.html} fillHeight={fillHeight} />
 }
 
 function RemoteEmbed({ format, source }: { format: string; source: string }) {
@@ -511,7 +526,10 @@ function MermaidDiagram({ source }: { source: string }) {
           securityLevel: "strict",
         })
 
-        const id = `mermaid-${crypto.randomUUID().slice(0, 8)}`
+        // crypto.randomUUID() is undefined in insecure contexts (e.g. http
+        // over a LAN/Tailscale IP), which threw here and surfaced as
+        // "Diagram render error". generateUUID() falls back safely.
+        const id = `mermaid-${generateUUID().slice(0, 8)}`
         const { svg } = await mermaid.default.render(id, source)
         if (!cancelled) {
           container.innerHTML = svg

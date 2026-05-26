@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Concept: Personal Runners on a Shared Tinkaria</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 15px/1.7 -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 58rem; margin: 0 auto; padding: 2rem 1.5rem 5rem; background: #fafafa; color: #1a1a2e; }
+
+  h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: .25rem; }
+  .subtitle { color: #64748b; font-size: 1rem; margin-bottom: 1.5rem; }
+  h2 { font-size: 1.3rem; margin-top: 2.75rem; padding-bottom: .4rem; border-bottom: 2px solid #e2e8f0; color: #0f172a; }
+  h3 { font-size: 1.05rem; margin-top: 1.6rem; color: #334155; }
+  p { margin: .6rem 0; }
+  ul, ol { margin: .5rem 0 .5rem 1.4rem; }
+  li { margin: .3rem 0; }
+
+  code { background: #f1f5f9; padding: .1rem .35rem; border-radius: .25rem; font-size: .84em; color: #7c3aed; }
+  strong { color: #0f172a; }
+
+  table { border-collapse: collapse; width: 100%; margin: .85rem 0; font-size: .88rem; }
+  th, td { border: 1px solid #e2e8f0; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; color: #475569; }
+
+  .callout { background: #eff6ff; border-left: 4px solid #3b82f6; padding: .75rem 1rem; margin: 1rem 0; border-radius: 0 .5rem .5rem 0; }
+  .callout.warn { background: #fefce8; border-left-color: #eab308; }
+  .callout.green { background: #f0fdf4; border-left-color: #22c55e; }
+  .callout.red { background: #fef2f2; border-left-color: #ef4444; }
+  .callout p { margin: .2rem 0; }
+  .callout-label { font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .25rem; }
+  .callout .callout-label { color: #2563eb; }
+  .callout.green .callout-label { color: #16a34a; }
+  .callout.warn .callout-label { color: #ca8a04; }
+  .callout.red .callout-label { color: #dc2626; }
+
+  .tag { display: inline-block; padding: .12rem .5rem; border-radius: 9999px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
+  .tag-blue { background: #dbeafe; color: #1e40af; }
+  .tag-violet { background: #ede9fe; color: #6d28d9; }
+  .tag-emerald { background: #d1fae5; color: #065f46; }
+  .tag-amber { background: #fef3c7; color: #92400e; }
+  .tag-gray { background: #f1f5f9; color: #475569; }
+  .tag-red { background: #fee2e2; color: #991b1b; }
+
+  .muted { color: #94a3b8; }
+  .chosen { color: #16a34a; font-weight: 700; }
+
+  pre.diagram { background: #0f172a; color: #cbd5e1; padding: 1rem 1.25rem; border-radius: .6rem; font: 12.5px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; overflow-x: auto; margin: 1rem 0; }
+  pre.diagram .hl { color: #7dd3fc; }
+  pre.diagram .gn { color: #86efac; }
+  pre.diagram .am { color: #fcd34d; }
+
+  .decision-card { background: #fff; border: 1px solid #e2e8f0; border-radius: .65rem; padding: 1rem 1.25rem; margin: 1rem 0; }
+  .decision-card h3 { margin-top: 0; }
+  .decision-card .verdict { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: .4rem; padding: .5rem .75rem; margin-top: .6rem; font-size: .9rem; }
+  .decision-card .verdict strong { color: #15803d; }
+
+  .num { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #7c3aed; color: #fff; font-size: .8rem; font-weight: 700; margin-right: .5rem; vertical-align: middle; }
+
+  .flow-step { background: #fff; border: 1px solid #e2e8f0; border-left: 3px solid #7c3aed; border-radius: .4rem; padding: .6rem .9rem; margin: .5rem 0; }
+  .flow-step .who { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: #7c3aed; font-weight: 700; }
+
+  .section-divider { border: none; border-top: 1px solid #e2e8f0; margin: 2.5rem 0 0; }
+  .delta-old { color: #b91c1c; }
+  .delta-new { color: #15803d; }
+</style>
+</head>
+<body>
+
+<h1>Personal Runners on a Shared Tinkaria</h1>
+<p class="subtitle">Architecture concept &mdash; how each team member uses their own Claude Code account through one shared Tinkaria instance</p>
+<p class="muted">May 2026 &middot; Internal &middot; Design record from a full decision-tree review</p>
+
+<!-- ───────────────────────────────── -->
+<h2>The Problem</h2>
+
+<p>Tinkaria runs as a <strong>shared instance for the team</strong>, but the box it runs on has only <strong>one Claude Code account</strong>. Meanwhile every member &mdash; PM, Designer, QA, and each Dev &mdash; has their own Claude subscription. We need each person to run work through the shared instance <em>on their own account</em>, with their own credentials, their own git identity, and their own usage billed to them.</p>
+
+<div class="callout">
+  <div class="callout-label">The core idea</div>
+  <p><strong>The runner is the user's identity.</strong> Each member runs a lightweight <code>tinkaria-runner</code> on their own machine. The shared Tinkaria server holds the board, tickets, context, and UI &mdash; the coordination brain. The member's runner holds the credentials and does the work. Credentials never leave the member's machine.</p>
+</div>
+
+<p>This is feasible because the existing architecture is already <strong>~80% of the way there</strong>: Tinkaria's runner already talks to the server over NATS, already registers itself in a KV registry, and already has a <code>RUNNER_MODE=discover</code> seam for externally-launched runners. The work is to make that seam operate <em>across the network, securely, per-user</em>.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>The Shape of the System</h2>
+
+<pre class="diagram">
+                 <span class="hl">Shared Tinkaria Server</span>  (one box, the team's "brain")
+        ┌──────────────────────────────────────────────┐
+        │  Board · Tickets · Context · Draft PRs · UI    │
+        │  NATS hub  ·  auth-callout  ·  GitHub App (RW)  │
+        └───────┬──────────────┬───────────────┬─────────┘
+                │              │               │
+        ════════╪══════════════╪═══════════════╪════════  <span class="am">Tailscale tailnet (WireGuard)</span>
+                │              │               │
+          ┌─────▼────┐   ┌─────▼────┐    ┌─────▼──────┐
+          │ <span class="gn">Alice</span>    │   │ <span class="gn">Bob</span>      │    │ <span class="gn">Shared</span>     │
+          │ runner   │   │ runner   │    │ runner     │
+          │ (laptop) │   │ (laptop) │    │ (on server)│
+          └──────────┘   └──────────┘    └────────────┘
+          Alice's Claude   Bob's Claude    Team API key
+          Alice's git id   Bob's git id    (fallback only)
+          local secrets    local secrets
+</pre>
+
+<p>The server is authoritative about <strong>state</strong> (what tickets exist, their branches, PR/CI status). Each runner is authoritative about <strong>work and identity</strong> (executing Claude Code with the member's account, committing code under their name). The two stay in sync through git and NATS.</p>
+
+<!-- ───────────────────────────────── -->
+<h2>Decision Log</h2>
+
+<p>Ten decisions, resolved one branch at a time. The chosen option is in <span class="chosen">green</span>.</p>
+
+<table>
+  <tr><th>#</th><th>Decision</th><th>Choice</th></tr>
+  <tr><td>1</td><td>Network transport</td><td><span class="chosen">Tailscale / WireGuard overlay</span></td></tr>
+  <tr><td>2</td><td>Runner identity</td><td><span class="chosen">Pairing token</span> &middot; multiple runners per user</td></tr>
+  <tr><td>3</td><td>Session routing</td><td><span class="chosen">Sticky default + smart override</span> &middot; fail-fast w/ shared fallback</td></tr>
+  <tr><td>4</td><td>Filesystem / workspace</td><td><span class="chosen">Runner clones from ticket's git coordinates</span> &middot; git-native board</td></tr>
+  <tr><td>5</td><td>Git write topology</td><td><span class="chosen">Both write</span> &middot; server&rarr;<code>.tinkaria/</code> (bot), runner&rarr;code (member)</td></tr>
+  <tr><td>6</td><td>Planning docs &amp; PR</td><td><span class="chosen">Keep in <code>main</code></span> &middot; server auto-opens a draft PR</td></tr>
+  <tr><td>7</td><td>Presence / liveness</td><td><span class="chosen">Heartbeat TTL</span> &middot; degraded 25s / offline 60s &middot; suspend+resume</td></tr>
+  <tr><td>8</td><td>Isolation enforcement</td><td><span class="chosen">NATS-native per-runner permissions</span> (auth callout)</td></tr>
+  <tr><td>9</td><td>Distribution / versioning</td><td><span class="chosen">bun package + <code>protocolVersion</code> handshake</span>, no auto-update</td></tr>
+  <tr><td>10</td><td>Profile / capabilities</td><td><span class="chosen">Logical intent server-side, physical+secrets runner-side</span></td></tr>
+  <tr><td>11</td><td>Workspace bootstrap</td><td><span class="chosen"><code>.tinkaria/workflow.md</code> hooks</span> &middot; local secrets &middot; worktree off cached clone</td></tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Decisions in Detail</h2>
+
+<div class="decision-card">
+  <h3><span class="num">1</span>Network transport &mdash; Tailscale / WireGuard</h3>
+  <p>The runner is a NATS client that must reach the Tinkaria NATS daemon, which today binds to <code>127.0.0.1</code> only (plain TCP + unencrypted WebSocket). We run the whole thing over a Tailscale tailnet; NATS binds to the tailnet interface instead of going public.</p>
+  <p><strong>Why:</strong> WireGuard is purpose-built for the exact failure mode we hit constantly &mdash; a laptop roaming between home wifi, office, and coffee shop, sleeping and waking. The tunnel survives IP changes; NATS's own reconnect (infinite attempts, 750ms backoff, 15s ping &mdash; already in <code>runner-nats.ts</code>) rides on top. Two layers of resilience, and we write almost no networking code. It also handles encryption and <em>device</em> authentication for free, so we build no TLS.</p>
+  <div class="verdict"><strong>Most stable connection of the options considered.</strong> The cost is operational: every member joins the tailnet. Acceptable for an internal squad. A WebSocket-bridge path (<code>wss://&hellip;/runner-ws</code> through the Bun server on :443) is <span class="tag tag-gray">parked</span> for the day we serve external teams who can't assume a tailnet.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">2</span>Runner identity &mdash; pairing token</h3>
+  <p>A member clicks <strong>"Add my runner"</strong> in Tinkaria, gets a one-time pairing code, and the runner exchanges it once for a durable per-runner secret bound to their <code>TinkariaUser</code>. Same shape as authorizing a new phone.</p>
+  <p><strong>Why:</strong> It decouples <em>identity</em> from <em>transport</em>. The binding stays correct whether the connection arrives via tailnet today or a WS bridge later &mdash; we never redo identity if topology changes. We deliberately did <em>not</em> map identity to Tailscale's node identity: Tailscale is the <strong>transport</strong>, not the identity provider, or else CI runners and external teams break the model.</p>
+  <div class="verdict"><strong>Multiple runners per user allowed</strong> (laptop + desktop). Registration gains an <code>ownerId</code>; rows can share it. This feeds routing (#3).</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">3</span>Session routing &mdash; sticky default + smart override</h3>
+  <p>Each user has a designated default runner. <strong>"Start Session"</strong> uses it with zero clicks. A picker auto-appears only when the default is offline <em>or</em> &ge;2 runners are online (genuinely ambiguous &mdash; wrong machine = wrong local clone).</p>
+  <p><strong>Offline path (fail-fast):</strong> if all the user's runners are offline, Tinkaria blocks with a clear prompt &mdash; "Your runner is offline. Start it with <code>tinkaria-runner start</code>, or [use shared runner]." It does <em>not</em> silently queue against a dead runner.</p>
+  <div class="verdict"><strong>Shared-runner fallback</strong> = the team API-key path (separate budget, separate billing) for non-subscribers or emergencies. Failing fast with a reason beats a confusing silent queue.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">4</span>Filesystem / workspace &mdash; runner clones from the ticket's git coordinates</h3>
+  <p>Today <code>StartTurnCommand</code> carries a <code>workspaceLocalPath</code> the runner just <code>cwd</code>s into &mdash; which silently assumes server and runner share one filesystem. They no longer do. Instead, <strong>the ticket carries git coordinates</strong> (repo + base branch + its own working branch), and on "Start Session" the runner materializes the workspace locally.</p>
+  <div class="callout warn">
+    <div class="callout-label">Consequence accepted</div>
+    <p>File-level coordination (<code>workspace_claim_create</code>, file-touch conflict detection) loses meaning across separate clones and is <strong>redefined as branch/PR-level coordination</strong>. Two people on one ticket = two branches, reconciled by git, not a shared file lock. The board becomes <strong>git-native</strong>: every ticket has its own branch.</p>
+  </div>
+  <div class="verdict">This is Symphony's workspace model done right: each member works in their own checkout under their own git identity, so <strong>PRs are authored by them</strong> &mdash; the whole point of personal runners.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">5</span>&amp;&nbsp;<span class="num">6</span>Git write topology, planning docs &amp; PR</h3>
+  <p><strong>Both the server and runners write to git</strong>, on disjoint paths:</p>
+  <ul>
+    <li>When PM marks a ticket <strong>Ready</strong>, the <strong>server</strong> creates the branch (<code>ticket/182-category-filter</code>), commits the planning artifacts (requirements, design, acceptance criteria, gathered context) under <code>.tinkaria/tickets/182/</code> as a <strong>bot identity</strong>, and <strong>auto-opens a draft PR</strong>.</li>
+    <li>The <strong>runner</strong> later commits product code everywhere <em>except</em> <code>.tinkaria/</code>, under the <strong>member's identity</strong>.</li>
+  </ul>
+  <p>The branch <em>is</em> the Context Pack carrier &mdash; context becomes version-controlled, reviewable, and travels with the branch automatically. The draft PR means the board tracks PR/CI/review threads from "Ready" onward, even before any session starts.</p>
+  <div class="callout red">
+    <div class="callout-label">Hazard &amp; guardrail</div>
+    <p>Two writers on one branch is a divergence risk if planning continues after a session starts. <strong>Guardrail:</strong> the server writes <em>only</em> under <code>.tinkaria/</code>; the runner writes everywhere else. Disjoint files &rArr; git auto-merges; the runner's rule is simply <strong>pull-before-push</strong>. No lock protocol.</p>
+  </div>
+  <div class="verdict">Planning docs <strong>stay in <code>main</code></strong> under one tidy <code>.tinkaria/</code> tree &mdash; the honest git-native choice, no fragile pre-merge stripping step. The server holds a <strong>write-scoped GitHub App</strong>; it authors only planning docs, never code.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">7</span>Presence / liveness &mdash; heartbeat TTL</h3>
+  <p><code>process.kill(pid, 0)</code> is dead across machines, so presence comes purely from the existing NATS heartbeat (every 10s). A runner is <strong>degraded after ~25s</strong> (2 missed) and <strong>offline after ~60s</strong> &mdash; the intermediate state stops the board flapping on a GC pause or wifi blip.</p>
+  <div class="callout green">
+    <div class="callout-label">Payoff of the git-native decision</div>
+    <p>If a runner drops mid-turn, the session goes <strong>suspended, not failed</strong> &mdash; because the durable state is the <em>branch</em>, not the runner's memory. When the runner reconnects, it resumes from the branch. After 30 min suspended with no runner, the ticket escalates to <strong>"needs attention"</strong> on the board so it can't silently rot.</p>
+  </div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">8</span>Isolation enforcement &mdash; NATS-native per-runner permissions</h3>
+  <p>Pairing tokens (#2) prove identity to the <em>server</em>; they don't constrain the <em>NATS connection</em>, which today uses one shared token. We close this with a server-side <strong>auth-callout</strong>: the pairing secret becomes the NATS credential, the callout validates it and returns a JWT scoping that connection to only its own subjects (<code>runtime.runner.cmd.{runnerId}.&gt;</code>, its own heartbeat topic, its own registry key). NATS enforces it &mdash; not app code.</p>
+  <div class="callout">
+    <div class="callout-label">Scope note</div>
+    <p>The callout becomes the auth path for <strong>all</strong> connections &mdash; browser WS clients (which fetch a token via <code>/auth/token</code> today) and the server's own orchestrator connection included, not just personal runners. More surface than a column, but it delivers real multi-tenant isolation &mdash; which also <strong>unblocks the external-team path</strong> from #1, since untrusted parties could then safely share the bus.</p>
+  </div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">9</span>Distribution &amp; versioning &mdash; bun package + handshake</h3>
+  <p>Shipped as a bun package: <code>bunx @tinkaria/runner</code> &mdash; literally the existing <code>src/runner</code> entry plus pairing + tailnet connect. (A compiled single binary is <span class="tag tag-gray">deferred</span> until non-dev / external users exist; the squad already has Bun.)</p>
+  <p><strong>Versioning:</strong> the runner reports <code>protocolVersion</code> in its registration. A runner outside the supported range is marked <strong>incompatible</strong> (a distinct board state, <em>not</em> "offline"), session start is blocked, and the board shows "run <code>tinkaria-runner upgrade</code>." No auto-update &mdash; surprise executable updates on a member's machine are hostile and a security smell.</p>
+  <div class="verdict"><strong>Never silently degrade.</strong> A stale runner must be <em>loudly</em> incompatible, because "mostly works but mangles one field" is the worst debugging experience and it lands on us.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">10</span>Profile / capabilities &mdash; logical intent server-side, physical + secrets runner-side</h3>
+  <p>Today the server resolves <code>binaryPath</code> (an absolute path on the <em>server's</em> disk &mdash; meaningless on a laptop) and ships <code>extraEnv</code> (where API keys would live &mdash; violating "auth stays local"). We split it:</p>
+  <table>
+    <tr><th>Server-defined (travels in command)</th><th>Runner-resolved (local)</th></tr>
+    <tr><td>provider, model, effort, planMode, systemPrompt, skills &mdash; <em>what</em> to run</td><td>which binary &amp; its path, runtime version &mdash; <em>where/how</em></td></tr>
+    <tr><td>non-secret team env (optional)</td><td>Claude auth, API keys, all secrets &mdash; <strong>never transit the server</strong></td></tr>
+  </table>
+  <p><code>binaryPath</code> is dropped from the remote command. The runner <strong>advertises its real capabilities</strong> in registration (providers + installed versions/models), so the picker only offers options it can honor.</p>
+  <div class="verdict">If a ticket asks for a model the runner lacks &rarr; <strong>refuse with a clear message</strong> ("your runner can't run this model &mdash; install it or pick another"), never a silent downgrade.</div>
+</div>
+
+<div class="decision-card">
+  <h3><span class="num">11</span>Workspace bootstrap &mdash; declarative hooks, local secrets, cached worktrees</h3>
+  <ul>
+    <li><strong>Setup is declared in a committed <code>.tinkaria/workflow.md</code></strong> (Symphony's <code>WORKFLOW.md</code> pattern) with hooks &mdash; <code>after_create</code> (e.g. <code>bun install</code>), <code>before_run</code> (e.g. <code>bun run build</code>). The server reads it to know the workflow; the runner <strong>executes the hooks locally</strong>.</li>
+    <li><strong>Secrets are member-local.</strong> The runner injects <code>~/.tinkaria/secrets/&lt;repo&gt;.env</code> into the workspace before <code>before_run</code>. The workflow file references <em>which keys are required</em>, never their values &mdash; so the board can preflight-warn "your runner is missing <code>DATABASE_URL</code>" before a confusing failure, while the secret stays purely local.</li>
+    <li><strong>One cached base clone per repo per machine; a <code>git worktree</code> per ticket branch.</strong> Warm dependency caches, near-instant ticket switching &mdash; reusing Tinkaria's existing <code>workspace_worktree_create</code> machinery, now relocated to run on the runner.</li>
+  </ul>
+</div>
+
+<!-- ───────────────────────────────── -->
+<hr class="section-divider" />
+<h2>End-to-End Flow</h2>
+
+<div class="flow-step"><span class="who">Setup &middot; once</span> Member runs <code>bunx @tinkaria/runner pair https://team.tinkaria.dev</code> &rarr; enters the one-time code from the UI &rarr; runner stores its per-runner secret &rarr; <code>tinkaria-runner start</code> connects over the tailnet, the auth-callout issues a scoped JWT, the runner registers (<code>ownerId</code>, <code>protocolVersion</code>, capabilities) and begins heartbeating.</div>
+
+<div class="flow-step"><span class="who">PM &middot; Ready</span> PM marks ticket #182 <strong>Ready</strong>. The server creates branch <code>ticket/182-…</code>, commits the Context Pack under <code>.tinkaria/tickets/182/</code> (bot identity), and opens a <strong>draft PR</strong>. The board now tracks the PR/CI from the start.</div>
+
+<div class="flow-step"><span class="who">Dev &middot; Start Session</span> Dev clicks <strong>Start Session</strong>. Routing resolves to their sticky-default runner (online &rarr; zero clicks). The command carries logical intent (provider/model/skills) but no paths and no secrets.</div>
+
+<div class="flow-step"><span class="who">Runner &middot; materialize</span> The runner creates a worktree off its cached clone of the repo, checks out <code>ticket/182-…</code> (Context Pack already present as files), injects local <code>.env</code>, runs <code>after_create</code> / <code>before_run</code> hooks, and resolves its local Claude binary &mdash; using the member's own account.</div>
+
+<div class="flow-step"><span class="who">Agent &middot; work</span> The agent reads the committed context and implements, committing code under the member's git identity (everywhere except <code>.tinkaria/</code>), pull-before-push. Tinkaria renders the session with its usual rich artifacts; teammates can peek.</div>
+
+<div class="flow-step"><span class="who">If the laptop sleeps</span> Heartbeat stops &rarr; runner <strong>degraded</strong> at 25s, <strong>offline</strong> at 60s &rarr; session <strong>suspended</strong>, not failed. On reconnect it resumes from the branch. After 30 min &rarr; ticket flagged <strong>needs attention</strong>.</div>
+
+<div class="flow-step"><span class="who">Team &middot; Review &rarr; Done</span> Code lands on the draft PR; the server's read of GitHub keeps the board's PR/CI status live even if the runner is offline. Designer/QA/PM review on the ticket. QA can launch its own verification session. PR merges &rarr; <code>.tinkaria/</code> planning trail merges into <code>main</code> with it.</div>
+
+<!-- ───────────────────────────────── -->
+<h2>Architecture Deltas (as-is &rarr; to-be)</h2>
+
+<table>
+  <tr><th>Area</th><th>Today</th><th>Change</th></tr>
+  <tr>
+    <td>NATS bind</td>
+    <td class="delta-old"><code>127.0.0.1</code>, plain TCP + unencrypted WS, single shared token</td>
+    <td class="delta-new">Bind tailnet interface; per-connection JWTs via auth-callout</td>
+  </tr>
+  <tr>
+    <td><code>RunnerRegistration</code></td>
+    <td class="delta-old"><code>{ runnerId, pid, startedAt, providers }</code></td>
+    <td class="delta-new">+ <code>ownerId</code>, <code>protocolVersion</code>, capabilities (providers + installed versions/models); stop relying on <code>pid</code></td>
+  </tr>
+  <tr>
+    <td>Liveness</td>
+    <td class="delta-old"><code>process.kill(pid, 0)</code> (same-machine only)</td>
+    <td class="delta-new">Heartbeat TTL: degraded 25s / offline 60s</td>
+  </tr>
+  <tr>
+    <td><code>StartTurnCommand</code></td>
+    <td class="delta-old">Server-resolved <code>binaryPath</code> + <code>extraEnv</code> (secrets)</td>
+    <td class="delta-new">Drop <code>binaryPath</code>; <code>extraEnv</code> = non-secret only; runner resolves binary + merges local env</td>
+  </tr>
+  <tr>
+    <td>Workspace path</td>
+    <td class="delta-old">Server-supplied absolute <code>workspaceLocalPath</code></td>
+    <td class="delta-new">Runner-resolved worktree from ticket git coordinates</td>
+  </tr>
+  <tr>
+    <td>Coordination MCP</td>
+    <td class="delta-old">File-level claims (shared filesystem)</td>
+    <td class="delta-new">Branch/PR-level coordination (separate clones)</td>
+  </tr>
+  <tr>
+    <td>Runner discovery</td>
+    <td class="delta-old"><code>RUNNER_MODE=discover</code> exists but same-NATS / same-host assumed</td>
+    <td class="delta-new">Extended to cross-machine, per-user, over the tailnet</td>
+  </tr>
+  <tr>
+    <td>Git access</td>
+    <td class="delta-old">None (local FS edits)</td>
+    <td class="delta-new">Server: write-scoped GitHub App (planning docs + draft PR + status reads). Runner: member's own git credentials (code)</td>
+  </tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Scope &amp; Parked Items</h2>
+
+<table>
+  <tr><th>Item</th><th>Status</th><th>Note</th></tr>
+  <tr><td>Tailscale transport</td><td><span class="tag tag-emerald">In</span></td><td>Internal squad. Pilot.</td></tr>
+  <tr><td>WebSocket bridge (<code>wss://&hellip;/runner-ws</code>)</td><td><span class="tag tag-gray">Parked</span></td><td>For external teams who can't join a tailnet. Unblocked by #8's real isolation.</td></tr>
+  <tr><td>Compiled single-binary runner</td><td><span class="tag tag-gray">Parked</span></td><td>For non-dev / external users. Squad has Bun.</td></tr>
+  <tr><td>Runner auto-update</td><td><span class="tag tag-red">Rejected</span></td><td>Hostile + security smell. Handshake + manual <code>upgrade</code> instead.</td></tr>
+  <tr><td>Server-side filesystem sync / mount</td><td><span class="tag tag-red">Rejected</span></td><td>Distributed FS over a roaming tailnet pages you at 2am. Git is the sync layer.</td></tr>
+  <tr><td>Silent model downgrade on capability mismatch</td><td><span class="tag tag-red">Rejected</span></td><td>Never silently degrade. Refuse with a message.</td></tr>
+</table>
+
+<!-- ───────────────────────────────── -->
+<h2>Open Implementation Risks</h2>
+
+<ol>
+  <li><strong>Auth-callout breadth.</strong> Migrating <em>all</em> NATS connections (browser, server, runners) onto callout-issued JWTs is the largest single piece. Sequence it first; everything else assumes scoped creds.</li>
+  <li><strong>Pull-before-push race.</strong> The disjoint-path rule makes merges automatic, but the runner must reliably pull before pushing. Needs a tested helper, not ad-hoc git calls.</li>
+  <li><strong>GitHub App scope.</strong> Server write access to tracked repos is real blast radius. Scope it to branch + <code>.tinkaria/</code> commits + PR open/status, and audit the bot identity's actions.</li>
+  <li><strong>Capability advertisement accuracy.</strong> If a runner mis-reports installed models, sessions fail at turn time instead of at routing. The advertisement must reflect reality (probe, don't assume).</li>
+  <li><strong>Preflight secret check.</strong> Required-key validation needs the workflow file and the member's local env to agree; a missing key must surface <em>before</em> session start, on the board.</li>
+</ol>
+
+<div class="callout green" style="margin-top:2rem;">
+  <div class="callout-label">In one line</div>
+  <p>The shared server is the team's brain (board, tickets, context, draft PRs, status); each member's runner is their hands (their Claude account, their git identity, their machine, their secrets). Tailscale connects them, the branch carries the work, and nothing private ever leaves the laptop.</p>
+</div>
+
+<p class="muted" style="margin-top:3rem; font-size:.8rem;">Tinkaria &middot; Concept &middot; Personal Runners on a Shared Instance &middot; May 2026 &middot; Internal Design Record</p>
+
+</body>
+</html>

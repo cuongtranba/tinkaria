@@ -39,6 +39,15 @@ implemented until tests or validation evidence exist.
 | mobile-composer-menu | Selecting a level-2 option applies change and closes the whole menu | n/a | n/a | yes | n/a | implemented | browser-harness: select Medium → menu closed; reopen shows Reasoning/Medium; same state reflected in desktop row after resize |
 | mobile-composer-menu | Desktop ≥768px chip row unchanged (live responsive switch) | yes | n/a | yes | yes | implemented | unit: useIsMobile=false renders full row, no menu.action; browser-harness resize 1200px → provider.action returns, menu.action gone |
 
+| html-preview-fullscreen-contrast | Full-screen HTML preview iframe fills viewport height (not fixed 420px); inline embeds stay 420 | yes | n/a | yes | yes | implemented | EmbedRenderer fillHeight prop from LocalFilePreviewContent; browser-harness prod :3210 iframe `h-[calc(100dvh-8rem)]` 872/1000px; inline default 420 |
+| html-preview-fullscreen-contrast | Self-contained HTML renders in its own theme (document body bg/padding/font preserved) | yes | n/a | yes | n/a | implemented | DEFAULT_EMBED_STYLE :where() zero-specificity; browser-harness: light #fafafa bg + dark readable text (was dark-on-dark); 160 rich-content/messages tests green |
+
+| code-block-whitespace | Language-less code fences (ASCII art) render preformatted (whitespace-pre, monospace, horizontal scroll), not wrapped like inline code | yes | n/a | yes | yes | implemented | markdownComponents.code isInline now requires single-line; browser-harness @668px: 3 ASCII blocks whiteSpace=pre (was normal), aligned; typescript highlighting preserved; 75 messages tests |
+
+| mermaid-insecure-context | Mermaid diagrams render over HTTP-on-IP (insecure context), not only localhost/HTTPS | yes | n/a | yes | yes | implemented | crypto.randomUUID()→generateUUID() in MermaidDiagram; browser-harness on http://100.125.230.68:3210 (isSecureContext=false): renders SVG (was "Diagram render error"); 85 tests + typecheck 0 |
+
+| mobile-artifact-controls-split | Mobile artifact card: copy+fullscreen on top edge, only expand on bottom edge | yes | n/a | yes | yes | implemented | RichContentBlock controls split; browser-harness @668px mermaid card: top=[zoom,Copy,Open in overlay], bottom=[Expand]; desktop unchanged; 85 tests + typecheck 0 |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

@@ -5,6 +5,7 @@ import {
   runnerCmdSubject,
   runnerHeartbeatSubject,
   RUNNER_REGISTRY_BUCKET,
+  PROTOCOL_VERSION,
   type StartTurnCommand,
   type CancelTurnCommand,
   type RespondToolCommand,
@@ -152,29 +153,28 @@ export class RunnerNatsHandler {
   }
 
   private async register(): Promise<void> {
+    // Allow tests to simulate a protocol skew via RUNNER_PROTOCOL_VERSION env.
+    const protocolVersion = Number(process.env.RUNNER_PROTOCOL_VERSION ?? PROTOCOL_VERSION)
+    const providers: RunnerRegistration["providers"] = ["claude", "codex"]
+    const registration: RunnerRegistration = {
+      runnerId: this.runnerId,
+      pid: process.pid,
+      startedAt: Date.now(),
+      providers,
+      protocolVersion,
+      capabilities: { providers },
+    }
     try {
       const kvm = new Kvm(this.nc)
       const kvStore = await kvm.create(RUNNER_REGISTRY_BUCKET, {
         max_bytes: 1024 * 1024,
       })
-      const registration: RunnerRegistration = {
-        runnerId: this.runnerId,
-        pid: process.pid,
-        startedAt: Date.now(),
-        providers: ["claude", "codex"],
-      }
       await kvStore.put(this.runnerId, encoder.encode(JSON.stringify(registration)))
     } catch (error) {
       // KV bucket may already exist — try to open instead
       try {
         const kvm = new Kvm(this.nc)
         const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
-        const registration: RunnerRegistration = {
-          runnerId: this.runnerId,
-          pid: process.pid,
-          startedAt: Date.now(),
-          providers: ["claude", "codex"],
-        }
         await kvStore.put(this.runnerId, encoder.encode(JSON.stringify(registration)))
       } catch (innerError) {
         const message = innerError instanceof Error ? innerError.message : String(innerError)

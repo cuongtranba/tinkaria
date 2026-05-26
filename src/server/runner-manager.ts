@@ -4,6 +4,8 @@ import {
   runnerCmdSubject,
   runnerHeartbeatSubject,
   RUNNER_REGISTRY_BUCKET,
+  isProtocolSupported,
+  SUPPORTED_RANGE,
   type RunnerHeartbeat,
   type RunnerRegistration,
 } from "../shared/runner-protocol"
@@ -33,6 +35,10 @@ export interface RunnerReadiness {
   registered: boolean
   heartbeatFresh: boolean
   lastHeartbeatAt: number | null
+  /** Protocol version reported by the runner registration, or null if not registered. */
+  protocolVersion: number | null
+  /** True when the runner's protocolVersion is outside the server's SUPPORTED_RANGE. */
+  incompatible: boolean
 }
 
 const RUNNER_HEARTBEAT_TIMEOUT_MS = 30_000
@@ -67,13 +73,21 @@ export class RunnerManager {
       this.lastHeartbeatAt !== null &&
       now - this.lastHeartbeatAt <= RUNNER_HEARTBEAT_TIMEOUT_MS
     const registered = this.runnerRegistration !== null
+    // A registration missing protocolVersion is treated as incompatible (defensive).
+    const protocolVersion = this.runnerRegistration?.protocolVersion ?? null
+    const incompatible =
+      protocolVersion === null
+        ? registered // if registered but no version field, it's incompatible
+        : !isProtocolSupported(protocolVersion)
     return {
-      ok: this.runnerId !== null && registered && heartbeatFresh,
+      ok: this.runnerId !== null && registered && heartbeatFresh && !incompatible,
       runnerId: this.runnerId,
       pid: this.runnerRegistration?.pid ?? this.proc?.pid ?? null,
       registered,
       heartbeatFresh,
       lastHeartbeatAt: this.lastHeartbeatAt,
+      protocolVersion,
+      incompatible,
     }
   }
 
@@ -131,6 +145,13 @@ export class RunnerManager {
     await this.waitForRegistration(runnerId, 15_000)
     await this.waitForHeartbeat(5_000)
 
+    const { incompatible, protocolVersion } = this.getReadiness()
+    if (incompatible) {
+      console.warn(
+        LOG_PREFIX,
+        `Runner ${runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max})`,
+      )
+    }
     console.warn(LOG_PREFIX, `Runner ${runnerId} spawned (pid: ${this.proc.pid})`)
 
     return runnerId

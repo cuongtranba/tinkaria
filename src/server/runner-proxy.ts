@@ -4,7 +4,7 @@ import type { ProviderProfileRecord } from "../shared/profile-types"
 import { resolveProfile } from "../shared/profile-types"
 import type { AgentProvider, SessionStatus, PendingToolSnapshot } from "../shared/types"
 import { resolveClaudeApiModelId } from "../shared/types"
-import { runnerCmdSubject, type StartTurnCommand } from "../shared/runner-protocol"
+import { runnerCmdSubject, SUPPORTED_RANGE, type StartTurnCommand } from "../shared/runner-protocol"
 import type { EventStore } from "./event-store"
 import type { RuntimeRegistry } from "./runtime-registry"
 import {
@@ -27,6 +27,8 @@ export interface RunnerProxyOptions {
   getActiveStatuses: () => Map<string, SessionStatus>
   getPendingTool?: (chatId: string) => PendingToolSnapshot | null
   runtimeRegistry?: RuntimeRegistry | null
+  /** Optional: called before start_turn dispatch to enforce the protocol-version gate. */
+  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null }
 }
 
 export class RunnerProxy {
@@ -35,6 +37,7 @@ export class RunnerProxy {
   private readonly runnerId: string
   private readonly _getActiveStatuses: () => Map<string, SessionStatus>
   private readonly runtimeRegistry: RuntimeRegistry | null
+  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null }) | null
   private readonly recentlyStartedChats = new Set<string>()
 
   /** Orchestration compatibility: check if a chat has an active turn */
@@ -46,6 +49,7 @@ export class RunnerProxy {
     this.runnerId = options.runnerId
     this._getActiveStatuses = options.getActiveStatuses
     this.runtimeRegistry = options.runtimeRegistry ?? null
+    this._getRunnerReadiness = options.getRunnerReadiness ?? null
     this.activeTurns = {
       has: (chatId: string) => this.hasActiveOrJustStartedTurn(chatId),
     }
@@ -91,6 +95,15 @@ export class RunnerProxy {
   }
 
   private async sendCommand(cmd: string, payload: unknown): Promise<unknown> {
+    // Gate: incompatible runners must not receive start_turn — fail fast with a clear message.
+    if (cmd === "start_turn" && this._getRunnerReadiness) {
+      const { incompatible, protocolVersion } = this._getRunnerReadiness()
+      if (incompatible) {
+        throw new Error(
+          `Runner ${this.runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max}) — run tinkaria-runner upgrade`,
+        )
+      }
+    }
     const reply = await this.nc.request(
       runnerCmdSubject(this.runnerId, cmd),
       encoder.encode(JSON.stringify(payload)),

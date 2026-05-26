@@ -138,4 +138,17 @@ describe("PairingStore.exchange", () => {
     const result = store.exchange(code)
     expect(result).toEqual({ ok: false, error: "unknown" })
   })
+
+  test("consumed entries are also evicted after TTL (no permanent consumed-oracle / memory leak)", () => {
+    // Within the TTL window a reused code reports "consumed"...
+    const { store, tick } = makeCounterStore()
+    const { code } = store.issue(makeEntry())
+    expect(store.exchange(code).ok).toBe(true) // consume it
+    expect(store.exchange(code)).toEqual({ ok: false, error: "consumed" }) // still in window
+    // ...but once past the TTL it is swept on the next activity and reads as
+    // "unknown" like any dead code — not "consumed" forever (MEDIUM-1 fix).
+    tick(60_001)
+    store.issue({ runnerId: "runner-2", token: "tok2.sig" }) // triggers sweep
+    expect(store.exchange(code)).toEqual({ ok: false, error: "unknown" })
+  })
 })

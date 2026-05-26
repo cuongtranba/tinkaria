@@ -12,7 +12,7 @@
  * tests and multiple local runners can use isolated locations.
  */
 
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { chmodSync, mkdirSync, renameSync } from "node:fs"
 import { homedir } from "node:os"
 
@@ -28,9 +28,16 @@ export interface RunnerCredential {
 
 const CREDENTIAL_FILE = "runner-secret.json"
 
-/** Resolve the runner home directory (overridable via TINKARIA_RUNNER_HOME). */
+/**
+ * Resolve the runner home directory (overridable via TINKARIA_RUNNER_HOME).
+ * The env var is operator-controlled config (like HOME) — it may legitimately
+ * point anywhere, so we don't restrict it; we normalize it to an absolute path
+ * for predictability. The directory is created 0700 (see writeRunnerCredential)
+ * so the secret file's parent isn't world-traversable.
+ */
 function runnerHomeDir(): string {
-  return process.env.TINKARIA_RUNNER_HOME ?? join(homedir(), ".tinkaria")
+  const raw = process.env.TINKARIA_RUNNER_HOME ?? join(homedir(), ".tinkaria")
+  return resolve(raw)
 }
 
 function credentialPath(): string {
@@ -43,7 +50,7 @@ function credentialPath(): string {
  */
 export async function writeRunnerCredential(cred: RunnerCredential): Promise<void> {
   const dir = runnerHomeDir()
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
 
   const dest = credentialPath()
   const tmp = `${dest}.tmp.${process.pid}`

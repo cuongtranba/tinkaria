@@ -20,6 +20,22 @@ export interface PairRunnerOptions {
  * Throws if the server returns a non-OK status (expired, consumed, unknown, etc.).
  */
 export async function pairRunner({ serverUrl, code }: PairRunnerOptions): Promise<void> {
+  // The exchange RESPONSE carries the durable runner credential. Over plain HTTP
+  // to a non-loopback host, a network-path attacker could capture it. Loopback /
+  // WireGuard tailnet links are encrypted at the network layer; warn otherwise.
+  // (Hard TLS requirement for non-loopback pairing is a pre-multi-tenant gate — decision 0008.)
+  try {
+    const u = new URL(serverUrl)
+    const loopback = u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1"
+    if (u.protocol !== "https:" && !loopback) {
+      console.warn(
+        `[tinkaria] WARNING: pairing over non-loopback HTTP (${u.host}) — the runner credential is sent in the clear. Use HTTPS or pair over a WireGuard/tailnet link.`
+      )
+    }
+  } catch {
+    // malformed URL — let fetch surface the error below
+  }
+
   const url = `${serverUrl.replace(/\/$/, "")}/api/pairing/exchange`
   const res = await fetch(url, {
     method: "POST",

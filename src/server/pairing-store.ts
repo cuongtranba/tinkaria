@@ -108,11 +108,17 @@ export class PairingStore {
     return { ok: true, runnerId: entry.runnerId, token: entry.token }
   }
 
-  /** Remove expired (non-consumed) entries to prevent unbounded memory growth. */
+  /**
+   * Remove expired entries (consumed OR not) to bound memory growth.
+   * Sweeping consumed-and-expired entries also avoids a permanent
+   * "consumed vs. unknown" distinction for long-dead codes — within the TTL
+   * window a reused code still reports "consumed" (the entry has not expired);
+   * after the window it is evicted and reads as "unknown" like any other.
+   */
   private sweep(): void {
     const now = this.now()
     for (const [code, entry] of this.codes) {
-      if (!entry.consumed && now >= entry.expiresAt) this.codes.delete(code)
+      if (now >= entry.expiresAt) this.codes.delete(code)
     }
   }
 }

@@ -135,6 +135,15 @@ function runnerScope(runnerId: string): SubjectScope {
         "runtime.runner.evt.>",                 // runner events (any chatId)
         ownKv,                                  // write its own registry key only
         "_INBOX.>",
+        // STAGE D TODO: narrow to the minimal $JS.API.* subjects needed for
+        // kvm.open(RUNNER_REGISTRY_BUCKET) + kvStore.put(runnerId, ...).
+        // The server pre-creates the KV bucket so the runner never needs
+        // STREAM.CREATE. The remaining subjects (STREAM.INFO, CONSUMER.CREATE)
+        // are bucket-scoped but the library may use unpredictable subject forms.
+        // Confirmed empirically with -DV trace and narrow in Stage D.
+        // This is a PILOT allowance — a runner can publish to any JS API subject,
+        // including ones for other streams. Flag for Stage D security review.
+        "$JS.API.>",
       ],
       deny: [],
     },

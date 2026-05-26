@@ -14,7 +14,7 @@ import { ensureCalloutKeys } from "../nats/auth-callout/keys"
 import { mintCredentialToken } from "../nats/auth-callout/token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
-import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream } from "./nats-streams"
+import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { RunnerProxy } from "./runner-proxy"
 import { TranscriptConsumer } from "./transcript-consumer"
@@ -448,6 +448,9 @@ export async function startServer(options: StartServerOptions = {}) {
     ensureRunnerEventsStream(natsConnector.nc),
     ensureWorkspaceCoordinationStream(natsConnector.nc),
     ensureSandboxEventsStream(natsConnector.nc),
+    // Pre-create the runner registry KV bucket so spawned runners (whose
+    // callout scope excludes STREAM.CREATE) can open it immediately.
+    ensureRunnerRegistryBucket(natsConnector.nc),
   ])
 
   const getHealthcheck = (): ServerHealthcheck => {

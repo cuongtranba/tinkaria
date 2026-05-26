@@ -235,26 +235,39 @@ shows all three signals healthy in callout mode. Stage C (tailnet bind) is next.
   Recorded as Stage A friction.</p>
 </div>
 
-<h2>Scope widening</h2>
-<p>None required. The runner's allow list in <code>scope-policy.ts</code> already
-covers all subjects the runner needs: <code>runtime.runner.heartbeat.{id}</code>,
-<code>runtime.runner.evt.&gt;</code>, its own KV key, <code>_INBOX.&gt;</code>,
-<code>$JS.API.&gt;</code>, and <code>runtime.runner.cmd.{id}.&gt;</code>.
-The KV registration failure seen in the dev log
-(<em>"Runner KV registration failed: jetstream is not enabled"</em>) is a
-pre-existing issue unrelated to callout scoping — the JetStream KV store wasn't
-initialised before the runner tried to register. The health check still shows
-<code>runner.ok: true</code> because the runner heartbeat subscription works.</p>
+<h2>Scope widening (Stage B fix)</h2>
+<div class="card open">
+  <span class="label">PILOT: runner pub allow includes $JS.API.&gt; — narrow in Stage D</span>
+  <p>Root cause: the runner's pub allow-list was missing <code>$JS.API.&gt;</code>.
+  <code>kvm.open(RUNNER_REGISTRY_BUCKET)</code> publishes to <code>$JS.API.STREAM.INFO.KV_*</code>
+  and possibly consumer-create subjects. With only the KV data key in pub allow, nats.js
+  reported "jetstream is not enabled" and the runner never registered, causing
+  <code>waitForRegistration</code> to time out after 15s and crash the server.</p>
+  <p>Fix — two parts:</p>
+  <ol>
+    <li><strong>Server pre-creates the KV bucket</strong> (<code>ensureRunnerRegistryBucket</code>
+    in <code>nats-streams.ts</code>, called from the startup stream-setup block alongside the
+    existing KANNA_* streams). This removes the runner's need for <code>STREAM.CREATE</code>.</li>
+    <li><strong><code>$JS.API.&gt;</code> added to runner pub allow</strong> as a pilot allowance.
+    A runner can publish to any JetStream API subject — including those for other streams.
+    Cross-runner isolation on runtime subjects (cmd, KV key) is unaffected.
+    <strong>Stage D must narrow this</strong> to the specific subjects required for
+    <code>kvm.open</code> + <code>kvStore.put</code>, confirmed via <code>nats-server -DV</code>
+    trace.</li>
+  </ol>
+  <p>Integration test re-run after widening: 47/47 pass. runner-A still denied on
+  <code>runtime.runner.cmd.runner-B.*</code> and <code>$KV.runtime_runner_registry.runner-B</code>.
+  The JS API widening does not open a cross-runner hole on the runtime subject plane.</p>
+</div>
 
 <h2>Deviations from Stage B plan</h2>
 <div class="card">
-  <span class="label">No deviation — plan followed exactly</span>
-  <p>All 10 points from the architecture spec were implemented as specified.
-  The token secret persisted at <code>nats.callout-token.secret</code>;
-  both processes load it via <code>ensureCalloutKeys</code>; the responder
-  verifies via HMAC; server connects as server-admin; ui-client token held for
-  <code>/auth/token</code>; runner gets scoped per-runnerId token at spawn;
-  default flipped to callout; token mode escape hatch preserved.</p>
+  <span class="label">Scope widening required (runner $JS.API.> pub)</span>
+  <p>The architecture spec said "widen minimally — note what you added and why." The runner's
+  initial pub allow was too narrow: KV <code>open</code> publishes to JetStream API subjects
+  not covered. Added <code>$JS.API.&gt;</code> as the pilot allowance. Also added
+  <code>ensureRunnerRegistryBucket</code> at server startup (not in the original spec, but
+  required to let the runner avoid STREAM.CREATE). Both are flagged for Stage D narrowing.</p>
 </div>
 
 <h2>Verification log</h2>
@@ -273,9 +286,9 @@ initialised before the runner tried to register. The health check still shows
 </div>
 
 <div class="card">
-  <span class="label">Stage B integration test — 2026-05-26</span>
+  <span class="label">Stage B integration test (after scope fix) — 2026-05-26</span>
   <p>Run: <code>bun test src/nats/</code></p>
-  <p>47/47 pass — isolation re-proven with stateless tokens. Decisive evidence:</p>
+  <p>47/47 pass — isolation re-proven with stateless tokens after adding $JS.API.> pub. Decisive evidence:</p>
   <ul>
     <li><strong>runner-A denied on runner-B cmd:</strong> <em>connection closed by NATS: connection closed</em></li>
     <li><strong>runner-A denied on runner-B KV:</strong> <em>$KV.runtime_runner_registry.runner-B denied</em></li>
@@ -284,10 +297,23 @@ initialised before the runner tried to register. The health check still shows
     <li>All audit lines show <code>decision=grant/deny class=… detail=ok</code> or <code>unknown or invalid credential</code></li>
   </ul>
   <p>Typecheck: clean (0 errors). <code>git diff --check</code>: clean.</p>
-  <p>Health check (<code>curl -s localhost:3210/health</code>) in callout mode — all three signals healthy:</p>
-  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3210,"natsWsPort":60039,"natsDaemon":{"ok":true,...},"natsConnection":{"ok":true,...},"runner":{"ok":true,"runnerId":"runner-1779793852558-91644","pid":86782,"registered":true,"heartbeatFresh":true}}</pre>
-  <p>Callout audit log confirmed: <code>decision=grant class=server-admin</code> (server connect) +
-  <code>decision=grant class=runner:runner-…</code> (runner spawn).</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage B live boot verification — port 3299 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1-verify bun run src/server/cli.ts --no-open --port 3299 --strict-port</code></p>
+  <p>Process alive after 22s: YES. All three signals healthy:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3299,"natsWsPort":52537,"natsDaemon":{"url":"nats://127.0.0.1:52538","wsUrl":"ws://127.0.0.1:52537","wsPort":52537,"pid":12283,"ok":true},"natsConnection":{"ok":true,"natsUrl":"nats://127.0.0.1:52538","natsWsUrl":"ws://127.0.0.1:52537","natsWsPort":52537},"runner":{"ok":true,"runnerId":"runner-1779794562186-12227","pid":12311,"registered":true,"heartbeatFresh":true,"lastHeartbeatAt":1779794582288}}</pre>
+  <p><code>/auth/token</code> returns stateless ui-client token (2-part base64url.base64url):</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"token":"eyJjIjoidWktY2xpZW50IiwiaWF0IjoxNzc5Nzk0NTYyfQ.QTqSvrIAD949fUVacngah27PRKKB9vRStKbSHwCop6U"}</pre>
+  <p>Payload decoded: <code>{"c":"ui-client","iat":1779794562}</code> — NOT a 43-char shared token.</p>
+  <p>Callout audit log confirmed:</p>
+  <ul>
+    <li><code>decision=grant class=server-admin</code> — server's own NATS connection</li>
+    <li><code>Runner registry KV bucket 'runtime_runner_registry' ready</code> — pre-created by server</li>
+    <li><code>decision=grant class=runner:runner-1779794562186-12227</code> — runner's scoped connection</li>
+    <li><code>Runner runner-1779794562186-12227 ready (pid: 12311)</code> — clean registration, no KV failure</li>
+  </ul>
 </div>
 
 </body>

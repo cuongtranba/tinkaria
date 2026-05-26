@@ -301,7 +301,7 @@ export async function startClaudeSessionPTY(args: StartClaudeSessionPtyArgs): Pr
       oauthToken: args.oauthToken ?? "",
       homeDir: home,
     }),
-    cache: createFileSmokeTestCache({ cacheDir: path.join(home, ".kanna", "cache", "smoke-test") }),
+    cache: createFileSmokeTestCache({ cacheDir: path.join(home, ".tinkaria", "cache", "smoke-test") }),
     ttlMs: 24 * 3600 * 1000,
     now: () => Date.now(),
   })

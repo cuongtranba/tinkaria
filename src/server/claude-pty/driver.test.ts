@@ -6,10 +6,7 @@ import { startClaudeSessionPTY, buildPtyEnv, buildPtyCliArgs, OutputRing, PTY_ST
 import type { TranscriptStream } from "./tui-source.adapter"
 import type { PtyProcess, SpawnPtyProcessArgs } from "./pty-process.adapter"
 import { KANNA_SYSTEM_PROMPT_APPEND } from "../../shared/tinkaria-system-prompt"
-import type { HarnessEvent } from "../harness-types"
-// PORT-TODO: kanna's readAppSettingsSnapshot dropped; gated E2E test stub.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const readAppSettingsSnapshot = async (): Promise<any> => ({ claudeAuth: { tokens: [] } })
+import { OAuthSettingsStore } from "../oauth-pool/oauth-settings-store"
 import type { McpServerConfig } from "../../shared/types"
 
 
@@ -54,10 +51,20 @@ describe("startClaudeSessionPTY", () => {
   // truth for tool execution. The PreflightGate arg is still accepted on the
   // driver interface (back-compat with callers) but is never invoked.
 
-  test.skipIf(process.env.KANNA_PTY_E2E !== "1")(
+  test.skipIf(process.env.TINKARIA_PTY_E2E !== "1")(
     "E2E: spawn claude, send one prompt, observe one transcript event",
     async () => {
-      const dir = await mkdtemp(path.join(tmpdir(), "kanna-pty-e2e-"))
+      const store = new OAuthSettingsStore()
+      await store.load()
+      const activeEntry = store.getSnapshot().tokens.find((t) => t.status === "active")
+      if (!activeEntry) {
+        console.warn("[e2e] no active OAuth token in Tinkaria settings — skipping spawn E2E")
+        return
+      }
+      const dir = await mkdtemp(path.join(tmpdir(), "tinkaria-pty-e2e-"))
+      const passingGate: import("./smoke-test").SmokeTestGate = {
+        async canSpawn() { return { ok: true } },
+      }
       try {
         const handle = await startClaudeSessionPTY({
           chatId: "e2e",
@@ -66,27 +73,28 @@ describe("startClaudeSessionPTY", () => {
           model: "claude-haiku-4-5-20251001",
           planMode: false,
           forkSession: false,
-          oauthToken: null,
+          oauthToken: activeEntry.token,
           sessionToken: null,
           onToolRequest: async () => null,
+          smokeTestGate: passingGate,
         })
         await handle.sendPrompt("Reply with exactly the word: ok")
-        const it = handle.stream[Symbol.asyncIterator]()
-        const start = Date.now()
-        let sawTranscript = false
-        while (Date.now() - start < 30_000) {
-          const next = await Promise.race([
-            it.next(),
-            new Promise<IteratorResult<HarnessEvent>>((r) =>
-              setTimeout(() => r({ value: undefined as unknown as HarnessEvent, done: false }), 500),
-            ),
-          ])
-          if (next.value?.type === "transcript") {
-            sawTranscript = true
-            break
-          }
-        }
-        expect(sawTranscript).toBe(true)
+        // Wait up to 30s for claude CLI to flush response into JSONL.
+        await new Promise((r) => setTimeout(r, 30_000))
+        // Locate JSONL written by claude under ~/.claude/projects/<encoded-cwd>/.
+        const { homedir } = await import("node:os")
+        const { realpathSync } = await import("node:fs")
+        const encoded = realpathSync(dir).normalize("NFC").replace(/[^A-Za-z0-9]/g, "-")
+        const projectsDir = path.join(homedir(), ".claude", "projects", encoded)
+        const files = await readdir(projectsDir).catch(() => [] as string[])
+        const jsonl = files.find((f) => f.endsWith(".jsonl"))
+        expect(jsonl).toBeDefined()
+        const raw = await readFile(path.join(projectsDir, jsonl!), "utf8")
+        const lines = raw.split("\n").filter((l) => l.trim())
+        const types = new Set(lines.map((l) => { try { return JSON.parse(l).type as string } catch { return "?" } }))
+        // E2E success = claude received the user prompt AND emitted at least one assistant entry.
+        expect(types.has("user") || types.has("last-prompt")).toBe(true)
+        expect(types.has("assistant")).toBe(true)
         handle.close()
       } finally {
         await rm(dir, { recursive: true, force: true })
@@ -95,17 +103,22 @@ describe("startClaudeSessionPTY", () => {
     60_000,
   )
 
-  test.skipIf(process.env.KANNA_PTY_E2E !== "1")(
+  test.skipIf(process.env.TINKARIA_PTY_E2E !== "1")(
     "E2E: setPermissionMode(true/false) — plan mode enter via /plan, exit via Shift+Tab",
     async () => {
       if (process.platform === "win32") return
-      const settings = await readAppSettingsSnapshot()
-      const activeEntry = settings.claudeAuth.tokens.find((t: { status: string }) => t.status === "active")
+      const store = new OAuthSettingsStore()
+      await store.load()
+      const settings = store.getSnapshot()
+      const activeEntry = settings.tokens.find((t) => t.status === "active")
       if (!activeEntry) {
-        console.warn("[e2e] no active OAuth token in Kanna settings — skipping plan-mode E2E")
+        console.warn("[e2e] no active OAuth token in Tinkaria settings — skipping plan-mode E2E")
         return
       }
-      const dir = await mkdtemp(path.join(tmpdir(), "kanna-pty-pm-e2e-"))
+      const dir = await mkdtemp(path.join(tmpdir(), "tinkaria-pty-pm-e2e-"))
+      const passingGate: import("./smoke-test").SmokeTestGate = {
+        async canSpawn() { return { ok: true } },
+      }
       try {
         const handle = await startClaudeSessionPTY({
           chatId: "e2e-pm", projectId: "e2e-pm", localPath: dir,
@@ -114,42 +127,38 @@ describe("startClaudeSessionPTY", () => {
           oauthToken: activeEntry.token,
           sessionToken: null,
           onToolRequest: async () => null,
+          smokeTestGate: passingGate,
         })
         try {
-          const iter = handle.stream[Symbol.asyncIterator]()
+          // Resolve JSONL directory once cwd is locked in.
+          const { homedir } = await import("node:os")
+          const { realpathSync } = await import("node:fs")
+          const encoded = realpathSync(dir).normalize("NFC").replace(/[^A-Za-z0-9]/g, "-")
+          const projectsDir = path.join(homedir(), ".claude", "projects", encoded)
 
-          async function awaitResult(label: string, timeoutMs = 30_000) {
+          async function awaitAssistantContaining(label: string, snippet: string, timeoutMs = 45_000) {
             const deadline = Date.now() + timeoutMs
             while (Date.now() < deadline) {
-              const next = await Promise.race([
-                iter.next(),
-                new Promise<IteratorResult<HarnessEvent>>((r) =>
-                  setTimeout(() => r({ value: undefined as unknown as HarnessEvent, done: false }), 500),
-                ),
-              ])
-              const ev = next.value as HarnessEvent | undefined
-              if (ev?.type === "transcript"
-                && (ev.entry as { kind?: string } | undefined)?.kind === "result") {
-                return true
+              const files = await readdir(projectsDir).catch(() => [] as string[])
+              const jsonl = files.find((f) => f.endsWith(".jsonl"))
+              if (jsonl) {
+                const raw = await readFile(path.join(projectsDir, jsonl), "utf8").catch(() => "")
+                if (raw.includes(snippet)) return true
               }
+              await new Promise((r) => setTimeout(r, 500))
             }
-            throw new Error(`${label}: timed out waiting for result entry`)
+            throw new Error(`${label}: timed out waiting for assistant text containing "${snippet}"`)
           }
 
-          // Enter plan mode; wait for TUI to process slash command.
           await handle.setPermissionMode(true)
           await new Promise((r) => setTimeout(r, 800))
-
           await handle.sendPrompt("Reply with exactly the word: plantest")
-          await awaitResult("plan-mode prompt")
+          await awaitAssistantContaining("plan-mode prompt", "plantest")
 
-          // Exit plan mode via Shift+Tab; wait for TUI to process keypress.
           await handle.setPermissionMode(false)
           await new Promise((r) => setTimeout(r, 800))
-
-          // Session must still accept prompts after the Shift+Tab key sequence.
           await handle.sendPrompt("Reply with exactly the word: normaltest")
-          await awaitResult("post-shift-tab prompt")
+          await awaitAssistantContaining("post-shift-tab prompt", "normaltest")
         } finally {
           handle.close()
         }
@@ -392,7 +401,7 @@ describe("buildPtyCliArgs", () => {
     const args = buildPtyCliArgs(baseInput)
     const idx = args.indexOf("--append-system-prompt")
     expect(idx).toBeGreaterThan(-1)
-    expect(args[idx + 1]).toContain("Kanna coding agent")
+    expect(args[idx + 1]).toContain("Tinkaria coding agent")
   })
 
   test("D8: appended prompt is the shared KANNA_SYSTEM_PROMPT_APPEND when no override is supplied", () => {

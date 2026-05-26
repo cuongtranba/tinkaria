@@ -36,10 +36,10 @@
 choice. Updated as work proceeds.</p>
 
 <h2>Current stage</h2>
-<p>Packet authored from a verified read of the current code. <strong>Phase-1
-auth-callout feasibility spike complete — Path A confirmed</strong> (embedded
-bundled binary). No production code written yet; the responder is the next
-implementation step. Awaiting human go-ahead at the gate.</p>
+<p><strong>Stage A complete.</strong> Auth-callout machinery is built and tested
+behind the <code>NATS_AUTH_MODE=callout</code> flag. Token mode is untouched.
+47/47 tests pass (30 unit + 8 integration + 9 pre-existing). Typecheck clean.
+Stage B (migrate orchestrator / runner / browser onto scoped creds) is next.</p>
 
 <h2>Spike result — Phase 1 (2026-05-26)</h2>
 <div class="card">
@@ -65,12 +65,13 @@ implementation step. Awaiting human go-ahead at the gate.</p>
   discovering ports via stderr / ports-file — the shape
   <code>nats-daemon.ts</code> already uses.</p>
 </div>
-<div class="card open">
-  <span class="label">Next risk — the responder needs <code>@nats-io/jwt</code></span>
-  <p><code>@nats-io/nkeys</code> (2.0.3) is installed; <code>@nats-io/jwt</code> is
-  <strong>not</strong> — it must be added to sign the user JWT the callout returns.
-  Standard nats.js work (canonical auth-callout example: nkeys + jwt
-  <code>encodeUser</code>/authorization-response). Not a research risk.</p>
+<div class="card">
+  <span class="label">Resolved — <code>@nats-io/jwt</code> installed and wired</span>
+  <p><code>@nats-io/jwt@0.0.10-5</code> added. The responder decodes the callout
+  request with <code>decode()</code> (it arrives as a JWT, not plain JSON —
+  this was the first integration bug discovered), mints a scoped user JWT via
+  <code>encodeUser()</code>, and wraps it in a signed
+  <code>encodeAuthorizationResponse()</code>. Works end-to-end.</p>
 </div>
 
 <h2>Design decisions (where the concept was ambiguous)</h2>
@@ -141,13 +142,67 @@ implementation step. Awaiting human go-ahead at the gate.</p>
   a documented follow-up, not PR1 scope.</p>
 </div>
 
+<h2>Design decisions (Stage A)</h2>
+
+<div class="card">
+  <span class="label">Callout request body is a JWT, not plain JSON</span>
+  <p>The NATS server encodes the <code>AuthorizationRequest</code> as a JWT
+  and sends it on <code>$SYS.REQ.USER.AUTH</code>. The responder must call
+  <code>decode()</code> from <code>@nats-io/jwt</code> to extract the
+  <code>nats</code> claim containing <code>user_nkey</code>,
+  <code>server_id</code>, and <code>connect_opts</code>.</p>
+</div>
+
+<div class="card">
+  <span class="label">User JWT audience must be the account name</span>
+  <p>The <code>aud</code> field of the issued user JWT must equal the account
+  name from the nats-server config (<code>CALLOUT_ACCOUNT</code>), not the
+  default <code>"NATS"</code>. NATS uses this to know which account to place
+  the connection in. Error: <em>"No valid account NATS for auth callout
+  response on account CALLOUT_ACCOUNT: account missing"</em>.</p>
+</div>
+
+<div class="card">
+  <span class="label">Allow-only policy (no deny lists)</span>
+  <p>NATS evaluates allow/deny such that deny always wins over allow (if a
+  subject matches both, it is denied). Using a wildcard deny for runner scope
+  exclusion would also deny the runner's own commands. Solution: use allow-only
+  lists (subjects not in allow are denied by default). This is simpler, correct,
+  and matches NATS's natural model. The integration test confirms isolation.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage A credential registry — in-memory token map</span>
+  <p>Stage A uses a simple <code>Map&lt;token, identity&gt;</code> in the
+  responder. The test registers tokens directly. Stage B wires this into the
+  server's credential-issuance path (minting per-class tokens at startup and
+  per-runnerId tokens at runner spawn).</p>
+</div>
+
 <h2>Deviations from plan</h2>
-<p class="muted">None yet — implementation hasn't started.</p>
+<div class="card">
+  <span class="label">Suggested module layout mostly followed</span>
+  <p>One addition: <code>nats-daemon-callout.ts</code> is a sibling to
+  <code>nats-daemon.ts</code> (not a sub-module). The original plan said
+  "extend <code>nats-daemon.ts</code> … in callout mode" but keeping them as
+  separate entry points is cleaner for the <code>NATS_AUTH_MODE</code> dispatch
+  in <code>NatsDaemonManager</code> (Stage B).</p>
+</div>
 
 <h2>Verification log</h2>
-<p class="muted">Empty until Phase 4. The decisive entry will be the captured
-NATS permissions-violation from the cross-runner negative test plus its audit
-line (see <code>validation.md</code>).</p>
+<div class="card">
+  <span class="label">Stage A integration test — 2026-05-26</span>
+  <p>Run: <code>bun test src/nats/auth-callout/callout.integration.test.ts</code></p>
+  <p>8/8 pass. Decisive evidence:</p>
+  <ul>
+    <li><strong>runner-A denied on runner-B cmd:</strong> <em>connection closed by NATS: connection closed</em> (NATS enforced permissions violation on publish)</li>
+    <li><strong>runner-A denied on runner-B KV:</strong> <em>$KV.runtime_runner_registry.runner-B denied</em></li>
+    <li><strong>ui-client denied on runner cmd</strong></li>
+    <li>All audit lines emitted: <code>decision=grant/deny class=… runnerId=…</code></li>
+  </ul>
+  <p>Token-mode regression: 9 pre-existing nats-daemon + nats-token tests — all green.</p>
+  <p>Total: 47 pass / 0 fail across 5 files. Typecheck: clean.</p>
+</div>
 
 </body>
 </html>

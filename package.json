@@ -54,6 +54,7 @@
     "@chenglou/pretext": "^0.0.4",
     "@lagz0ne/nats-embedded": "^0.3.1",
     "@nats-io/jetstream": "^3.3.1",
+    "@nats-io/jwt": "^0.0.10-5",
     "@nats-io/kv": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",

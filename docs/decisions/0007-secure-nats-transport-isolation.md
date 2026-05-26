@@ -107,3 +107,44 @@ and on B's registry key, while the happy-path session still round-trips over
 scoped creds. Dual-signal per `CLAUDE.md`: `/health` (incl. callout) + a
 browser-harness session + the captured permissions-violation error and its audit
 line. See `docs/stories/personal-runners/PR1-secure-nats-transport/validation.md`.
+
+## Implementation Result (2026-05-26)
+
+Implemented on `feat/personal-runners-pr1-nats-isolation` (commits `bd49310`,
+`55dc70b`, `394290c`, `ff964dc`, `0ed535e`, `edb6dc0`, `36673ec`). Verified by
+team-lead via independent boots on dedicated ports (never the user's :3210):
+
+- **Isolation proven**: `runner-A denied on runtime.runner.cmd.runner-B.start —
+  connection closed by NATS`, denied on `$KV.runtime_runner_registry.runner-B`,
+  `ui-client` denied on `runtime.runner.cmd`, unknown cred → `Authorization
+  Violation`. 77 pass / 0 fail in `src/nats`; typecheck clean.
+- **App boots in callout mode** (the new default): `/health` natsDaemon +
+  natsConnection + runner all healthy; `/auth/token` returns the stateless
+  `ui-client` token.
+- **ui-client** JetStream scope tightened to `KANNA_CHAT_MESSAGE_EVENTS` only.
+- **Tailnet guard** verified: wide bind allowed only in callout mode; token-mode
+  wide bind refused; loopback dev path unchanged.
+- Review must-fixes applied: HMAC buffer-offset, token `exp` (30d), responder
+  `listenLoop` catch, stderr-listener cleanup, key files `chmod 600`,
+  case-insensitive bind guard.
+
+Path A holds in production: the embedded bundled `nats-server` runs the callout
+config; no external `nats-server` needed.
+
+## Deferred to PR2 (gates before multi-user tailnet; acceptable for single-machine pilot)
+
+From the security + TS reviews:
+
+1. **`/auth/token` is unauthenticated** — needs browser session auth before a
+   tailnet exposes it. Mitigated now by token `exp` (30d).
+2. **Runner `$JS.API.>` pub is a blanket grant** — narrow to the
+   `KV_runtime_runner_registry` stream/consumer subjects (server already
+   pre-creates the bucket). Hard gate before multi-user.
+3. **Runner subscribes the whole `$KV.runtime_runner_registry.>` bucket** —
+   narrow to its own key (today's registration is only pid).
+4. **Browser can consume all chatIds** on `KANNA_CHAT_MESSAGE_EVENTS` — per-chat
+   isolation needs server-side consumer pre-creation.
+5. **Token expiry hardening** — per-class TTLs + client/runner refresh-on-reconnect
+   (PR1 ships a generous 30d ceiling + the mechanism only).
+6. **Structured audit sink** (currently `console.warn`) and **stdout-handshake
+   multi-read** robustness; **key rotation** story.

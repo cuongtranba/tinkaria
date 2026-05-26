@@ -75,8 +75,28 @@ NATS_DATA_DIR=/tmp/pr1c-stage-c NATS_AUTH_MODE=token bun run src/server/cli.ts -
 ```
 `/health` → `{"ok":true,"status":"ok",...}` — all three signals healthy, no guard triggered.
 
-### Remaining (Stage D)
-- `/health` 200 with callout healthy field.
-- browser-harness screenshot of a completed turn over scoped creds.
-- Captured NATS **permissions-violation** error from the cross-runner negative
-  test (the isolation proof), plus the audit log line for that denied decision.
+### Stage D — Acceptance (2026-05-26, PR1 complete)
+
+Verified by team-lead via independent boots on dedicated ports (never :3210):
+
+- **Isolation proof (decisive):** `bun test src/nats/auth-callout/callout.integration.test.ts`
+  → `runner-A denied on runtime.runner.cmd.runner-B.start — connection closed by
+  NATS`; denied on `$KV.runtime_runner_registry.runner-B`; `ui-client denied on
+  runtime.runner.cmd`; unknown cred → `Authorization Violation`. Audit:
+  `decision=grant/deny class=… runnerId=…`.
+- **Suite:** 77 pass / 0 fail across `src/nats` + bind-guard + daemon-manager; typecheck clean.
+- **App in callout mode (default):** `/health` → `{ok:true, natsDaemon:ok,
+  natsConnection:ok, runner:{ok,registered,heartbeatFresh}}`; `/auth/token` →
+  stateless `{c:"ui-client",iat,exp}` (30d TTL).
+- **ui-client scope:** exercised at the NATS-WS layer incl. the JetStream chat
+  consumer — sufficient; scoped to `KANNA_CHAT_MESSAGE_EVENTS`.
+- **Tailnet guard:** wide bind + callout → ALIVE/healthy (bound 0.0.0.0); wide
+  bind + token → REFUSED (`Refusing to bind NATS to 0.0.0.0 in token mode…`);
+  loopback + token → unchanged.
+- **Review fixes:** HMAC buffer-offset, token `exp`, responder catch, stderr
+  cleanup, key files `-rw-------`, case-insensitive guard.
+
+**Not exercised locally (single host):** off-box second-host reachability +
+WireGuard-down path (platform test deferred). **Not run:** full headless-browser
+pixel E2E (NATS-WS-layer ui-client proof used instead). Both noted in TEST_MATRIX.
+Deferred security items (PR2 gates) listed in decision 0007.

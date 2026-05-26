@@ -48,6 +48,12 @@ implemented until tests or validation evidence exist.
 
 | mobile-artifact-controls-split | Mobile artifact card: copy+fullscreen on top edge, only expand on bottom edge | yes | n/a | yes | yes | implemented | RichContentBlock controls split; browser-harness @668px mermaid card: top=[zoom,Copy,Open in overlay], bottom=[Expand]; desktop unchanged; 85 tests + typecheck 0 |
 
+| PR1-secure-nats-transport | Auth-callout responder mints correct scoped JWT per connection class (server-admin / ui-client / runner); invalid cred rejected | yes | yes | n/a | n/a | planned | packet stage; Phase-1 callout spike pending |
+| PR1-secure-nats-transport | Cross-runner isolation: runner-A creds DENIED by NATS on `runtime.runner.cmd.B.>` and B's registry key (negative proof) | n/a | yes | n/a | n/a | planned | decisive isolation proof; capture permissions-violation + audit line |
+| PR1-secure-nats-transport | `GET /auth/token` returns a `ui-client` credential (not the shared admin token); browser session still round-trips | yes | n/a | yes | n/a | planned | client-visible contract change to nats-socket.ts |
+| PR1-secure-nats-transport | NATS bound to tailnet interface; off-box runner on a second host connects to advertised WS URL and registers; WireGuard down → fails closed | n/a | n/a | n/a | yes | planned | bind lands together with callout; no shared-token bus exposed |
+| PR1-secure-nats-transport | Callout responder reported in `/health` (on the critical connect path) | n/a | yes | n/a | n/a | planned | if responder down, no client can authenticate |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

@@ -96,7 +96,14 @@ export class RunnerProxy {
 
   private async sendCommand(cmd: string, payload: unknown): Promise<unknown> {
     // Gate: incompatible runners must not receive start_turn — fail fast with a clear message.
-    if (cmd === "start_turn" && this._getRunnerReadiness) {
+    // Fail CLOSED: if no readiness source is wired we cannot prove compatibility, so refuse
+    // rather than silently dispatching to a possibly-incompatible runner.
+    if (cmd === "start_turn") {
+      if (!this._getRunnerReadiness) {
+        throw new Error(
+          `RunnerProxy ${this.runnerId}: getRunnerReadiness not provided — refusing start_turn (cannot enforce the compatibility gate)`,
+        )
+      }
       const { incompatible, protocolVersion } = this._getRunnerReadiness()
       if (incompatible) {
         throw new Error(

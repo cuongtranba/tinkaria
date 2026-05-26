@@ -238,7 +238,9 @@ export class RunnerManager {
             continue
           }
           // Skip incompatible runners — adopting one would block every turn start.
-          if (!isProtocolSupported(reg.protocolVersion)) {
+          // `?? -1` guards pre-PR3 KV entries that lack protocolVersion (would be
+          // undefined at runtime despite the typed field) → treated as incompatible.
+          if (!isProtocolSupported(reg.protocolVersion ?? -1)) {
             console.warn(
               LOG_PREFIX,
               `Discover: skipping incompatible runner ${key} (protocol v${reg.protocolVersion}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max})`,

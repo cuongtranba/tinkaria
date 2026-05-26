@@ -200,4 +200,36 @@ describe("RunnerProxy start_turn gate — incompatible runner", () => {
       disposeRunner()
     }
   })
+
+  test("fails CLOSED: refuses start_turn when getRunnerReadiness is not wired", async () => {
+    server = await NatsServer.start({})
+    clientNc = await connect({ servers: server.url })
+    runnerNc = await connect({ servers: server.url })
+    const received: unknown[] = []
+    const sub = runnerNc.subscribe("runtime.runner.cmd.test-runner.>")
+    void (async () => {
+      for await (const msg of sub) {
+        received.push(msg.subject)
+        msg.respond(encoder.encode(JSON.stringify({ ok: true })))
+      }
+    })()
+    await runnerNc.flush()
+
+    // No getRunnerReadiness → the gate cannot prove compatibility → must refuse.
+    const proxy = new RunnerProxy({
+      nc: clientNc,
+      store: makeMockStore(),
+      runnerId: "test-runner",
+      getActiveStatuses: () => new Map<string, SessionStatus>(),
+    })
+
+    try {
+      await expect(
+        proxy.send({ type: "chat.send", chatId: "c1", content: "hi", model: "sonnet" }),
+      ).rejects.toThrow("getRunnerReadiness not provided")
+      expect(received).toHaveLength(0)
+    } finally {
+      sub.unsubscribe()
+    }
+  })
 })

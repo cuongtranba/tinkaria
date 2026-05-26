@@ -1,6 +1,6 @@
 ---
 id: rule-error-extraction
-c3-seal: d103258a76126d4801aac5e2d8ca23be3982eafa69b94986242eeecf622bbd76
+c3-seal: 726c19ad61fc14a69a3dcdbe131ded77e142f80d0282493b8df8fdc00c016fa3
 title: error-extraction
 type: rule
 goal: Every catch block must safely extract error messages without assuming the caught value is an Error instance.
@@ -53,6 +53,7 @@ try {
   try { q.close() } catch { /* ignore close errors */ }
 }
 ```
+
 ## Not This
 
 ```typescript
@@ -76,6 +77,7 @@ catch (error) {
   throw error  // OK for propagation, but prefer adding context
 }
 ```
+
 ## Scope
 
 All TypeScript files in src/server/ and src/client/. Every catch block must follow this pattern.
@@ -92,6 +94,7 @@ Closing already-closed connections or releasing resources where failure is expec
 // ✅ Connection already closed — ignore
 stream.close().catch(() => {})
 ```
+
 ### 2. IPC handler .catch(() => {})
 
 Fire-and-forget async handlers (e.g., `handleServerRequest`, `handleNotification`) where `failContext` has already handled cleanup and error reporting. The promise rejection is redundant — the child process died and teardown already ran. See `rule-subprocess-ipc-safety`.
@@ -101,6 +104,7 @@ Fire-and-forget async handlers (e.g., `handleServerRequest`, `handleNotification
 this.handleServerRequest(request).catch(() => {})
 this.handleNotification(method, params).catch(() => {})
 ```
+
 ### 3. Global safety net — MUST log
 
 `process.on("unhandledRejection")` handlers are backstops, not fixes. They MUST log with `console.warn(LOG_PREFIX, ...)` so unhandled rejections are visible in logs. Never silently swallow at the global level.
@@ -114,6 +118,7 @@ process.on("unhandledRejection", (reason) => {
 // ❌ Silent global swallow — hides bugs
 process.on("unhandledRejection", () => {})
 ```
+
 ### When to Log vs Swallow
 
 Decision tree for `.catch()` and rejection handlers:

@@ -1,6 +1,6 @@
 ---
 id: adr-20260411-ui-component-design-system
-c3-seal: 470fb31e100ae55ca471dfbd9ec653b5e26e61b9a707dbcff01469840a23c938
+c3-seal: 5e9a41b04ed32afa39e46fa5ce3da1d2f337c3462c49f76732a6070a522f2b3c
 title: ui-component-design-system
 type: adr
 goal: Codify Tinkaria's UI component usage and screen composition patterns as enforceable C3 rules, derived from the coordination panel refactor and existing design system primitives.
@@ -19,6 +19,7 @@ Codify Tinkaria's UI component usage and screen composition patterns as enforcea
 - Audit all client components for violations of the new rule
 - Wire the rule to all client-side C3 components
 - Fix discovered violations
+
 ## Risks
 
 - Over-constraining: some raw elements are appropriate (e.g., `<select>` in dense forms, filter tab `<button>` pills)

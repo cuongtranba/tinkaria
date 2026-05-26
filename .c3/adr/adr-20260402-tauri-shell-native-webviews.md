@@ -1,6 +1,6 @@
 ---
 id: adr-20260402-tauri-shell-native-webviews
-c3-seal: 23bff75814b5cbf271f767b7bacd72ab21f11737c008d103d3b1ce396fe2fa60
+c3-seal: 7fa1f9aba36fa02b99ff85cdb5da51d93ac61ba7f15dd5494ad282c470dc876d
 title: tauri-shell-native-webviews
 type: adr
 goal: Document tauri-shell-native-webviews architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-02"
 ---
 
 # tauri-shell-native-webviews
+
 ## Goal
 
 Document tauri-shell-native-webviews architecture decisions and responsibilities.

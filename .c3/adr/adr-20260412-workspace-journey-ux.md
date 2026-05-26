@@ -1,6 +1,6 @@
 ---
 id: adr-20260412-workspace-journey-ux
-c3-seal: e1a698a8bf6db379e03fd626ca56eeedf959c64cb022050b39e1b67506dcf9d3
+c3-seal: 6add345fe5d2794975a39490d1820b9fdf9dc9c9e5bf8b0339e41b88cacc13ad
 title: workspace-journey-ux
 type: adr
 goal: Define UX journey recipes, update screen-tree, add enforcement refs/rules, and establish test contracts for the workspace coordination page (/workspace/:id) — covering task coordination, file ownership, isolated development, and automation/monitoring journeys.
@@ -28,6 +28,7 @@ The workspace page has 8 panels (Todos, Claims, Worktrees, Rules, Repos, Agents,
 - New: recipe-workspace-automation-journey
 - New: ref-workspace-journey-test-contracts
 - New: rule-journey-test-coverage
+
 ## Work Breakdown
 
 1. Create 4 journey recipes in C3

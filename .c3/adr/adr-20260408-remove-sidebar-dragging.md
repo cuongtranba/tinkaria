@@ -1,6 +1,6 @@
 ---
 id: adr-20260408-remove-sidebar-dragging
-c3-seal: 2db3bf19a9d1e9f4e5ad53f2c2cd6046d05e2c945b0029391498b2ea60339b58
+c3-seal: 6103260bbd5efe38a3b5980196149538b58cbe01a7892f3f5b9b0ad4021e73a2
 title: remove-sidebar-dragging
 type: adr
 goal: Document remove-sidebar-dragging architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-08"
 ---
 
 # remove-sidebar-dragging
+
 ## Goal
 
 Document remove-sidebar-dragging architecture decisions and responsibilities.

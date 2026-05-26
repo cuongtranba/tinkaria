@@ -1,6 +1,6 @@
 ---
 id: ref-ref-zustand-stores
-c3-seal: fd08861a7d5121b6e158ef57ca462f57704fc4fe9038bb7ea816a1c241c74380
+c3-seal: 5ed1fcb698b5b1337e0318f2bfb3ef6b26f37a4f5ec5ec8b3ecbe93d1410142a
 title: zustand-stores
 type: ref
 goal: 'Document the Zustand store persistence pattern for Tinkaria: small domain stores, localStorage normalization, fine-grained selectors, and boundaries from server-derived state.'
@@ -21,6 +21,7 @@ Multiple small Zustand stores, each owning a specific domain: chatPreferences, c
 - Fine-grained subscriptions prevent unnecessary re-renders
 - localStorage persistence middleware handles serialization automatically
 - Small stores are easy to reason about and test in isolation
+
 ## How
 
 Use small domain stores for browser UI state that outlives one component or coordinates multiple components.

@@ -1,6 +1,6 @@
 ---
 id: recipe-workspace-task-coordination-journey
-c3-seal: 28182fbe263cb8ed7000e90b0e90f78ce8c6b8613f260a6fdb6d4cc1d2108e24
+c3-seal: d007404a13bf9ae8d42c8dfc8ae628d11f6d14765e87fe29c3e936da8da78689
 title: workspace-task-coordination-journey
 type: recipe
 goal: 'Trace the end-to-end task coordination journey: user navigates to workspace, manages shared todos (add → claim → complete/abandon), filters by state, and manages project rules (add → edit → remove).'
@@ -27,10 +27,12 @@ When I'm coordinating work across multiple sessions on the same project, I want 
 | 6. Add rule | /workspace/:id | RulesPanel | Fill textarea, click "Add Rule" | Rule appears in list |
 | 7. Edit rule | /workspace/:id | RulesPanel | Click edit icon → modify → save | Rule content updates inline |
 | 8. Remove rule | /workspace/:id | RulesPanel | Click trash → confirm dialog | Rule removed from list |
+
 ### Subscription Dependencies
 
 - `useWorkspaceSubscription(socket, workspaceId)` → todos, rules in snapshot
 - Commands: workspace.todo.add, workspace.todo.claim, workspace.todo.complete, workspace.todo.abandon, workspace.rule.set, workspace.rule.remove
+
 ### Test Contract
 
 Each stage maps to a testable assertion:

@@ -1,6 +1,6 @@
 ---
 id: recipe-workspace-file-ownership-journey
-c3-seal: 999a15b60db911141c80f2e1dc7a2062b0a84e533f03b4321ff74b14ecdd5c8e
+c3-seal: 4aa428ddfa073a6e7e4b274c3f76a741de7458ade7c75d38cb381c98fc750cdd
 title: workspace-file-ownership-journey
 type: recipe
 goal: 'Trace the file ownership journey: user manages claims (intent + files), worktrees (branch isolation + session assignment), and repos (add/clone, pull, push, remove).'
@@ -28,11 +28,13 @@ When multiple sessions edit files in the same project, I want to declare intent 
 | 8. Clone repo | /workspace/:id | RepoPanel | Switch to Clone, fill URL + path, click Clone | Repo appears in list |
 | 9. Pull/Push repo | /workspace/:id | RepoPanel | Click pull/push icons | Toast confirms operation |
 | 10. Remove repo | /workspace/:id | RepoPanel | Click trash → confirm | Repo removed (files stay on disk) |
+
 ### Subscription Dependencies
 
 - `useWorkspaceSubscription` → claims, worktrees in snapshot
 - `useRepoSubscription` → repos
 - Commands: workspace.claim.create/release, workspace.worktree.create/assign/remove, workspace.repo.add/clone/pull/push/remove
+
 ### Test Contract
 
 - Stages 1-3: Claim lifecycle in subscription snapshot

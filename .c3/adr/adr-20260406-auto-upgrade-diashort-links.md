@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-auto-upgrade-diashort-links
-c3-seal: 4f5b61c0c4f1cc0458cc2d8e6e59716fc0298460fe0637e41764963f25e5b463
+c3-seal: 23ff12d8bf97db013770fd627d9e23a1aabc00a7d0c4980e31555ceacc785328
 title: auto-upgrade-diashort-links
 type: adr
 goal: Document auto-upgrade-diashort-links architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-06"
 ---
 
 # auto-upgrade-diashort-links
+
 ## Goal
 
 Document auto-upgrade-diashort-links architecture decisions and responsibilities.

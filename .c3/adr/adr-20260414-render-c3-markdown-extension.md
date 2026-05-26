@@ -1,6 +1,6 @@
 ---
 id: adr-20260414-render-c3-markdown-extension
-c3-seal: d07a2076bf94ab77b287b4e4950a315247c482324c38ce40fcb03235dd9825b4
+c3-seal: dd51d5ff1c1b35895425e450af40d001fd52a87ca4f3295007b72a2c8c2e6f38
 title: render-c3-markdown-extension
 type: adr
 goal: Render full C3 entity documents in the project Architecture extension as proper markdown instead of JSON/preformatted raw text.
@@ -19,10 +19,12 @@ Render full C3 entity documents in the project Architecture extension as proper 
 - Convert C3 entity records into markdown documents with heading, metadata table, uses list, goal quote, and original body sections.
 - Render selected entity detail through the existing `react-markdown` + GFM markdown pipeline instead of `<pre>` JSON.
 - Add focused regressions for markdown detail rendering and full read payloads.
+
 ## Risks
 
 - C3 read output is CLI-owned; client keeps string fallback behavior for non-JSON output.
 - Markdown tables need escaping for metadata values containing pipes/newlines.
+
 ## Verification
 
 - RED: `bun test src/client/extensions/extensionsIdentity.test.tsx` failed on missing `normalizeC3DetailDocument` export before implementation.

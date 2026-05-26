@@ -1,6 +1,6 @@
 ---
 id: rule-rule-strict-typescript
-c3-seal: e9737e10a967a71de47f9633c9df4aa1989dbd1ce3a38bf817972fbf85bb4784
+c3-seal: 57ced1232a540c2fd16fbc1fa3d2e9aa06a86320ef9ab605aafa488169076202
 title: rule-strict-typescript
 type: rule
 goal: Catch errors at compile time and maintain self-documenting code through strict TypeScript configuration.
@@ -34,6 +34,7 @@ function findById<T extends { id: string }>(items: T[], id: string): T | undefin
   return items.find(item => item.id === id);
 }
 ```
+
 ## Not This
 
 | Anti-Pattern | Correct | Why Wrong Here |
@@ -42,6 +43,7 @@ function findById<T extends { id: string }>(items: T[], id: string): T | undefin
 | JSON.parse(str) as any | JSON.parse(str) as unknown then validate | any propagates unsafety through the call chain |
 | // @ts-ignore | Fix the actual type error | Suppressing errors hides real bugs |
 | Record<string, any> | Record<string, unknown> or specific type | any values escape all checking |
+
 ## Scope
 
 All TypeScript files in both server and client packages. Type assertions (`as`) are acceptable when narrowing from `unknown` after validation.

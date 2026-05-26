@@ -1,6 +1,6 @@
 ---
 id: adr-20260408-session-process-isolation
-c3-seal: a4c01525146252695771ff34335796ff429c8efe8b5f1253b9b3e7e18aed308f
+c3-seal: fb0cf2d24532748e02dd39755996144c103fc0d5531ea3d92579e66b3556043f
 title: session-process-isolation
 type: adr
 goal: 'Decouple agent session lifecycle from the Tinkaria UI server process so that:'
@@ -16,11 +16,13 @@ Decouple agent session lifecycle from the Tinkaria UI server process so that:
 2. Transcript continuity is guaranteed — zero missed events during restart windows
 3. The UI server can reclaim ownership of running sessions after restart
 4. No new external dependencies — leverage existing `@lagz0ne/nats-embedded` package
+
 ## Status
 
 proposed
 
 ## Context
+
 ### Current Architecture (Single Process)
 
 Everything runs inside one Bun process:
@@ -32,6 +34,7 @@ Everything runs inside one Bun process:
 - **Persistence**: Event-sourced JSONL files — survive restarts, session tokens preserved
 **What survives restart**: Session tokens (in `turns.jsonl`), transcripts (per-chat JSONL), chat/project metadata.
 **What dies**: All running turns, orchestrator parent/child relationships, NATS JetStream history, Codex child processes.
+
 ### Existing Precedent
 
 The `LocalCodexKitDaemon` + `RemoteCodexRuntime` already demonstrates the target pattern:
@@ -40,8 +43,11 @@ The `LocalCodexKitDaemon` + `RemoteCodexRuntime` already demonstrates the target
 - Subject-based RPC (`runtime.kit.cmd.<kitId>.*`)
 - Event streaming via JetStream (`runtime.kit.evt.turn.<chatId>`)
 - Registration + heartbeat lifecycle
+
 ## Decision
+
 ### Four-Container Architecture
+
 #### c3-3: NATS Daemon (Embedded, Long-lived)
 
 A standalone Bun script (`src/nats/nats-daemon.ts`) that:
@@ -53,6 +59,7 @@ A standalone Bun script (`src/nats/nats-daemon.ts`) that:
 **Not an external NATS install.** We spawn and own the binary via `@lagz0ne/nats-embedded`. Full control, zero system dependencies.
 **JetStream config**: `storeDir: <dataDir>/jetstream/` for disk persistence. This is a one-option addition to the existing `NatsServer.start()` call. Auth token generated once, persisted to file, reused across process restarts.
 **Startup discovery**: Any process (server, runner) checks `nats.pid` → alive? Read `nats.port` + `nats.token` → connect. Dead? Start new daemon, write fresh files.
+
 #### c3-4: Session Runner (Detached, Long-lived)
 
 A standalone Bun script (`src/runner/runner.ts`) that:
@@ -63,11 +70,13 @@ A standalone Bun script (`src/runner/runner.ts`) that:
 - Maintains heartbeat on `runtime.runner.<runnerId>.heartbeat`
 - Survives server restarts
 **Runner lifecycle**:
+
 ```
 spawn(detached) → connect NATS → register in KV → accept turn commands → stream results → heartbeat
                                                                                           ↓
 UI server dies → runner keeps running → publishes to JetStream → UI restarts → reclaim via KV
 ```
+
 **Process model**: One runner process. Handles sessions with internal concurrency. Architecture is runner-count-agnostic — NATS subjects keyed by `runnerId`, so adding runners later requires no protocol changes.
 
 #### c3-2: Server (Restartable UI Process)
@@ -80,6 +89,7 @@ The existing Tinkaria server, modified to:
 - Route turn commands to runners via NATS
 - Consume transcript events from durable JetStream and write to JSONL
 - Serve HTTP/WS/static as before
+
 #### c3-1: Client (Unchanged)
 
 Browser SPA connects via WS to NATS (proxied through server). No changes needed — the transcript event subjects (`runtime.evt.chat.<chatId>`) remain the same.
@@ -96,6 +106,7 @@ runtime.runner.cmd.<runnerId>.shutdown     # Request: graceful shutdown
 runtime.runner.evt.<chatId>               # JetStream: transcript entries from runner
 runtime.runner.evt.>                       # Stream: KANNA_RUNNER_EVENTS (disk-backed)
 ```
+
 **JetStream stream for runner events**:
 
 ```typescript
@@ -109,6 +120,7 @@ runtime.runner.evt.>                       # Stream: KANNA_RUNNER_EVENTS (disk-b
   max_bytes: 512 * 1024 * 1024,        // 512MB
 }
 ```
+
 ### Transcript Continuity Design
 
 **Write path** (new):
@@ -120,6 +132,7 @@ Claude SDK query() → runner process → JetStream publish (durable, disk-backe
                                           ↓
                           publishChatMessage() to browser JetStream
 ```
+
 **During UI server downtime**:
 
 ```
@@ -129,6 +142,7 @@ Server restarts → creates durable consumer at last-known sequence
                 → replays all missed events → writes to JSONL
                 → broadcasts to reconnected browsers
 ```
+
 **Sequence tracking**: UI server maintains per-chat last-processed JetStream sequence in NATS KV (`runner_consumer_state`). On restart, consumer starts from `lastSeq + 1`.
 
 **Corruption safety**: Unlike current `appendFile` where mid-write crash can corrupt JSONL, the NATS-mediated path provides:
@@ -136,6 +150,7 @@ Server restarts → creates durable consumer at last-known sequence
 - Atomic JetStream message delivery (fully written or not)
 - Consumer acknowledgement after successful JSONL write
 - Replay from last-ack on crash recovery
+
 ### Ownership Reclaim Protocol
 
 ```
@@ -153,6 +168,7 @@ Tinkaria CLI starts
   │     └── Ready to serve
   └── If no runner found → spawn runner process
 ```
+
 **Runner registration** (KV entry):
 
 ```json
@@ -170,6 +186,7 @@ Tinkaria CLI starts
   }
 }
 ```
+
 ### Process Startup Chain
 
 ```
@@ -186,11 +203,14 @@ tinkaria CLI
         └── No → Bun.spawn("runner.ts", {detached: true})
                  → wait for registration in KV
 ```
+
 ## C3 Topology Change
+
 ### New Container: c3-3 nats
 
 - **c3-301 nats-daemon** — Bun script wrapping `NatsServer.start()`, PID/port/token file management
 - **c3-302 nats-schema** — Subject namespace, stream configs (including disk-backed KANNA_RUNNER_EVENTS), KV bucket definitions
+
 ### New Container: c3-4 runner
 
 - **c3-401 runner-core** — Entry point, NATS connection, heartbeat, command dispatch, graceful shutdown
@@ -199,6 +219,7 @@ tinkaria CLI
 - **c3-411 providers** — Provider catalog (moved from c3-211)
 - **c3-416 codex** — Codex app-server management (moved from c3-216)
 - **c3-408 kit-runtime** — Codex runtime (moved from c3-208)
+
 ### Modified in c3-2 server
 
 - **c3-205 nats-transport** — Connect-only client, no server ownership
@@ -206,16 +227,20 @@ tinkaria CLI
 - **c3-201 event-store** — Writes from JetStream consumer instead of in-process calls
 - **NEW: runner-manager** — Runner spawning, discovery, health monitoring
 - **NEW: transcript-consumer** — Durable JetStream consumer → JSONL writer
+
 ### New in shared
 
 - **runner-protocol** — NATS subject constants, message type definitions
+
 ### New Refs
 
 - **ref-runner-protocol** — Runner ↔ Server NATS communication protocol
 - **ref-nats-lifecycle** — NATS daemon process management pattern
+
 ### New Rules
 
 - **rule-process-boundary** — Server (c3-2) and runner (c3-4) MUST NOT import each other's modules. All cross-boundary communication goes through NATS subjects defined in shared/
+
 ## Affected Components
 
 - `c3-210` (agent) → moves to `c3-410` in runner container
@@ -227,6 +252,7 @@ tinkaria CLI
 - `c3-206` (orchestration) → modified: routes via NATS
 - `c3-201` (event-store) → modified: JetStream consumer input
 - `server.ts` → startup discovers NATS + runners
+
 ## Risks
 
 1. **Claude SDK in subprocess**: `query()` returns async iterable. Runner serializes each message to NATS. SDK's HTTP connection stays within runner. **Risk: low.**
@@ -389,7 +415,9 @@ tinkaria CLI
 **Startup race**: Server starts before NATS daemon is ready. **Mitigation**: `ensureNatsDaemon()` waits for port file to appear with exponential backoff.
 **Startup race**: Server starts before NATS daemon is ready. **Mitigation**: `ensureNatsDaemon()` waits for port file to appear with exponential backoff.
 **Startup race**: Server starts before NATS daemon is ready. **Mitigation**: `ensureNatsDaemon()` waits for port file to appear with exponential backoff.
+
 ## Implementation Plan
+
 ### Phase 1: NATS Daemon Extraction
 
 - Create `src/nats/nats-daemon.ts` — standalone Bun script
@@ -399,6 +427,7 @@ tinkaria CLI
 - Modify `NatsBridge` to connect-only mode
 - Add `KANNA_RUNNER_EVENTS` disk-backed stream definition
 - **Test**: Kill server, verify NATS stays alive, reconnect works
+
 ### Phase 2: Runner Process
 
 - Create `src/runner/runner.ts` — standalone script
@@ -406,6 +435,7 @@ tinkaria CLI
 - Implement runner registration (KV), heartbeat, command dispatch
 - Implement transcript event publishing to JetStream
 - **Test**: Runner executes a turn, publishes events, survives server kill
+
 ### Phase 3: UI Server Integration
 
 - Modify `AgentCoordinator` to route via NATS instead of in-process
@@ -413,11 +443,13 @@ tinkaria CLI
 - Implement runner discovery + ownership reclaim on startup
 - Modify `SessionOrchestrator` to work with remote runners
 - **Test**: Full cycle — start turn, kill server, restart, verify transcript continuity
+
 ### Phase 4: Codex Migration
 
 - Move `CodexAppServerManager` into runner process
 - Adapt JSON-RPC protocol within runner (runner spawns `codex app-server` as child)
 - **Test**: Codex turns survive server restart
+
 ### Phase 5: Hardening
 
 - Runner auto-restart on crash
@@ -425,7 +457,9 @@ tinkaria CLI
 - Multiple runner support (if needed)
 - Metrics/observability
 - Migration path for existing installations
+
 ## Files Changed
+
 ### New Files
 
 - `src/nats/nats-daemon.ts` — NATS daemon entry point (c3-301)
@@ -433,6 +467,7 @@ tinkaria CLI
 - `src/server/runner-manager.ts` — Runner spawning and health (c3-2)
 - `src/server/transcript-consumer.ts` — JetStream → JSONL writer (c3-2)
 - `src/shared/runner-protocol.ts` — NATS subjects + message types (shared)
+
 ### Modified Files
 
 - `src/server/nats-bridge.ts` — Remove server ownership, connect-only

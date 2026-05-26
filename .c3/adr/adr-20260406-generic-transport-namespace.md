@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-generic-transport-namespace
-c3-seal: 86c017306012a78af84154d3b87595052270dfd1e4c1b58c1a3bba739ca8d832
+c3-seal: c3a4cfb5f0a04393c494d413d32f77c21e8cd6b67d3515f299f25ac739766b36
 title: generic-transport-namespace
 type: adr
 goal: Document generic-transport-namespace architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-06"
 ---
 
 # generic-transport-namespace
+
 ## Goal
 
 Document generic-transport-namespace architecture decisions and responsibilities.

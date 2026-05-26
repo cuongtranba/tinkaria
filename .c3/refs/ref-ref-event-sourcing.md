@@ -1,6 +1,6 @@
 ---
 id: ref-ref-event-sourcing
-c3-seal: 510769534fd1c6137a227880590ff0fa7537cccd70f3436604b98e1696b434c8
+c3-seal: d054950372585548cad04f09e04999af47ae687acac92ea1dde8a6a4a1bbedd8
 title: event-sourcing
 type: ref
 goal: 'Document the event sourcing pattern for Tinkaria: append-only JSONL events, snapshot compaction, replay, repair, and verification without a database dependency.'
@@ -21,6 +21,7 @@ JSONL append-only logs per entity type (conversations, projects, preferences) wi
 - Append-only semantics are crash-safe (no partial writes corrupt state)
 - Snapshot compaction keeps startup fast as logs grow
 - Event replay enables time-travel debugging and state reconstruction
+
 ## How
 
 Use one append-only event log per persistent domain plus snapshots for read/startup performance.

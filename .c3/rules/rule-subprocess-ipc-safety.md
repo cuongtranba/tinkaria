@@ -1,6 +1,6 @@
 ---
 id: rule-subprocess-ipc-safety
-c3-seal: 0eb392d67082ef17baa8c29d1340193825203a57fc0d64a61765ee1f42045779
+c3-seal: d1db2b68f450681b4fdd2eb0b208227596ddb0df405333ace2c73952146b259c
 title: subprocess-ipc-safety
 type: rule
 goal: 'All IPC with child processes (stdin writes, RPC responses) must be crash-safe: guarded by closed-state checks, wrapped in try/catch, and never surfaced as unhandled rejections.'
@@ -66,6 +66,7 @@ private failContext(context: SessionContext, message: string) {
   context.closed = true
 }
 ```
+
 ## Not This
 
 ```typescript
@@ -83,6 +84,7 @@ private failContext(context: SessionContext, message: string) {
   // ... reject promises ...
 }
 ```
+
 ## Scope
 
 All server code that communicates with child processes via IPC: `codex-app-server.ts` (Codex CLI), `nats-daemon-manager.ts` (NATS server), `runner-manager.ts` (split runner), and any future child process wrappers.

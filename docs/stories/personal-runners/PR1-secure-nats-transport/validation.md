@@ -44,9 +44,39 @@ bun run dev & curl -s localhost:3210/health   # natsDaemon/natsConnection/runner
 
 ## Acceptance Evidence
 
-Add results after verification. Must include:
+### Stage C — Tailnet Bind + Guard (2026-05-26)
 
-- `/health` 200 with natsDaemon + natsConnection + runner + callout healthy.
+**Typecheck:** `bunx @typescript/native-preview --noEmit -p tsconfig.json` — clean (no errors).
+
+**Tests:** `bun test src/nats/ src/server/nats-bind-guard.test.ts ...` — 66 pass, 0 fail.
+(4 pre-existing failures in `nats-daemon-manager.test.ts` from Stage B: tests call `ensureDaemon`
+without `NATS_DATA_DIR`; not introduced by Stage C.)
+
+**Wide bind + callout works:**
+```
+NATS_DATA_DIR=/tmp/pr1c-stage-c2 NATS_AUTH_MODE=callout bun run src/server/cli.ts --no-open --port 3296 --strict-port --remote
+```
+Server log: `Binding NATS to 0.0.0.0 in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet`
+`/health` → `{"ok":true,"status":"ok",...,"natsDaemon":{"url":"nats://0.0.0.0:53120","wsUrl":"ws://0.0.0.0:53119",...,"ok":true},"natsConnection":{"ok":true},"runner":{"ok":true,...}}`
+All three signals healthy. NATS TCP + WS both bound to 0.0.0.0.
+
+**Guard fires (non-loopback + token):**
+```
+NATS_DATA_DIR=/tmp/pr1c-guard NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3298 --strict-port --remote
+```
+Output (exit 1):
+```
+error: Refusing to bind NATS to 0.0.0.0 in token mode — a shared-token bus must not be exposed beyond loopback; set NATS_AUTH_MODE=callout
+```
+
+**Loopback + token (regression):**
+```
+NATS_DATA_DIR=/tmp/pr1c-stage-c NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3297 --strict-port
+```
+`/health` → `{"ok":true,"status":"ok",...}` — all three signals healthy, no guard triggered.
+
+### Remaining (Stage D)
+- `/health` 200 with callout healthy field.
 - browser-harness screenshot of a completed turn over scoped creds.
 - Captured NATS **permissions-violation** error from the cross-runner negative
   test (the isolation proof), plus the audit log line for that denied decision.

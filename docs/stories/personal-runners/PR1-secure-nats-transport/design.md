@@ -76,6 +76,30 @@ per-user secret; the subject policy above is unchanged.)
   the tailnet** — called out as an explicit, documented trust assumption.
 - **CLI / desktop** — none in PR1.
 
+## Tailnet Deployment
+
+To expose NATS over the tailnet so off-box clients (browsers, future paired
+runners) can connect:
+
+| Env var | Purpose | Example |
+| --- | --- | --- |
+| `NATS_HOST` | Interface to bind (tailnet IP or `0.0.0.0`). Default `127.0.0.1`. | `100.64.1.1` |
+| `NATS_ADVERTISED_HOST` | Host included in `natsWsUrl` returned by `/auth/token`. Set to the tailnet IP reachable by browsers. | `100.64.1.1` |
+| `NATS_AUTH_MODE` | Must be `callout` when `NATS_HOST` is non-loopback (enforced by the startup guard). | `callout` |
+
+CLI equivalent: `--remote` sets `NATS_HOST=0.0.0.0` (shortcut for `--host 0.0.0.0`).
+
+**Guard (decision 0007):** startup refuses to bind a non-loopback host in token
+mode — a shared-token bus must not be exposed beyond loopback. The guard
+predicate is `requiresCalloutForBind(host, authMode)` in
+`src/server/nats-bind-guard.ts`. Loopback + token is always allowed (dev
+default). Non-loopback + callout is the tailnet path; the server logs a one-line
+note about the WireGuard trust assumption.
+
+**Off-box runner URL (PR2):** PR1 runners are server-spawned and connect locally.
+Off-box runners getting a reachable `NATS_URL` via env is a PR2 concern; PR1
+Stage C covers the bind, the browser/WS advertise URL, and the guard only.
+
 ## Observability
 
 - Audit every callout decision: timestamp, presented identity, resolved class,

@@ -9,6 +9,7 @@ import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { NatsDaemonManager, type NatsDaemonReadiness } from "./nats-daemon-manager"
 import { NatsConnector } from "./nats-connector"
 import { generateAuthToken } from "./nats-auth"
+import { requiresCalloutForBind } from "./nats-bind-guard"
 import { readToken } from "../nats/nats-token"
 import { ensureCalloutKeys } from "../nats/auth-callout/keys"
 import { mintCredentialToken } from "../nats/auth-callout/token"
@@ -384,6 +385,18 @@ export async function startServer(options: StartServerOptions = {}) {
   const natsMode = process.env.NATS_MODE ?? "embedded"
   const authMode = process.env.NATS_AUTH_MODE ?? "callout"
   const runnerMode = process.env.RUNNER_MODE ?? "spawn"
+
+  // Guard: a non-loopback bind is only safe in callout mode (decision 0007).
+  // Token mode must stay loopback-only — a shared-token bus must not be exposed
+  // beyond the local machine. Callout mode provides per-connection scoped creds,
+  // so WireGuard on the tailnet is sufficient for confidentiality (no TLS needed).
+  const bindGuard = requiresCalloutForBind(hostname, authMode as "callout" | "token")
+  if (!bindGuard.ok) {
+    throw new Error(bindGuard.reason!)
+  }
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "::1" && authMode === "callout") {
+    console.warn(LOG_PREFIX, `Binding NATS to ${hostname} in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet`)
+  }
 
   let authToken: string
   let daemonManager: NatsDaemonManager

@@ -36,10 +36,10 @@
 choice. Updated as work proceeds.</p>
 
 <h2>Current stage</h2>
-<p><strong>Stage B complete.</strong> All three production connections (server-admin,
-runner, ui-client) now use NATS-callout-scoped credentials. <code>NATS_AUTH_MODE</code>
-defaults to <code>callout</code>. 47/47 tests pass. Typecheck clean. Health check
-shows all three signals healthy in callout mode. Stage C (tailnet bind) is next.</p>
+<p><strong>Stage C complete.</strong> Tailnet bind guard implemented and verified.
+Wide bind (non-loopback) in callout mode works end-to-end. Guard refuses non-loopback
++ token at startup with a clear error message. Loopback + token regression confirmed
+healthy. 66/66 tests pass. Typecheck clean. Stage D (full dual-signal + security review) is next.</p>
 
 <h2>Spike result — Phase 1 (2026-05-26)</h2>
 <div class="card">
@@ -314,6 +314,64 @@ shows all three signals healthy in callout mode. Stage C (tailnet bind) is next.
     <li><code>decision=grant class=runner:runner-1779794562186-12227</code> — runner's scoped connection</li>
     <li><code>Runner runner-1779794562186-12227 ready (pid: 12311)</code> — clean registration, no KV failure</li>
   </ul>
+</div>
+
+<h2>Design decisions (Stage C)</h2>
+
+<div class="card">
+  <span class="label">Bind path was already correct — no data-flow fix needed</span>
+  <p><code>hostname</code> flows from <code>startServer(options.host)</code>
+  (driven by <code>--remote</code>/<code>--host</code> CLI flags or the <code>NATS_HOST</code> env)
+  → <code>ensureDaemon({ host: hostname })</code> → <code>NATS_HOST</code> env on the daemon child
+  → <code>buildCalloutConfig({ host })</code> → both the TCP <code>host:</code> line
+  and the <code>websocket { host }</code> block. Both listeners bind to whatever the caller passes.
+  Stage C is purely additive: guard + docs.</p>
+</div>
+
+<div class="card">
+  <span class="label">Guard wired as a startup throw, not a flag</span>
+  <p><code>requiresCalloutForBind(hostname, authMode)</code> is called immediately
+  after <code>authMode</code> is resolved, before the daemon is started. If disallowed,
+  <code>startServer</code> throws — the process exits with a clear error before any
+  NATS process is spawned. This is the earliest possible gate: no partial state left behind.</p>
+</div>
+
+<div class="card">
+  <span class="label">NATS_ADVERTISED_HOST was already wired in /auth/token</span>
+  <p><code>/auth/token</code> already reads <code>NATS_ADVERTISED_HOST</code> and returns
+  <code>ws://&lt;advertisedHost&gt;:&lt;wsPort&gt;</code> in the response when set.
+  PR1 Stage C only needed to verify this and document the env vars. Off-box runner
+  connect URL (via env) is PR2; PR1 runners are server-spawned and local.</p>
+</div>
+
+<h2>Verification log (Stage C)</h2>
+
+<div class="card">
+  <span class="label">Guard unit tests — 10/10 pass — 2026-05-26</span>
+  <p>Run: <code>bun test src/server/nats-bind-guard.test.ts</code></p>
+  <p>Tests cover: loopback × {token, callout} → ok; wide × callout → ok; wide × token → refused;
+  reason string contains host + NATS_AUTH_MODE=callout hint.</p>
+</div>
+
+<div class="card">
+  <span class="label">Wide bind + callout — port 3296 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-stage-c2 NATS_AUTH_MODE=callout bun run src/server/cli.ts --no-open --port 3296 --strict-port --remote</code></p>
+  <p>Server log: <em>Binding NATS to 0.0.0.0 in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet</em></p>
+  <p>All three signals healthy. NATS TCP + WS both bound to 0.0.0.0:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3296,"natsWsPort":53119,"natsDaemon":{"url":"nats://0.0.0.0:53120","wsUrl":"ws://0.0.0.0:53119","wsPort":53119,"pid":28785,"ok":true},"natsConnection":{"ok":true},"runner":{"ok":true,...}}</pre>
+</div>
+
+<div class="card">
+  <span class="label">Guard fires — non-loopback + token — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-guard NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3298 --strict-port --remote</code></p>
+  <p>Exit 1. Error message:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">error: Refusing to bind NATS to 0.0.0.0 in token mode — a shared-token bus must not be exposed beyond loopback; set NATS_AUTH_MODE=callout</pre>
+</div>
+
+<div class="card">
+  <span class="label">Loopback + token regression — port 3297 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-stage-c NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3297 --strict-port</code></p>
+  <p>All three signals healthy. Guard not triggered. Default dev path unchanged.</p>
 </div>
 
 </body>

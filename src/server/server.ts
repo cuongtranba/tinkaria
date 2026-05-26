@@ -423,6 +423,11 @@ export async function startServer(options: StartServerOptions = {}) {
   } else if (authMode === "callout") {
     // Callout mode: load (or generate) signing keys + shared token secret.
     const natsDataDir = process.env.NATS_DATA_DIR ?? store.dataDir
+    // The callout daemon child (spawned by ensureDaemon) loads its keys + token
+    // secret from NATS_DATA_DIR and refuses to start without it. ensureDaemon
+    // reads it from the environment, so default the env to the resolved dir here
+    // — otherwise a normal `tinkaria` run (no NATS_DATA_DIR set) fails to boot.
+    process.env.NATS_DATA_DIR ??= natsDataDir
     const keys = await ensureCalloutKeys(natsDataDir)
 
     authToken = await mintCredentialToken({ class: "server-admin" }, keys.tokenSecret)

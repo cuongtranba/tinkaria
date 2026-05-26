@@ -187,6 +187,12 @@ export interface RunnerRegistration {
   protocolVersion: number
   /** Optional capability probe (shape only; rich probe added in PR4). */
   capabilities?: RunnerCapabilities
+  /**
+   * Timestamp (ms since epoch) of the runner's last KV self-write, piggybacked on
+   * the heartbeat loop. Used by the discover path (no live heartbeat subscription)
+   * to judge liveness via runnerLivenessState. Not written by the server.
+   */
+  lastSeenAt?: number
 }
 
 export interface RunnerHeartbeat {

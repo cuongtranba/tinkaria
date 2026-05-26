@@ -81,6 +81,9 @@ export class RunnerNatsHandler {
   private readonly heartbeatIntervalMs: number
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private subscriptions: Subscription[] = []
+  // Cache the registration shape so heartbeats can update lastSeenAt without
+  // re-constructing the full object each time.
+  private registration: RunnerRegistration | null = null
 
   constructor(options: RunnerNatsHandlerOptions) {
     this.nc = options.nc
@@ -163,7 +166,9 @@ export class RunnerNatsHandler {
       providers,
       protocolVersion,
       capabilities: { providers },
+      lastSeenAt: Date.now(),
     }
+    this.registration = registration
     try {
       const kvm = new Kvm(this.nc)
       const kvStore = await kvm.create(RUNNER_REGISTRY_BUCKET, {
@@ -198,6 +203,25 @@ export class RunnerNatsHandler {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(LOG_PREFIX, `runner heartbeat publish failed: ${message}`)
     }
+    // Update lastSeenAt in KV on every heartbeat so the discover path (no live
+    // subscription) has a fresh TTL signal. Fire-and-forget; a missed write just
+    // means the cached value ages naturally — still bounded by heartbeatIntervalMs.
+    this.updateLastSeenAt()
+  }
+
+  private updateLastSeenAt(): void {
+    if (!this.registration) return
+    const updated: RunnerRegistration = { ...this.registration, lastSeenAt: Date.now() }
+    this.registration = updated
+    void (async () => {
+      try {
+        const kvm = new Kvm(this.nc)
+        const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
+        await kvStore.put(this.runnerId, encoder.encode(JSON.stringify(updated)))
+      } catch {
+        // Best-effort; a missed write just ages the cached lastSeenAt naturally.
+      }
+    })()
   }
 
   /** Test-only wrapper for the private heartbeat publisher. */

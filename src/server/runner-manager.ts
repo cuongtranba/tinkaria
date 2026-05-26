@@ -5,8 +5,10 @@ import {
   runnerHeartbeatSubject,
   RUNNER_REGISTRY_BUCKET,
   isProtocolSupported,
+  runnerLivenessState,
   SUPPORTED_RANGE,
   type RunnerHeartbeat,
+  type RunnerLivenessState,
   type RunnerRegistration,
 } from "../shared/runner-protocol"
 import { LOG_PREFIX } from "../shared/branding"
@@ -33,6 +35,9 @@ export interface RunnerReadiness {
   runnerId: string | null
   pid: number | null
   registered: boolean
+  /** Derived liveness state from server-tracked lastHeartbeatAt. */
+  state: RunnerLivenessState
+  /** heartbeatFresh === (state === "online") — kept for back-compat. */
   heartbeatFresh: boolean
   lastHeartbeatAt: number | null
   /** Protocol version reported by the runner registration, or null if not registered. */
@@ -40,8 +45,6 @@ export interface RunnerReadiness {
   /** True when the runner's protocolVersion is outside the server's SUPPORTED_RANGE. */
   incompatible: boolean
 }
-
-const RUNNER_HEARTBEAT_TIMEOUT_MS = 30_000
 
 export class RunnerManager {
   private readonly nc: NatsConnection
@@ -69,9 +72,8 @@ export class RunnerManager {
   }
 
   getReadiness(now = Date.now()): RunnerReadiness {
-    const heartbeatFresh =
-      this.lastHeartbeatAt !== null &&
-      now - this.lastHeartbeatAt <= RUNNER_HEARTBEAT_TIMEOUT_MS
+    const state = runnerLivenessState(this.lastHeartbeatAt, now)
+    const heartbeatFresh = state === "online"
     const registered = this.runnerRegistration !== null
     // A registration missing protocolVersion is treated as incompatible (defensive).
     const protocolVersion = this.runnerRegistration?.protocolVersion ?? null
@@ -84,6 +86,7 @@ export class RunnerManager {
       runnerId: this.runnerId,
       pid: this.runnerRegistration?.pid ?? this.proc?.pid ?? null,
       registered,
+      state,
       heartbeatFresh,
       lastHeartbeatAt: this.lastHeartbeatAt,
       protocolVersion,
@@ -101,12 +104,14 @@ export class RunnerManager {
         if (entry) {
           const reg = JSON.parse(decoder.decode(entry.value)) as RunnerRegistration
           this.runnerRegistration = reg
-          try {
-            process.kill(reg.pid, 0) // check alive (signal 0 = no signal, just check)
+          // For the active (spawn-mode) runner, prefer the server-tracked
+          // lastHeartbeatAt for liveness rather than lastSeenAt from KV.
+          // If we have live heartbeat data, use that; otherwise fall back to lastSeenAt.
+          const freshnessSrc = this.lastHeartbeatAt ?? reg.lastSeenAt ?? null
+          if (runnerLivenessState(freshnessSrc, Date.now()) !== "offline") {
             return this.runnerId
-          } catch {
-            // Process dead, fall through to respawn or discover
           }
+          // Runner offline — fall through to respawn or discover
         }
       } catch {
         // KV bucket might not exist yet, proceed to spawn or discover
@@ -226,10 +231,19 @@ export class RunnerManager {
           const entry = await kvStore.get(key)
           if (!entry) continue
           const reg = JSON.parse(decoder.decode(entry.value)) as RunnerRegistration
-          try {
-            process.kill(reg.pid, 0)
-          } catch {
-            continue // dead runner, skip
+          const livenessNow = Date.now()
+          // Use KV lastSeenAt for discovery liveness — pid is meaningless for
+          // cross-machine runners. Skip any candidate that is offline.
+          if (runnerLivenessState(reg.lastSeenAt ?? null, livenessNow) === "offline") {
+            continue
+          }
+          // Skip incompatible runners — adopting one would block every turn start.
+          if (!isProtocolSupported(reg.protocolVersion)) {
+            console.warn(
+              LOG_PREFIX,
+              `Discover: skipping incompatible runner ${key} (protocol v${reg.protocolVersion}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max})`,
+            )
+            continue
           }
           this.runnerId = key
           this.runnerRegistration = reg

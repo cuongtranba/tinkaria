@@ -21,7 +21,7 @@
 </head>
 <body>
 <h1>PR3 — Cross-machine Registration & Liveness + Versioning</h1>
-<p class="sub">Working narrative · <span class="status">packet stage — implementation starting</span></p>
+<p class="sub">Working narrative · <span class="status">Stage 2 implemented &amp; verified</span></p>
 <p>Contract: <code>execplan/overview/design/validation.md</code>; decision <code>0009</code>. Stacks on PR2.</p>
 
 <h2>Design decisions</h2>
@@ -59,12 +59,69 @@
 rich capabilities + command split (PR4); multi-runner routing (PR5); ownerId
 (no user system). Must rebase onto corrected PR1/PR2 before integration.</p>
 
-<h2>Deviations</h2>
-<p class="muted">None yet — implementation starting.</p>
+<h2>Stage 2 — implementation choices</h2>
+<div class="card">
+  <span class="label">lastSeenAt cadence: every heartbeat beat (10s)</span>
+  <p>Design allowed a coarser timer (e.g. every Nth beat). We write on every
+  beat for simplicity in the pilot. A missed write ages the cached value
+  naturally — bounded by heartbeatIntervalMs. The KV put is fire-and-forget;
+  a failure just lets the previous timestamp coast.</p>
+</div>
+<div class="card">
+  <span class="label">RUNNER_HEARTBEAT_TIMEOUT_MS removed</span>
+  <p>The 30s constant was the old freshness threshold, now superseded by
+  <code>runnerLivenessState</code> (25s/60s thresholds). Removing it avoids
+  a dead-constant TS error and keeps the single source of truth in
+  <code>runner-protocol.ts</code>.</p>
+</div>
+<div class="card">
+  <span class="label">ensureRunner liveness check (spawn mode)</span>
+  <p>The existing re-entry path used <code>process.kill(reg.pid,0)</code>.
+  Replaced with <code>runnerLivenessState(lastHeartbeatAt ?? reg.lastSeenAt, now)</code> —
+  prefers the live server-tracked heartbeat, falls back to KV <code>lastSeenAt</code>
+  if the subscription hasn't received a beat yet.</p>
+</div>
 
-<h2>Verification log</h2>
-<p class="muted">Empty until Stage 2/verify. Decisive entries: the liveness
-boundary table; a live runner <code>online</code>+<code>protocolVersion</code>;
-an <code>incompatible</code> runner with a blocked turn.</p>
+<h2>Deviations</h2>
+<p>None from design.md. The discover-path incompatible-runner skip was described
+as "adopt-and-mark OR skip"; we chose skip (fail fast, consistent with the
+turn-start gate philosophy).</p>
+
+<h2>Verification log — Stage 2</h2>
+<div class="card">
+  <span class="label">Typecheck</span>
+  <p><code>bunx @typescript/native-preview --noEmit</code> → clean (0 errors)</p>
+</div>
+<div class="card">
+  <span class="label">Focused tests: 49 pass, 0 fail</span>
+  <p><code>bun test src/server/pr3-liveness.test.ts src/server/runner-manager.test.ts src/shared/runner-protocol.test.ts src/runner/runner-nats.test.ts</code></p>
+</div>
+<div class="card">
+  <span class="label">Live /health — online + v1 + incompatible:false</span>
+  <pre style="font-size:.78rem;background:#f8fafc;padding:.5rem;border-radius:.3rem;overflow:auto">{
+  "runner": {
+    "ok": true,
+    "state": "online",
+    "heartbeatFresh": true,
+    "protocolVersion": 1,
+    "incompatible": false,
+    "registered": true
+  }
+}</pre>
+</div>
+<div class="card">
+  <span class="label">Skew test — RUNNER_PROTOCOL_VERSION=999 → incompatible:true, ok:false</span>
+  <pre style="font-size:.78rem;background:#f8fafc;padding:.5rem;border-radius:.3rem;overflow:auto">{
+  "ok": false,
+  "runner": {
+    "ok": false,
+    "state": "online",
+    "heartbeatFresh": true,
+    "protocolVersion": 999,
+    "incompatible": true,
+    "registered": true
+  }
+}</pre>
+</div>
 </body>
 </html>

@@ -1,6 +1,6 @@
 ---
 id: adr-20260403-public-desktop-attach-before-window-promotion
-c3-seal: bf221be7f6a80aaf87acc2eed702dad6c4d2fd46f1938cd09d880adf87f6c947
+c3-seal: f5abfd75dcf011d3eeb042625ec37f02aa4fe85941207791d31c2546f2d0a4cc
 title: public-desktop-attach-before-window-promotion
 type: adr
 goal: Document public-desktop-attach-before-window-promotion architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-03"
 ---
 
 # public-desktop-attach-before-window-promotion
+
 ## Goal
 
 Document public-desktop-attach-before-window-promotion architecture decisions and responsibilities.

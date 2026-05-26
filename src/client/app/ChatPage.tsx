@@ -610,6 +610,8 @@ export function ChatPage() {
           chatStatus={state.runtime?.status}
           runtimeModel={state.runtime?.model}
           runtimeProvider={state.runtime?.provider}
+          socket={state.socket}
+          onOpenPtyChat={(chatId) => navigate(`/chat/${chatId}`)}
         />
 
         <ForkSessionDialog

@@ -1,6 +1,6 @@
 ---
 id: recipe-workspace-automation-journey
-c3-seal: f0e0f06ea0cc09b48f3aa3598758080d3b6b144ccb50ffcc3a096b94cbb895ef
+c3-seal: dacda80d5cc812eeb21f00d28bf33dd2b71411d046a641d79e9d2459b7fe40d4
 title: workspace-automation-journey
 type: recipe
 goal: 'Trace the automation and monitoring journey: user observes workflow runs, cancels active runs, manages agent configurations, and enables push notifications.'
@@ -24,12 +24,14 @@ When automated workflows run across my workspace, I want to monitor their progre
 | 4. Edit agent config | /workspace/:id | AgentConfigPanel | Click edit → modify fields → Save | Agent config updates |
 | 5. Remove agent config | /workspace/:id | AgentConfigPanel | Click trash → confirm | Agent removed |
 | 6. Enable notifications | / | HomepagePreferences | Click notification toggle | Browser permission prompt → subscribed |
+
 ### Subscription Dependencies
 
 - `useWorkflowRunsSubscription` → runs, activeRunIds
 - `useAgentConfigSubscription` → agent configs
 - Commands: workspace.workflow.cancel, workspace.agent.save/remove
 - Push: GET /api/push/vapid-key, POST /api/push/subscribe, DELETE /api/push/subscribe
+
 ### Known UX Gaps (from audit)
 
 - No way to trigger workflows from UI (MCP-only)
@@ -37,6 +39,7 @@ When automated workflows run across my workspace, I want to monitor their progre
 - No run duration display
 - No workflow definition browsing
 - Notification toggle is global (homepage), not per-workspace
+
 ### Test Contract
 
 - Stage 1: Workflow runs render with correct status badges

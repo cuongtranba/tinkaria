@@ -1,6 +1,6 @@
 ---
 id: rule-bun-test-conventions
-c3-seal: afe2c5a616db813d98178b1135c8304007773e5a86a4da41ff9b58ccd218e29d
+c3-seal: 74c230091f02462dc2f63f989ea9e6812bbfcf62f49576fd938dce35d0d3c0e5
 title: bun-test-conventions
 type: rule
 goal: 'All tests use Bun test framework with consistent structure: describe/test grouping, afterEach cleanup, typed test helpers, explicit resource management, environment variable isolation (save/clear/restore), and deterministic shell environments for PTY tests.'
@@ -92,6 +92,7 @@ class FakeWebSocket {
   close() { this.readyState = 3 }
 }
 ```
+
 ## Not This
 
 | Anti-Pattern | Correct | Why Wrong Here |
@@ -103,6 +104,7 @@ class FakeWebSocket {
 | tests read process.env.X without save/restore | capture at module scope, clear in beforeEach, restore in afterEach | Env leaks between tests and CI may silently skip code paths |
 | PTY tests use user shell config as-is | set ZDOTDIR plus minimal .zshrc | Starship/powerline async rendering makes Ctrl+D flaky under parallel load |
 | empty ZDOTDIR temp dir with no .zshrc | create .zshrc with a comment | zsh-newuser-install wizard blocks terminal tests with an interactive menu |
+
 ## Scope
 
 All `*.test.ts` and `*.test.tsx` files in src/.

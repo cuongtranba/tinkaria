@@ -1,6 +1,6 @@
 ---
 id: adr-20260409-chat-double-submit-busy-race
-c3-seal: 195b40dae6178a6a27c0d5d4ebef479fa54ff0a48e69fd84ad9bbaa7452c13d9
+c3-seal: 5326fa40161b93563cb85944bff6420c32b188c3c1bf840d1a8c662231efafac
 title: chat-double-submit-busy-race
 type: adr
 goal: Document chat-double-submit-busy-race architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-09"
 ---
 
 # chat-double-submit-busy-race
+
 ## Goal
 
 Document chat-double-submit-busy-race architecture decisions and responsibilities.

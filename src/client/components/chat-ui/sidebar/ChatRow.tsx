@@ -20,6 +20,7 @@ const CHAT_ROW_DESCRIPTOR = createUiIdentityDescriptor({
 const PROVIDER_LABELS = {
   claude: "Claude",
   codex: "Codex",
+  "claude-pty": "Claude (PTY)",
 } as const
 
 interface Props {

@@ -1,6 +1,6 @@
 ---
 id: rule-provider-runtime-readiness
-c3-seal: 54360b453e601e90b081013afe2539cf3edab6218ac7e31f68e1f0ea80b8ec2a
+c3-seal: 18a2c5731e3d941df36f09587c37fc701be2696c2dd259afb94489ceba181e9e
 title: provider-runtime-readiness
 type: rule
 goal: Enforce defensive, observable, and bounded runtime behavior for every agent-provider integration so a started session cannot fail silently or hang indefinitely without operator evidence.
@@ -23,6 +23,7 @@ Required contract:
 5. Shape validation before normalization: malformed provider events or tool payloads must fail closed before they are normalized into shared transcript/runtime types.
 6. Focused harness proof: provider-owned tests must cover the happy path and the provider's critical failure modes: startup failure, stale resume, malformed event, timeout or cancellation, and mid-stream abort.
 7. Coordinator isolation: shared orchestration code may compose prompts and lifecycle state, but it must not absorb provider-specific retry, timeout, or transport recovery logic that belongs in the harness.
+
 ## Golden Example
 
 ```typescript
@@ -53,6 +54,7 @@ export async function startProviderTurn(args: ProviderTurnArgs): Promise<Harness
   }
 }
 ```
+
 ## Not This
 
 | Anti-Pattern | Correct | Why Wrong Here |
@@ -61,6 +63,7 @@ export async function startProviderTurn(args: ProviderTurnArgs): Promise<Harness
 | Harness waits indefinitely for a first event or resume acknowledgement | Add bounded timeout and cancellation semantics at the provider seam | Hung upstream sessions become invisible operational failures |
 | Failure diagnostics only contain a free-form message | Attach provider name, phase, session identity, and retry state | Incidents become hard to reproduce or correlate |
 | Only coordinator tests exercise failure handling | Add focused harness tests for provider-owned failure modes | The seam itself stays undertested and future providers drift |
+
 ## Scope
 
 Applies to all server-side AI provider integrations and their lower-level runtime adapters. This includes dedicated `*-harness.ts` modules, provider SDK bindings, subprocess bridges, and remote kit/runtime seams that deliver `HarnessTurn` behavior into `AgentCoordinator`.

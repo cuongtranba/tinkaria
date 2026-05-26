@@ -1,6 +1,6 @@
 ---
 id: adr-20260410-nats-reliability-sweep
-c3-seal: 992658292a181e114564c584e26966f4adb78cf00726cc4b58ec9ee1b2a59e4d
+c3-seal: 17eacf92fd9bf8f95b27ab26b1178b8dfb1443f97a85c811a2ed023bfadc3c54
 title: Fix NATS transport reliability (Phase 0 observability + Phase 1 P0 fixes)
 type: adr
 goal: 'Stabilize the NATS transport between browser/runner and the embedded nats-server. Observed: unstable, slow, frequent reconnects. Empirically reproduced: the `/nats-ws` proxy''s upstream `send()` is called while the upstream WebSocket is still `CONNECTING` (readyState=0), which throws `InvalidStateError` (test at `/tmp/final-race-demo.ts`). Sweep identified additional P0 bugs: double-open race in client `probeConnection`, orphaning `resetConnection`, potentially-double `monitorStatus` loops, and entirely unconfigured runner reconnect. Log blindness makes reconnect rate invisible today.'
@@ -19,6 +19,7 @@ Phase 0 (observability) + Phase 1 (all P0 fixes) only.
 Out of scope (deferred to follow-up ADRs): direct `claude-nats.tini.works` tunnel advertisement, P1/P2 races (command stale-nc, unsubscribe/reactivate, transcript-consumer silent death, heartbeat error handling, decompression silent skip), Caddy timeout tuning, NATS `auth_timeout` bump, `/tmp/nats-embedded-*` cleanup, broad test backfill.
 
 ## Work Breakdown
+
 ### Phase 0 — Observability (ships first, then 10 min run before Phase 1)
 
 **P0-0.** `src/server/server.ts` — add prefixed logs inside `/nats-ws` proxy (lines 260-327):
@@ -30,6 +31,7 @@ Out of scope (deferred to follow-up ADRs): direct `claude-nats.tini.works` tunne
 - use `LOG_PREFIX` per `rule-prefixed-logging`
 - Owner agent: `proxy-observability`
 - Files: `src/server/server.ts`
+
 ### Phase 1 — P0 Fixes (one bundle, RED/GREEN TDD per task)
 
 **P1-A. Upstream race — `src/server/server.ts:303-327`**
@@ -594,6 +596,7 @@ Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-n
 Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-nats.test.ts`
 Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-nats.test.ts`
 Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-nats.test.ts`
+
 ## Execution Order
 
 1. **P0-0 first, sequentially.** Ship observability; run 10 min against `claude.tini.works` via `agent-browser`; inspect counter summary output. Confirm reconnect rate empirically.
@@ -602,6 +605,7 @@ Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-n
 4. **End sequence:** `/noslop` -> `/simplify` -> `/review`.
 5. **C3 audit:** `/c3` + `c3x check` + `c3x codemap` to keep coverage at 100%.
 6. **Mark ADR implemented.**
+
 ## Constraint Chain
 
 | Source | Rule | How Honored |
@@ -614,6 +618,7 @@ Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-n
 | rule-subprocess-ipc-safety | closed-state guards on IPC writes | Proxy checks readyState === OPEN before .send() |
 | rule-bun-test-conventions | describe/test, afterEach cleanup, typed helpers | All new tests follow pattern |
 | rule-rule-strict-typescript | no any | Captured-nc types are NatsConnection |
+
 ## Risks
 
 - **Buffered messages may reorder** if upstream opens mid-stream. Mitigation: flush synchronously inside `onopen` before returning, disable buffering once OPEN.
@@ -621,6 +626,7 @@ Files: `src/runner/runner.ts`, `src/runner/runner-nats.ts`, `src/runner/runner-n
 - **Runner reconnect change extends recovery window** from "crash-restart by systemd" to "in-process reconnect". Validate runner still registers in KV on reconnect.
 - **Observability logs too noisy** if reconnects are frequent. Mitigation: counters + per-minute summary, not per-frame logs.
 - **Test flakiness** from timing-sensitive race tests. Mitigation: use condition-polling, not arbitrary sleeps.
+
 ## Verification
 
 - Every task lands at least one failing test first (RED), then the fix (GREEN).

@@ -1,6 +1,6 @@
 ---
 id: adr-20260410-project-coordination-mcp
-c3-seal: 2b39c8d39975799163c4a5e2f803a72a84bbb3224e691464f68c896b3a0994b5
+c3-seal: 66a049fb0d5bf6d9af3352559632cb951806608d9c150790e93d6cff5472f7d1
 title: project-coordination-mcp
 type: adr
 goal: Cross-session project coordination built entirely on existing NATS + EventStore infrastructure, with MCP as a thin tool interface following the established `createOrchestrationMcpServer()` pattern.
@@ -532,7 +532,9 @@ CLI `tinkaria-project` (8 commands) — **backend-agnostic, reusable**
 CLI `tinkaria-project` (8 commands) — **backend-agnostic, reusable**
 CLI `tinkaria-project` (8 commands) — **backend-agnostic, reusable**
 CLI `tinkaria-project` (8 commands) — **backend-agnostic, reusable**
+
 ## Decision
+
 ### 1. New JetStream stream for coordination events
 
 ```
@@ -541,6 +543,7 @@ Subjects: runtime.evt.project.>
 Storage: File (like KANNA_RUNNER_EVENTS — durability across restarts)
 Retention: Limits — 24h / 100K msgs / 256 MB
 ```
+
 File-backed because coordination state must survive restarts. 24h retention gives ample replay window. No subject overlap with existing streams (terminal uses `runtime.evt.terminal.>`, chat uses `runtime.evt.chat.>`, runner uses `runtime.runner.evt.>`).
 
 Events published with `Nats-Msg-Id` header for JetStream-native deduplication (verify `@nats-io/jetstream` version supports this — current is ^3.3.1, which does).
@@ -568,6 +571,7 @@ type CoordinationEvent =
   | { type: "rule_set"; projectId: string; ruleId: string; content: string; setBy: string }
   | { type: "rule_removed"; projectId: string; ruleId: string }
 ```
+
 All events carry `v: 2`, `timestamp: number`. applyEvent() switch has no default — unknown types silently fall through (safe, no crash). Replayed on startup via `replayLogs()` which must be updated to include coordination.jsonl.
 
 New state in StoreState: `coordinationByProject: Map<string, ProjectCoordinationState>`.
@@ -591,6 +595,7 @@ New state in StoreState: `coordinationByProject: Map<string, ProjectCoordination
 | Commands | runtime.cmd.project.rule.remove |  |
 | Commands registered in nats-responders.ts via registerCommandResponders() — added to the existing SERVER_COMMANDS array (currently 28 entries). Each handler: validate → append to EventStore → broadcast snapshot. |  |  |
 | Note: existing runtime.cmd.project.open/create/remove commands operate on project lifecycle, not coordination. The new runtime.cmd.project.todo.* / runtime.cmd.project.claim.* / etc. use dotted sub-namespacing to avoid collision. |  |  |
+
 ### 4. New subscription topic + read model
 
 ```typescript
@@ -600,6 +605,7 @@ New state in StoreState: `coordinationByProject: Map<string, ProjectCoordination
 // nats-subjects.ts — explicit case (not relying on default fallback)
 snapshotKvKey({ type: "project", projectId }) → `project.${projectId}`
 ```
+
 New read model: `deriveProjectCoordinationSnapshot(state, projectId)` — pure function projecting `coordinationByProject.get(projectId)` into the snapshot shape.
 
 Published via existing dual-channel: `nc.publish()` to `runtime.snap.project.{id}` + `kv.put()` to `runtime_snapshots` bucket key `project.{id}`.
@@ -614,6 +620,7 @@ function createCoordinationMcpServer(
   projectId: string
 ): ReturnType<typeof createSdkMcpServer>
 ```
+
 Follows the exact same pattern as `createOrchestrationMcpServer()`:
 
 - Uses `createSdkMcpServer` from `@anthropic-ai/claude-agent-sdk`
@@ -621,6 +628,7 @@ Follows the exact same pattern as `createOrchestrationMcpServer()`:
 - Each tool handler: validate params → call store mutation method → return result
 - Transport handled by the agent SDK framework
 MCP is a **thin adapter** — it translates tool calls into EventStore mutations (which trigger NATS publishing). No persistence, no state, no logic. All coordination logic lives in EventStore + read models.
+
 ### 6. Homepage subscribes via existing NATS pattern
 
 The React client subscribes to `{ type: "project", projectId }` via `NatsSocket` — the exact same `subscribe()` / `onSnapshot()` pattern used for chat, sidebar, sessions, orchestration. No new transport, no MCP client in the browser.
@@ -655,6 +663,7 @@ Homepage mutations go through NATS commands (`runtime.cmd.project.*`) via `NatsS
 | src/client/components/LocalDev.tsx | Add project status indicators, link to /project/:id | Low |
 | New: src/client/components/ProjectDashboard.tsx | New route /project/:id with coordination panels | New file |
 | New: src/server/coordination-mcp.ts | createCoordinationMcpServer() using @anthropic-ai/claude-agent-sdk | New file |
+
 ### 9. What NOT to change
 
 - **NatsSocket** — existing subscribe/command patterns already support new topic types
@@ -662,6 +671,7 @@ Homepage mutations go through NATS commands (`runtime.cmd.project.*`) via `NatsS
 - **Compression** — existing gzip pipeline handles coordination payloads
 - **Auth** — single token model sufficient
 - **SessionIndex / TranscriptSearchIndex** — reusable as-is
+
 ## Affects
 
 - c3-201 (event-store): New coordination.jsonl, CoordinationEvent types, mutation methods, compact/clearStorage updates
@@ -671,6 +681,7 @@ Homepage mutations go through NATS commands (`runtime.cmd.project.*`) via `NatsS
 - c3-222 (project-agent): Remove keyword routing, add EventStore-backed coordination
 - c3-117 (projects): Add /project/:id dashboard, project status indicators
 - c3-204 (shared-types): Coordination event/snapshot/MCP types
+
 ## Sub-Projects
 
 1. **Durable project events** — CoordinationEvent types, coordination.jsonl with compact/clearStorage updates, applyEvent, ProjectCoordinationState in StoreState, JetStream stream, NATS command responders, snapshot publishing. Foundation.
@@ -680,6 +691,7 @@ Homepage mutations go through NATS commands (`runtime.cmd.project.*`) via `NatsS
 5. **Worktree management** — `git worktree add/remove` lifecycle in command responders, worktree assignment tracking.
 6. **Project rules** — Rule CRUD, session discovery via MCP resources, enforcement model TBD.
 7. **Workflow orchestration** — Multi-session workflow definitions, future phase.
+
 ## Verified Against Codebase
 
 This ADR was verified claim-by-claim against source code by adversarial review:
@@ -690,6 +702,7 @@ This ADR was verified claim-by-claim against source code by adversarial review:
 - snapshotKvKey needs explicit case for project topic (not default fallback)
 - No subject/command naming collisions with existing infrastructure
 - JetStream ^3.3.1 supports Nats-Msg-Id headers for dedup
+
 ## Status
 
 Spec: `docs/superpowers/specs/2026-04-10-project-coordination-design.md` (needs update to match this ADR)

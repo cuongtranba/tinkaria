@@ -1,6 +1,6 @@
 ---
 id: ref-nats-transport-hardening
-c3-seal: 486479834e99060e641cc089ba713c29332601e2edba7ecec08e31cfa235cc2b
+c3-seal: 1e2e1e5278a45c1c4d6ec7e155b98ecfc89e3946a08927543d0232390221f698
 title: NATS transport hardening
 type: ref
 goal: Keep the NATS WebSocket transport (browser → Bun `/nats-ws` proxy → embedded NATS, and runner → NATS TCP) stable under real-world Cloudflare tunnel latency variance (1.3–4s WS handshake), survive reconnect storms, and stay observable so regressions show up in logs rather than user reports.
@@ -22,6 +22,7 @@ Every actor that opens a NATS connection in this codebase follows eight discipli
 6. **Shared reconnect options.** Every NATS actor uses `{ maxReconnectAttempts: -1, reconnectTimeWait: 750, pingInterval: 15_000, maxPingOut: 3 }`. No actor relies on library defaults. Named constant where possible (runner uses `RUNNER_RECONNECT_OPTIONS`).
 7. **Observable proxy.** `/nats-ws` proxy maintains counters: `upgrades`, `upstreamOpen`, `upstreamError`, `upstreamClose`, `sendOnConnecting`, `bufferedFrames`, `bufferDrops`. A `setInterval(60_000)` flushes them to `console.warn(LOG_PREFIX, ...)`, skips when all counters are zero, and resets after each flush so each log line is a self-contained 1-minute delta.
 8. **Drain with timeout, fall back to close.** Shutdown paths race `nc.drain()` against a 3s timeout and fall back to `nc.close()` on expiry. `shutdownConnection` in `runner-nats.ts` is the canonical helper.
+
 ## Why
 
 Concrete runtime constraints make each discipline non-optional:
@@ -35,6 +36,7 @@ Concrete runtime constraints make each discipline non-optional:
 - **The runner is a long-lived independent process.** Without explicit reconnect options it crashes on any brief NATS blip and relies on systemd to respawn it, losing registered KV state and active turn context. It must survive the same transport-class failures the browser client does.
 - **Silent `onerror`/`onclose` is diagnostic blindness.** Before this hardening, `journalctl --user -u tinkaria` had zero log lines for the WS lifecycle. We could not tell whether users were reconnecting once an hour or once a second. A counter flush is cheap and gives us ground truth.
 - **Unbounded buffering would OOM on stuck upstream.** A slow or dead upstream plus a chatty client means the buffer grows without bound. 256 frames is enough to survive a 4s CF spike at typical NATS pacing; overflow means something is actually wrong and losing the OLDEST frame preserves the most-recent protocol state.
+
 ## How
 
 Code locations — cite by identifier so line numbers can drift:
@@ -232,14 +234,17 @@ Code locations — cite by identifier so line numbers can drift:
 **Counter flush in `src/server/server.ts`** — `setInterval(60_000)` logs `JSON.stringify(natsWsCounters)` only when `Object.values(counters).some(v => v > 0)`, then resets all fields. Cleared in `shutdown`.
 **Counter flush in `src/server/server.ts`** — `setInterval(60_000)` logs `JSON.stringify(natsWsCounters)` only when `Object.values(counters).some(v => v > 0)`, then resets all fields. Cleared in `shutdown`.
 Shared reconnect options (keep identical across actors):
+
 ```ts
 { maxReconnectAttempts: -1, reconnectTimeWait: 750, pingInterval: 15_000, maxPingOut: 3 }
 ```
+
 Compliance gate — answer YES to all three before claiming this ref is honored:
 
 1. Does every `WebSocket.send()` on an upstream-style socket sit behind a `readyState === OPEN` check, or is the frame buffered until `onopen`?
 2. Does every NATS connection pass the shared reconnect options explicitly (no reliance on library defaults)?
 3. Does every async iterator over `nc.status()` capture `nc`/`js` as locals and exit on connection swap?
+
 ## Not This
 
 - **Probe-with-timeout** (`Promise.race([wsconnect(url), timer])`) — cannot cancel the in-flight `wsconnect`; leaks orphan connections and produces double-open races. Deleted in this ADR.
@@ -251,6 +256,7 @@ Compliance gate — answer YES to all three before claiming this ref is honored:
 - **Unbounded `ws.data.buffer`** — a stuck upstream plus a chatty client would grow the array without bound and eventually OOM the server.
 - **Silent `onerror = () => ws.close()`, `onclose = () => ws.close()`** — diagnostic blindness. If users report "it reconnects all the time" we cannot confirm or deny without client-side screen captures.
 - **Dropping NEWEST frame on buffer overflow** — the NATS protocol state machine depends on ordering and the most recent handshake frame (CONNECT, SUB, UNSUB) is the one that actually matters. Drop OLDEST so the newest negotiation always reaches the server.
+
 ## Scope
 
 Applies to every actor in this repo that opens a NATS connection:
@@ -260,6 +266,7 @@ Applies to every actor in this repo that opens a NATS connection:
 - **`src/server/nats-bridge.ts`** / **`src/server/nats-connector.ts`** — disciplines 6 (shared reconnect options) and 8 (drain with timeout)
 - **`src/runner/runner-nats.ts` + `src/runner/runner.ts`** — disciplines 6, 8 via `connectRunner` and `shutdownConnection`
 Future: any new actor that opens a NATS connection — TCP or WebSocket — MUST adopt the shared reconnect options. Any new actor acting as a WS proxy MUST adopt the upstream readiness guard and bounded buffer.
+
 ## Override
 
 Deviations require an ADR that:

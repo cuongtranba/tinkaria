@@ -1,6 +1,6 @@
 ---
 id: rule-type-guards
-c3-seal: 0fd57ff287f653e1df8244214186efaf2943c19c6112ffb4c91b15fef0ee9bc4
+c3-seal: 5316858be1a0bc59108e45378ced580899281edc2043724ed1c214127cc2617c
 title: type-guards
 type: rule
 goal: Runtime type validation uses named predicate functions (`is*`) for boolean checks and normalization functions (`normalize*`) for coercing inputs to valid values. Never inline type checks.
@@ -64,6 +64,7 @@ getChat(chatId: string): ChatRecord | null {
   return chat
 }
 ```
+
 ## Not This
 
 ```typescript
@@ -87,6 +88,7 @@ getOrThrow(id: string) {
   return null
 }
 ```
+
 ## Scope
 
 All TypeScript files. Especially src/shared/types.ts, src/server/provider-catalog.ts, src/server/keybindings.ts.

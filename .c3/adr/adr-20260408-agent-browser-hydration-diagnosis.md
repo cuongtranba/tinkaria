@@ -1,6 +1,6 @@
 ---
 id: adr-20260408-agent-browser-hydration-diagnosis
-c3-seal: fa4d23615c603988267b0edffe6a4a804d4c93b2f7bf42d7e96b6734b662165b
+c3-seal: cd9cf40338d41c2cf6c0583d438500f21e531cc41a8a0caaab21eff6af39670b
 title: agent-browser-hydration-diagnosis
 type: adr
 goal: Document agent-browser-hydration-diagnosis architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-08"
 ---
 
 # agent-browser-hydration-diagnosis
+
 ## Goal
 
 Document agent-browser-hydration-diagnosis architecture decisions and responsibilities.

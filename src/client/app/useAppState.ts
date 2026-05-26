@@ -27,6 +27,7 @@ import {
 import { useSubmitPipeline } from "./useSubmitPipeline"
 import { NatsSocket } from "./nats-socket"
 import type { AppTransport, SocketStatus } from "./socket-interface"
+import { usePtyInstancesSubscription } from "./usePtyInstancesSubscription"
 import {
   filterPendingDeletedChats,
   getActiveChatSnapshot,
@@ -219,6 +220,8 @@ export function useAppState(activeChatId: string | null): AppState {
       clearChatCache()
     }
   }), [socket])
+
+  usePtyInstancesSubscription(socket, connectionStatus === "connected")
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {

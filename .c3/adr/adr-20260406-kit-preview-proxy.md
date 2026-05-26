@@ -1,6 +1,6 @@
 ---
 id: adr-20260406-kit-preview-proxy
-c3-seal: d156bc3d6b14a7daaceca4cfca84130835e81239240693250d7abdcc5398d73d
+c3-seal: 9793d0d9dea4e688b90419fc6dc2107cf3dd094185e383864765825e74578ea9
 title: kit-preview-proxy
 type: adr
 goal: Expose local dev server ports (e.g. localhost:5173) to Tinkaria viewers — including mobile PWA clients on LAN or remote — through kit-advertised preview targets, NATS HTTP relay, and pluggable tunnel strategy.
@@ -21,7 +21,9 @@ Kit is the long-running execution daemon that sits on the same machine as the us
 - **Path-based reverse proxy is not acceptable.** Dev servers serve from root `/`. Prefixing paths (`/preview/kit/5173/`) breaks hardcoded absolute paths, HMR WebSocket endpoints, CSS `url()`, and client-side routing.
 - **Subdomain routing fails for mobile.** Mobile PWA connects via LAN IP (`192.168.1.100:3210`) or tunnel URL. You cannot subdomain an IP address, and `*.localhost` resolves to the phone itself.
 - **WebSocket passthrough is required.** Vite HMR, Next.js fast-refresh, and similar tools use WebSocket on the dev server port.
+
 ## Decision
+
 ### v1: NATS HTTP relay + pluggable tunnel
 
 Two layers:
@@ -39,6 +41,7 @@ For viewers who can't reach the hub's LAN, the hub creates a tunnel for the rela
 Eliminate the extra port entirely. The preview iframe loads a bootstrap page from the hub (same-origin), which registers a Service Worker. The SW intercepts all fetch requests and routes them through `postMessage` → parent window → existing NATS WebSocket → hub → kit → dev server. No extra port, no tunnel. This is the StackBlitz WebContainers approach. Requires HTTPS (fine when tunneled, problematic on plain HTTP LAN). Deferred to v2.
 
 ## Transport Design (v1)
+
 ### Kit registration
 
 Kit advertises preview targets in its `KitProfile`:
@@ -52,6 +55,7 @@ interface KitPreviewTarget {
 // Added to CodexKitRegistration:
 previewTargets?: KitPreviewTarget[]
 ```
+
 ### NATS HTTP relay protocol
 
 New NATS subjects for preview relay:
@@ -59,6 +63,7 @@ New NATS subjects for preview relay:
 - `kanna.kit.<kitId>.preview.request` — hub sends serialized HTTP request
 - `kanna.kit.<kitId>.preview.response` — kit returns serialized HTTP response
 Request envelope:
+
 ```typescript
 interface PreviewRequest {
   id: string
@@ -69,6 +74,7 @@ interface PreviewRequest {
   body?: string | null
 }
 ```
+
 Response envelope:
 
 ```typescript
@@ -80,6 +86,7 @@ interface PreviewResponse {
   bodyEncoding: "base64" | "utf-8"
 }
 ```
+
 ### WebSocket relay
 
 WebSocket upgrade on the relay port is handled separately — the hub establishes a persistent WebSocket to the kit, which maintains a persistent WebSocket to the dev server. Messages are piped bidirectionally. This is necessary for HMR.
@@ -105,6 +112,7 @@ Bun.serve({
   websocket: { /* bidirectional pipe to kit WS relay */ }
 })
 ```
+
 ### Tunnel strategy
 
 ```typescript
@@ -118,6 +126,7 @@ class PinggyTunnel implements TunnelStrategy { /* ssh -R */ }
 class BoreTunnel implements TunnelStrategy { /* bore local */ }
 class DirectPortTunnel implements TunnelStrategy { /* no tunnel, just advertise port */ }
 ```
+
 Default: cloudflared (already a dependency).
 
 ### Client surface
@@ -135,11 +144,13 @@ interface PreviewSnapshot {
   }>
 }
 ```
+
 Client renders preview in an iframe. The iframe URL is:
 
 - LAN: `http://<hub-host>:<relayPort>/`
 - Remote: `<tunnelUrl>/`
 Client auto-detects: try LAN relay first, fall back to tunnel URL after timeout.
+
 ### Wildcard domain mode
 
 If `TINKARIA_PREVIEW_DOMAIN` is set (e.g. `tinkaria.example.com`), hub uses subdomain routing on its main port instead of separate relay ports:
@@ -148,6 +159,7 @@ If `TINKARIA_PREVIEW_DOMAIN` is set (e.g. `tinkaria.example.com`), hub uses subd
 - No extra ports, no tunnel needed
 - Requires wildcard DNS configuration
 This is the "or wildcard domain" alternative for users with their own infrastructure.
+
 ## Affected Components
 
 | Component | Change |
@@ -159,12 +171,14 @@ This is the "or wildcard domain" alternative for users with their own infrastruc
 | server.ts (hub) | Start relay servers per preview target, manage tunnel lifecycle, wildcard host routing |
 | nats-publisher | Include preview snapshots in broadcasts |
 | Client (new component) | Preview panel with iframe, LAN/tunnel auto-detection |
+
 ## Risks
 
 - NATS request/reply has a message size limit (~1MB default). Large assets (source maps, images) may exceed it. Mitigation: chunk large responses or stream via JetStream.
 - Cloudflared quick tunnels have undocumented rate limits. Heavy asset loading during page refresh may hit them. Mitigation: pluggable tunnel strategy allows switching to bore/ngrok.
 - WebSocket relay through NATS adds latency to HMR. For local kit this is negligible (sub-ms NATS hop). For remote kit, HMR latency may be noticeable.
 - Each preview target consumes one ephemeral port and optionally one tunnel process. Projects with many preview ports (API + UI + docs + storybook) could accumulate overhead.
+
 ## Acceptance Criteria
 
 - A mobile PWA viewer on a different device can see a live Vite dev server running on the developer's machine.

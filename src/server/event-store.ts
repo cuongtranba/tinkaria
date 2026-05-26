@@ -62,6 +62,10 @@ export class EventStore {
   private readonly sandboxLogPath: string
   private readonly profilesLogPath: string
   private readonly extensionPrefsLogPath: string
+  private readonly ptySubagentLogPath: string
+  private readonly ptyToolRequestsLogPath: string
+  private readonly ptySessionTokensLogPath: string
+  private readonly _ptySessionTokensByChatId = new Map<string, Map<string, string>>()
 
   constructor(dataDir = getDataDir(homedir())) {
     this.dataDir = dataDir
@@ -78,6 +82,9 @@ export class EventStore {
     this.sandboxLogPath = path.join(this.dataDir, "sandbox.jsonl")
     this.profilesLogPath = path.join(this.dataDir, "profiles.jsonl")
     this.extensionPrefsLogPath = path.join(this.dataDir, "extension-prefs.jsonl")
+    this.ptySubagentLogPath = path.join(this.dataDir, "pty-subagent.jsonl")
+    this.ptyToolRequestsLogPath = path.join(this.dataDir, "pty-tool-requests.jsonl")
+    this.ptySessionTokensLogPath = path.join(this.dataDir, "pty-session-tokens.jsonl")
   }
 
   async initialize() {
@@ -94,6 +101,10 @@ export class EventStore {
     await this.ensureFile(this.sandboxLogPath)
     await this.ensureFile(this.profilesLogPath)
     await this.ensureFile(this.extensionPrefsLogPath)
+    await this.ensureFile(this.ptySubagentLogPath)
+    await this.ensureFile(this.ptyToolRequestsLogPath)
+    await this.ensureFile(this.ptySessionTokensLogPath)
+    await this.replayPtyLogs()
     await this.loadSnapshot()
     await this.replayLogs()
     if (!(await this.hasLegacyTranscriptData()) && await this.shouldCompact()) {
@@ -1760,4 +1771,339 @@ export class EventStore {
     ])
     return sizes.reduce((total, size) => total + size, 0) >= COMPACTION_THRESHOLD_BYTES
   }
+
+  // ===== claude-pty additions (in-memory only — PORT-TODO durable persistence) =====
+
+  private readonly _ptySubagentRuns = new Map<string, Map<string, PtySubagentRunSnapshot>>()
+  private readonly _ptyToolRequests = new Map<string, PtyToolRequest>()
+
+  private async replayPtyLogs(): Promise<void> {
+    // Subagent log replay
+    const subagentFile = Bun.file(this.ptySubagentLogPath)
+    if (await subagentFile.exists()) {
+      const text = await subagentFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const event = JSON.parse(line) as PtySubagentRunEvent
+          this.applyPtySubagentEvent(event)
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+    // Session token replay
+    const tokenFile = Bun.file(this.ptySessionTokensLogPath)
+    if (await tokenFile.exists()) {
+      const text = await tokenFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const rec = JSON.parse(line) as { chatId: string; providerId: string; sessionToken: string | null }
+          let map = this._ptySessionTokensByChatId.get(rec.chatId)
+          if (!map) {
+            map = new Map<string, string>()
+            this._ptySessionTokensByChatId.set(rec.chatId, map)
+          }
+          if (rec.sessionToken === null) {
+            map.delete(rec.providerId)
+          } else {
+            map.set(rec.providerId, rec.sessionToken)
+          }
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+    // Tool request log replay
+    const toolFile = Bun.file(this.ptyToolRequestsLogPath)
+    if (await toolFile.exists()) {
+      const text = await toolFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const rec = JSON.parse(line) as { type: "put" | "resolved"; request?: PtyToolRequest; id?: string; status?: import("../shared/permission-policy").ToolRequestStatus; decision?: import("../shared/permission-policy").ToolRequestDecision; resolvedAt?: number; mismatchReason?: string }
+          if (rec.type === "put" && rec.request) {
+            this._ptyToolRequests.set(rec.request.id, { ...rec.request })
+          } else if (rec.type === "resolved" && rec.id) {
+            const existing = this._ptyToolRequests.get(rec.id)
+            if (existing) {
+              this._ptyToolRequests.set(rec.id, {
+                ...existing,
+                status: rec.status ?? existing.status,
+                decision: rec.decision ?? existing.decision,
+                resolvedAt: rec.resolvedAt ?? existing.resolvedAt,
+                mismatchReason: rec.mismatchReason,
+              })
+            }
+          }
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+  }
+
+  private applyPtySubagentEvent(event: PtySubagentRunEvent): void {
+    const chatMap = this._ptySubagentRuns.get(event.chatId) ?? new Map<string, PtySubagentRunSnapshot>()
+    this._ptySubagentRuns.set(event.chatId, chatMap)
+    const existing = chatMap.get(event.runId)
+    switch (event.type) {
+      case "subagent_run_started":
+        chatMap.set(event.runId, {
+          runId: event.runId,
+          chatId: event.chatId,
+          subagentId: event.subagentId,
+          subagentName: event.subagentName,
+          provider: event.provider,
+          model: event.model,
+          status: "running",
+          parentUserMessageId: event.parentUserMessageId,
+          parentRunId: event.parentRunId,
+          depth: event.depth,
+          startedAt: event.timestamp,
+          finishedAt: null,
+          finalText: null,
+          error: null,
+          usage: null,
+          entries: [],
+          pendingTool: null,
+        })
+        return
+      case "subagent_message_delta":
+        if (existing) existing.finalText = (existing.finalText ?? "") + event.content
+        return
+      case "subagent_entry_appended":
+        if (existing) existing.entries.push(event.entry)
+        return
+      case "subagent_run_completed":
+        if (existing) {
+          existing.status = "completed"
+          existing.finishedAt = event.timestamp
+          existing.finalText = event.finalContent
+          existing.usage = event.usage ?? null
+        }
+        return
+      case "subagent_run_failed":
+        if (existing) {
+          existing.status = "failed"
+          existing.finishedAt = event.timestamp
+          existing.error = event.error
+        }
+        return
+      case "subagent_run_cancelled":
+        if (existing) {
+          existing.status = "cancelled"
+          existing.finishedAt = event.timestamp
+        }
+        return
+      case "subagent_tool_pending":
+        if (existing) existing.pendingTool = event.pendingTool
+        return
+      case "subagent_tool_resolved":
+        if (existing) existing.pendingTool = null
+        return
+    }
+  }
+
+  async appendSubagentEvent(event: PtySubagentRunEvent): Promise<void> {
+    this.applyPtySubagentEvent(event)
+    const payload = `${JSON.stringify(event)}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptySubagentLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getSubagentRuns(chatId: string): Record<string, PtySubagentRunSnapshot> {
+    const map = this._ptySubagentRuns.get(chatId)
+    if (!map) return {}
+    return Object.fromEntries(map.entries())
+  }
+
+  *runningSubagentRuns(): Iterable<PtySubagentRunSnapshot> {
+    for (const map of this._ptySubagentRuns.values()) {
+      for (const run of map.values()) {
+        if (run.status === "running") yield run
+      }
+    }
+  }
+
+  async putToolRequest(req: PtyToolRequest): Promise<void> {
+    this._ptyToolRequests.set(req.id, { ...req })
+    const payload = `${JSON.stringify({ type: "put", request: req })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptyToolRequestsLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getToolRequest(id: string): PtyToolRequest | null {
+    const req = this._ptyToolRequests.get(id)
+    return req ? { ...req } : null
+  }
+
+  listPendingToolRequests(chatId: string): PtyToolRequest[] {
+    const out: PtyToolRequest[] = []
+    for (const req of this._ptyToolRequests.values()) {
+      if (req.chatId !== chatId) continue
+      if (req.status !== "pending") continue
+      out.push({ ...req })
+    }
+    return out
+  }
+
+  async resolveToolRequest(
+    id: string,
+    args: {
+      status: import("../shared/permission-policy").ToolRequestStatus
+      decision?: import("../shared/permission-policy").ToolRequestDecision
+      resolvedAt: number
+      mismatchReason?: string
+    },
+  ): Promise<void> {
+    const existing = this._ptyToolRequests.get(id)
+    if (!existing) throw new Error(`resolveToolRequest: unknown id ${id}`)
+    this._ptyToolRequests.set(id, {
+      ...existing,
+      status: args.status,
+      decision: args.decision ?? existing.decision,
+      resolvedAt: args.resolvedAt,
+      mismatchReason: args.mismatchReason,
+    })
+    const payload = `${JSON.stringify({ type: "resolved", id, status: args.status, decision: args.decision, resolvedAt: args.resolvedAt, mismatchReason: args.mismatchReason })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptyToolRequestsLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  scanAllToolRequests(): PtyToolRequest[] {
+    return [...this._ptyToolRequests.values()].map((req) => ({ ...req }))
+  }
+
+  /**
+   * Generic per-provider session-token setter for claude-pty (and future
+   * non-AgentProvider-union backends). `providerId` is a string so PTY can
+   * use "claude-pty" without forcing the canonical AgentProvider union to
+   * widen.
+   */
+  async setPtySessionToken(chatId: string, providerId: string, sessionToken: string | null): Promise<void> {
+    let map = this._ptySessionTokensByChatId.get(chatId)
+    if (!map) {
+      map = new Map<string, string>()
+      this._ptySessionTokensByChatId.set(chatId, map)
+    }
+    if (sessionToken === null) {
+      map.delete(providerId)
+    } else {
+      map.set(providerId, sessionToken)
+    }
+    const payload = `${JSON.stringify({ chatId, providerId, sessionToken, timestamp: Date.now() })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptySessionTokensLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getPtySessionToken(chatId: string, providerId: string): string | null {
+    return this._ptySessionTokensByChatId.get(chatId)?.get(providerId) ?? null
+  }
+
+  getPtySessionTokensForChat(chatId: string): Record<string, string> {
+    const map = this._ptySessionTokensByChatId.get(chatId)
+    if (!map) return {}
+    return Object.fromEntries(map.entries())
+  }
 }
+
+// ===== claude-pty shared shapes =====
+
+export interface PtySubagentRunSnapshot {
+  runId: string
+  chatId: string
+  subagentId: string | null
+  subagentName: string
+  provider: import("../shared/types").AgentProvider
+  model: string
+  status: "running" | "completed" | "failed" | "cancelled"
+  parentUserMessageId: string
+  parentRunId: string | null
+  depth: number
+  startedAt: number
+  finishedAt: number | null
+  finalText: string | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  error: { code: any; message: string } | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  usage: any | null
+  entries: import("../shared/types").TranscriptEntry[]
+  pendingTool: import("../shared/types").PendingToolSnapshot | null
+}
+
+export type PtySubagentRunEvent =
+  | {
+      v: 3
+      type: "subagent_run_started"
+      timestamp: number
+      chatId: string
+      runId: string
+      subagentId: string | null
+      subagentName: string
+      provider: import("../shared/types").AgentProvider
+      model: string
+      parentUserMessageId: string
+      parentRunId: string | null
+      depth: number
+    }
+  | {
+      v: 3
+      type: "subagent_message_delta"
+      timestamp: number
+      chatId: string
+      runId: string
+      content: string
+    }
+  | {
+      v: 3
+      type: "subagent_run_completed"
+      timestamp: number
+      chatId: string
+      runId: string
+      finalContent: string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      usage?: any
+    }
+  | {
+      v: 3
+      type: "subagent_run_failed"
+      timestamp: number
+      chatId: string
+      runId: string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      error: { code: any; message: string }
+    }
+  | {
+      v: 3
+      type: "subagent_run_cancelled"
+      timestamp: number
+      chatId: string
+      runId: string
+    }
+  | {
+      v: 3
+      type: "subagent_entry_appended"
+      timestamp: number
+      chatId: string
+      runId: string
+      entry: import("../shared/types").TranscriptEntry
+    }
+  | {
+      v: 3
+      type: "subagent_tool_pending"
+      timestamp: number
+      chatId: string
+      runId: string
+      pendingTool: import("../shared/types").PendingToolSnapshot
+    }
+  | {
+      v: 3
+      type: "subagent_tool_resolved"
+      timestamp: number
+      chatId: string
+      runId: string
+    }
+
+export type PtyToolRequest = import("../shared/permission-policy").ToolRequest

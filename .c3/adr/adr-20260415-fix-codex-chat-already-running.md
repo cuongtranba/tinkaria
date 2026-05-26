@@ -1,6 +1,6 @@
 ---
 id: adr-20260415-fix-codex-chat-already-running
-c3-seal: fe17f4e4410fda04ed2f65e9ae5c27ab0c47f1cd42cddab50f4c98d735cb1612
+c3-seal: c0971e6418078cc4f62406b53780f32ea7bc891b463bf8ca9dfe6e8eb2435a9d
 title: fix-codex-chat-already-running
 type: adr
 goal: Fix the Codex session state bug where send_input against an already-running child chat surfaced as a busy/already-running error with only Dismiss available.
@@ -32,6 +32,7 @@ Verification:
 - C3X_MODE=agent bash /home/lagz0ne/.agents/skills/c3/bin/c3x.sh check
 - git diff --check
 Note: transcript-consumer.test.ts currently fails during embedded NATS JetStream setup with 'insufficient storage resources available' before assertions; this is outside the patched code path.
+
 ## Verification Target
 
 Reproduce or identify the stale-running path, add focused coverage where practical, then verify with tests/typecheck and browser smoke if frontend behavior changes.

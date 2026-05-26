@@ -4,6 +4,7 @@ import { APP_NAME } from "./branding"
 const PROVIDER_NAMES: Record<AgentProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  "claude-pty": "Claude (PTY)",
 }
 
 /**

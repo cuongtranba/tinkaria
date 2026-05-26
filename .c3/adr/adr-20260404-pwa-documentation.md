@@ -1,6 +1,6 @@
 ---
 id: adr-20260404-pwa-documentation
-c3-seal: b155ba35ae125c23eb2bd2b5570f9d181864cc520353f0ba5a87e07afbf86ab5
+c3-seal: e39e5f9b006a924a525c9ba13617274da17710f7da13bad1dccd3e56580077b5
 title: pwa-documentation
 type: adr
 goal: Document pwa-documentation architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-04"
 ---
 
 # pwa-documentation
+
 ## Goal
 
 Document pwa-documentation architecture decisions and responsibilities.

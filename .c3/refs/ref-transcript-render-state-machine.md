@@ -1,6 +1,6 @@
 ---
 id: ref-transcript-render-state-machine
-c3-seal: fb27e678d85dffd492972a5158d8c7038b3cee582a49832cf9054c958d9a3ef1
+c3-seal: 817ecf4381adbf6b74143e8637a1f5b71d74f37c4ce7b2e2be8ee5f1be489a37
 title: transcript-render-state-machine
 type: ref
 goal: Make transcript rendering visually stable, replayable, and dead easy to test by separating immutable transcript facts, deterministic render-unit projection, and client delivery state. React renders only the delivery machine's visible render units; raw transcript events never directly mutate visible units.
@@ -18,6 +18,7 @@ Use two pure contracts and one exact freshness key, backed by append-only render
 2. Projection identity: every snapshot/render-window response carries `TranscriptProjectionKey = { chatId, entryCount, lastEntryId, contentHash }`.
 3. Delivery state machine: NATS snapshots, raw transcript events, recovery fetches, and chat route changes become one visible transcript state with monotonic apply/ignore rules.
 Hard data rule:
+
 - Render-relevant transcript facts are append-only. Text, tool-call input, tool-result output, status/result payload, hidden/render kind, source ids, and ordering cannot be updated in place after they can affect projection.
 - Store updates may touch non-render metadata only, such as active status maps, title/provider/session metadata, queue bookkeeping, or operational indexes.
 - If render-visible content must be corrected, append a new transcript entry that supersedes or corrects the prior fact; do not mutate the prior render-relevant entry.
@@ -29,6 +30,7 @@ Freshness rules:
 - Same `entryCount` and different `contentHash` is non-monotonic during a live turn. It must not replace visible units because that is the exact loading/idle flip that causes flashing. It may apply only inside explicit chat selection, hydration reset, or recovery invalidation, and should produce a debug log.
 - `lastEntryId` travels with the key for debug/isolation evidence and request matching; it is not used as an ordering substitute.
 The delivery machine is the only visual writer. `ChatTranscript` must stay a dumb renderer of `TranscriptRenderUnit[]` (or the ready/awaiting state's `units`) and must not group, hide, fetch, hydrate, or reinterpret transcript facts.
+
 ## Why
 
 The render-unit read model made transcript output deterministic, but flashing can still happen if the client applies multiple projections for one turn or if the same transcript entries change unit shape between loading and idle phases. A state machine makes those failure modes explicit and testable:
@@ -40,6 +42,7 @@ The render-unit read model made transcript output deterministic, but flashing ca
 - loading/idle can change adornment, not semantic unit identity for the same entry window;
 - stale chat snapshots cannot leak into a new route;
 - animations cannot repeatedly re-hide already-visible assistant content.
+
 ## How
 
 Required delivery states:
@@ -70,6 +73,7 @@ Required invariants:
 - No raw-event hydration in React: raw events are delivery signals, not visible transcript data.
 - No deliberate live fade loops: `.animate-narration-guard` or replacement animation must not replay on already-visible assistant content after equivalent projection updates.
 Implementation sequence:
+
 1. RED projection tests: prove loading-to-idle shape stability for pure assistant text, tool-assisted turns, dedicated tools, status/result boundaries, and source-entry id stability.
 2. RED projection-key tests: prove append-only entry count increases on render-visible progress, non-render metadata updates do not change projection key, same count/same hash is equivalent replay, and same count/different hash is rejected during live delivery.
 3. RED delivery reducer tests: raw events do not change visible units; coalesced events issue one refresh; stale snapshots/replies are ignored; same hash is ignored; same count/different hash is rejected and logged during live delivery; projection failure retains visible units; chat switches cannot leak prior units.

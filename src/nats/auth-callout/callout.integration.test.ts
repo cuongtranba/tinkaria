@@ -1,5 +1,5 @@
 /**
- * Integration test — auth-callout isolation (Stage A, PR1).
+ * Integration test — auth-callout isolation (Stage B, PR1).
  *
  * Proves:
  *  1. A runner-A credential connects and can pub/sub its own scoped subjects.
@@ -7,8 +7,11 @@
  *     runtime.runner.cmd.B.> — the subject scoped to runner-B.
  *  3. The same runner-A credential is DENIED on runner-B's KV registry key.
  *  4. A ui-client credential is denied on any runtime.runner.cmd subject.
+ *  5. Unknown/garbage token is refused at connect time.
  *
- * The captured permissions-violation error text is the decisive deliverable.
+ * Stage B: credentials are minted via mintCredentialToken (stateless HMAC-signed
+ * tokens) rather than registered in the in-memory registry. All isolation
+ * assertions are preserved unchanged.
  */
 
 import { describe, test, expect, afterAll, beforeAll } from "bun:test"
@@ -24,15 +27,19 @@ import { ensureCalloutKeys } from "./keys"
 import { buildCalloutConfig } from "./callout-config"
 import { CalloutResponder } from "./responder"
 import { runnerKvKeySubject } from "./scope-policy"
+import { mintCredentialToken } from "./token"
 
 // ── Test setup ────────────────────────────────────────────────────────────────
 
 const RUNNER_A = "runner-A"
 const RUNNER_B = "runner-B"
-const SERVER_ADMIN_TOKEN = "test-server-admin-token-" + Date.now()
-const UI_CLIENT_TOKEN = "test-ui-client-token-" + Date.now()
-const RUNNER_A_TOKEN = "test-runner-a-token-" + Date.now()
-const RUNNER_B_TOKEN = "test-runner-b-token-" + Date.now()
+
+// Tokens are minted from the shared secret in startCalloutServer(); declared
+// here so tests can reference them after setup.
+let SERVER_ADMIN_TOKEN: string
+let UI_CLIENT_TOKEN: string
+let RUNNER_A_TOKEN: string
+let RUNNER_B_TOKEN: string
 
 interface ServerInfo {
   natsUrl: string
@@ -51,6 +58,12 @@ async function startCalloutServer(): Promise<ServerInfo> {
   configDir = mkdtempSync(join(tmpdir(), "nats-callout-test-conf-"))
 
   const keys = await ensureCalloutKeys(dataDir)
+
+  // Stage B: mint stateless signed tokens — no registration needed.
+  SERVER_ADMIN_TOKEN = await mintCredentialToken({ class: "server-admin" }, keys.tokenSecret)
+  UI_CLIENT_TOKEN = await mintCredentialToken({ class: "ui-client" }, keys.tokenSecret)
+  RUNNER_A_TOKEN = await mintCredentialToken({ class: "runner", runnerId: RUNNER_A }, keys.tokenSecret)
+  RUNNER_B_TOKEN = await mintCredentialToken({ class: "runner", runnerId: RUNNER_B }, keys.tokenSecret)
 
   const config = buildCalloutConfig({
     host: "127.0.0.1",
@@ -109,19 +122,15 @@ async function startCalloutServer(): Promise<ServerInfo> {
       }
     })
   }).then(async (info) => {
-    // Start the responder and register test credentials
+    // Start the responder — tokenSecret is sufficient; no registration step.
     responder = new CalloutResponder({
       natsUrl: info.natsUrl,
       authUserKp: keys.authUserKp,
       accountKp: keys.accountKp,
       accountPublicKey: keys.accountPublicKey,
       accountName: "CALLOUT_ACCOUNT",
+      tokenSecret: keys.tokenSecret,
     })
-
-    responder.registerCredential(SERVER_ADMIN_TOKEN, { class: "server-admin" })
-    responder.registerCredential(UI_CLIENT_TOKEN, { class: "ui-client" })
-    responder.registerCredential(RUNNER_A_TOKEN, { class: "runner", runnerId: RUNNER_A })
-    responder.registerCredential(RUNNER_B_TOKEN, { class: "runner", runnerId: RUNNER_B })
 
     await responder.start()
 

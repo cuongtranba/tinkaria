@@ -57,9 +57,15 @@ export class NatsDaemonManager {
       }
     }
 
-    const daemonScript = new URL("../nats/nats-daemon.ts", import.meta.url).pathname
+    const authMode = process.env.NATS_AUTH_MODE ?? "callout"
+    const isCallout = authMode === "callout"
+
+    const daemonScript = isCallout
+      ? new URL("../nats/nats-daemon-callout.ts", import.meta.url).pathname
+      : new URL("../nats/nats-daemon.ts", import.meta.url).pathname
+
     const {
-      NATS_DATA_DIR: _natsDataDir,
+      NATS_DATA_DIR: natsDataDir,
       NATS_URL: _natsUrl,
       NATS_MODE: _natsMode,
       NATS_WS_PORT: _natsWsPort,
@@ -72,8 +78,14 @@ export class NatsDaemonManager {
     const child = Bun.spawn(["bun", "run", daemonScript], {
       env: {
         ...spawnEnv,
+        // In callout mode the daemon reads the token secret from disk; NATS_TOKEN
+        // is unused by the callout child but harmless to pass. In token mode it
+        // is the shared auth token.
         NATS_TOKEN: options.token,
         ...(options.host ? { NATS_HOST: options.host } : {}),
+        // Callout mode: pass NATS_DATA_DIR so the child can load keys + secret.
+        // Token mode: strip it (was previous behaviour, preserve for compat).
+        ...(isCallout && natsDataDir ? { NATS_DATA_DIR: natsDataDir } : {}),
       },
       stdio: ["ignore", "pipe", "inherit"],
     })

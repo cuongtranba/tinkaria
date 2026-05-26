@@ -16,6 +16,12 @@ export interface RunnerManagerOptions {
   nc: NatsConnection
   natsUrl: string
   authToken?: string
+  /**
+   * Called in callout mode to mint a scoped credential token for the given
+   * runnerId just before the runner process is spawned. When provided, it takes
+   * precedence over authToken for the spawned runner's NATS_TOKEN env var.
+   */
+  mintToken?: (runnerId: string) => Promise<string>
   /** 'spawn' (default): spawn runner if not found. 'discover': only discover existing runner from KV. */
   mode?: "spawn" | "discover"
 }
@@ -35,6 +41,7 @@ export class RunnerManager {
   private readonly nc: NatsConnection
   private readonly natsUrl: string
   private readonly authToken: string | undefined
+  private readonly mintToken: ((runnerId: string) => Promise<string>) | undefined
   private readonly mode: "spawn" | "discover"
   private proc: ReturnType<typeof Bun.spawn> | null = null
   private runnerId: string | null = null
@@ -46,6 +53,7 @@ export class RunnerManager {
     this.nc = options.nc
     this.natsUrl = options.natsUrl
     this.authToken = options.authToken
+    this.mintToken = options.mintToken
     this.mode = options.mode ?? "spawn"
   }
 
@@ -99,13 +107,19 @@ export class RunnerManager {
     const runnerId = `runner-${Date.now()}-${process.pid}`
     const runnerScript = new URL("../runner/runner.ts", import.meta.url).pathname
 
+    // In callout mode mintToken produces a scoped credential for this runnerId.
+    // In token mode authToken is the shared static token — behaviour unchanged.
+    const runnerToken = this.mintToken
+      ? await this.mintToken(runnerId)
+      : this.authToken
+
     this.subscribeToHeartbeat(runnerId)
 
     this.proc = Bun.spawn(["bun", "run", runnerScript], {
       env: {
         ...process.env,
         NATS_URL: this.natsUrl,
-        ...(this.authToken ? { NATS_TOKEN: this.authToken } : {}),
+        ...(runnerToken ? { NATS_TOKEN: runnerToken } : {}),
         RUNNER_ID: runnerId,
       },
       stdio: ["ignore", "inherit", "inherit"],

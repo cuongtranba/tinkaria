@@ -126,6 +126,7 @@ const responder = new CalloutResponder({
   accountKp: keys.accountKp,
   accountPublicKey: keys.accountPublicKey,
   accountName: "CALLOUT_ACCOUNT",
+  tokenSecret: keys.tokenSecret,
 })
 
 await responder.start()

@@ -36,10 +36,10 @@
 choice. Updated as work proceeds.</p>
 
 <h2>Current stage</h2>
-<p><strong>Stage A complete.</strong> Auth-callout machinery is built and tested
-behind the <code>NATS_AUTH_MODE=callout</code> flag. Token mode is untouched.
-47/47 tests pass (30 unit + 8 integration + 9 pre-existing). Typecheck clean.
-Stage B (migrate orchestrator / runner / browser onto scoped creds) is next.</p>
+<p><strong>Stage B complete.</strong> All three production connections (server-admin,
+runner, ui-client) now use NATS-callout-scoped credentials. <code>NATS_AUTH_MODE</code>
+defaults to <code>callout</code>. 47/47 tests pass. Typecheck clean. Health check
+shows all three signals healthy in callout mode. Stage C (tailnet bind) is next.</p>
 
 <h2>Spike result — Phase 1 (2026-05-26)</h2>
 <div class="card">
@@ -189,6 +189,74 @@ Stage B (migrate orchestrator / runner / browser onto scoped creds) is next.</p>
   in <code>NatsDaemonManager</code> (Stage B).</p>
 </div>
 
+<h2>Design decisions (Stage B)</h2>
+
+<div class="card">
+  <span class="label">Stateless signed tokens — no shared in-memory state</span>
+  <p>The server process (token issuer) and the daemon child (token verifier) share
+  only a 32-byte secret stored on disk at <code>NATS_DATA_DIR/nats.callout-token.secret</code>.
+  Token format: <code>base64url(payload_json) + "." + base64url(HMAC-SHA256(secret, payload_json))</code>.
+  No registration call needed; the responder calls <code>verifyCredentialToken</code>
+  instead of doing a map lookup. This eliminates the Stage A IPC design requirement.</p>
+</div>
+
+<div class="card">
+  <span class="label">mintToken callback on RunnerManager</span>
+  <p>Rather than passing the token secret into RunnerManager (which would couple
+  it to the auth-callout module), a <code>mintToken: (runnerId) =&gt; Promise&lt;string&gt;</code>
+  callback is added to <code>RunnerManagerOptions</code>. In callout mode the
+  server closes over <code>keys.tokenSecret</code>; in token mode the callback is
+  undefined and <code>authToken</code> is used unchanged. Zero token-mode
+  regression risk.</p>
+</div>
+
+<div class="card">
+  <span class="label">uiClientToken — one token minted at startup for /auth/token</span>
+  <p>Q2 ("browser identity") is resolved as planned: a single <code>ui-client</code>
+  class token is minted at startup and held in <code>uiClientToken</code>.
+  <code>/auth/token</code> returns this token (not the server-admin token).
+  In token mode <code>uiClientToken === authToken</code> — unchanged behaviour.</p>
+</div>
+
+<div class="card">
+  <span class="label">NATS_DATA_DIR fallback to store.dataDir in callout mode</span>
+  <p>The server process needs <code>NATS_DATA_DIR</code> to call
+  <code>ensureCalloutKeys</code>. If the env var is absent, we fall back to
+  <code>store.dataDir</code> (the app's own data directory). This avoids a hard
+  startup failure for users who haven't set the env var explicitly.</p>
+</div>
+
+<div class="card">
+  <span class="label">scope-policy.ts dead code cleanup</span>
+  <p>The <code>runnerForeignKvSubject()</code> helper was left unused in Stage A
+  (the deny-list approach it was designed for was abandoned in favour of allow-only
+  lists — see Stage A notes). It was not flagged by the Stage A typecheck run but
+  surfaced as TS6133 in Stage B. Removed to keep the typecheck gate clean.
+  Recorded as Stage A friction.</p>
+</div>
+
+<h2>Scope widening</h2>
+<p>None required. The runner's allow list in <code>scope-policy.ts</code> already
+covers all subjects the runner needs: <code>runtime.runner.heartbeat.{id}</code>,
+<code>runtime.runner.evt.&gt;</code>, its own KV key, <code>_INBOX.&gt;</code>,
+<code>$JS.API.&gt;</code>, and <code>runtime.runner.cmd.{id}.&gt;</code>.
+The KV registration failure seen in the dev log
+(<em>"Runner KV registration failed: jetstream is not enabled"</em>) is a
+pre-existing issue unrelated to callout scoping — the JetStream KV store wasn't
+initialised before the runner tried to register. The health check still shows
+<code>runner.ok: true</code> because the runner heartbeat subscription works.</p>
+
+<h2>Deviations from Stage B plan</h2>
+<div class="card">
+  <span class="label">No deviation — plan followed exactly</span>
+  <p>All 10 points from the architecture spec were implemented as specified.
+  The token secret persisted at <code>nats.callout-token.secret</code>;
+  both processes load it via <code>ensureCalloutKeys</code>; the responder
+  verifies via HMAC; server connects as server-admin; ui-client token held for
+  <code>/auth/token</code>; runner gets scoped per-runnerId token at spawn;
+  default flipped to callout; token mode escape hatch preserved.</p>
+</div>
+
 <h2>Verification log</h2>
 <div class="card">
   <span class="label">Stage A integration test — 2026-05-26</span>
@@ -202,6 +270,24 @@ Stage B (migrate orchestrator / runner / browser onto scoped creds) is next.</p>
   </ul>
   <p>Token-mode regression: 9 pre-existing nats-daemon + nats-token tests — all green.</p>
   <p>Total: 47 pass / 0 fail across 5 files. Typecheck: clean.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage B integration test — 2026-05-26</span>
+  <p>Run: <code>bun test src/nats/</code></p>
+  <p>47/47 pass — isolation re-proven with stateless tokens. Decisive evidence:</p>
+  <ul>
+    <li><strong>runner-A denied on runner-B cmd:</strong> <em>connection closed by NATS: connection closed</em></li>
+    <li><strong>runner-A denied on runner-B KV:</strong> <em>$KV.runtime_runner_registry.runner-B denied</em></li>
+    <li><strong>ui-client denied on runner cmd</strong></li>
+    <li><strong>unknown token refused at connect:</strong> <em>Authorization Violation</em></li>
+    <li>All audit lines show <code>decision=grant/deny class=… detail=ok</code> or <code>unknown or invalid credential</code></li>
+  </ul>
+  <p>Typecheck: clean (0 errors). <code>git diff --check</code>: clean.</p>
+  <p>Health check (<code>curl -s localhost:3210/health</code>) in callout mode — all three signals healthy:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3210,"natsWsPort":60039,"natsDaemon":{"ok":true,...},"natsConnection":{"ok":true,...},"runner":{"ok":true,"runnerId":"runner-1779793852558-91644","pid":86782,"registered":true,"heartbeatFresh":true}}</pre>
+  <p>Callout audit log confirmed: <code>decision=grant class=server-admin</code> (server connect) +
+  <code>decision=grant class=runner:runner-…</code> (runner spawn).</p>
 </div>
 
 </body>

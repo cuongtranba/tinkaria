@@ -19,6 +19,7 @@ import type { KeyPair } from "@nats-io/nkeys"
 
 const ACCOUNT_SEED_FILE = "nats.callout-account.seed"
 const AUTH_USER_SEED_FILE = "nats.callout-auth-user.seed"
+const TOKEN_SECRET_FILE = "nats.callout-token.secret"
 
 /** Loaded callout key material. */
 export interface CalloutKeys {
@@ -30,6 +31,11 @@ export interface CalloutKeys {
   authUserKp: KeyPair
   /** Public key of the auth-service user (goes into nats-server config). */
   authUserPublicKey: string
+  /**
+   * 32-byte shared secret used to mint and verify stateless credential tokens
+   * (Stage B). Both the server process and the daemon child load this from disk.
+   */
+  tokenSecret: Uint8Array
 }
 
 async function readOrCreateSeed(
@@ -50,9 +56,25 @@ async function readOrCreateSeed(
   return seed
 }
 
+async function readOrCreateTokenSecret(secretPath: string): Promise<Uint8Array> {
+  const file = Bun.file(secretPath)
+  if (await file.exists()) {
+    const hex = (await file.text()).trim()
+    if (hex.length === 64) return new Uint8Array(Buffer.from(hex, "hex"))
+  }
+
+  const secret = new Uint8Array(32)
+  crypto.getRandomValues(secret)
+  const hex = Buffer.from(secret).toString("hex")
+  const tmp = `${secretPath}.tmp.${process.pid}`
+  await Bun.write(tmp, hex + "\n")
+  renameSync(tmp, secretPath) // atomic
+  return secret
+}
+
 /**
  * Ensure callout key material exists in `dataDir`.
- * Generates both pairs on first call; subsequent calls load from disk.
+ * Generates both pairs and the token secret on first call; subsequent calls load from disk.
  * Safe for single-writer use (the NATS daemon); not safe for concurrent writers.
  */
 export async function ensureCalloutKeys(dataDir: string): Promise<CalloutKeys> {
@@ -60,9 +82,11 @@ export async function ensureCalloutKeys(dataDir: string): Promise<CalloutKeys> {
 
   const accountSeedPath = join(dataDir, ACCOUNT_SEED_FILE)
   const authUserSeedPath = join(dataDir, AUTH_USER_SEED_FILE)
+  const tokenSecretPath = join(dataDir, TOKEN_SECRET_FILE)
 
   const accountSeed = await readOrCreateSeed(accountSeedPath, createAccount)
   const authUserSeed = await readOrCreateSeed(authUserSeedPath, createUser)
+  const tokenSecret = await readOrCreateTokenSecret(tokenSecretPath)
 
   const accountKp = fromSeed(Buffer.from(accountSeed.trim()))
   const authUserKp = fromSeed(Buffer.from(authUserSeed.trim()))
@@ -72,5 +96,6 @@ export async function ensureCalloutKeys(dataDir: string): Promise<CalloutKeys> {
     accountPublicKey: accountKp.getPublicKey(),
     authUserKp,
     authUserPublicKey: authUserKp.getPublicKey(),
+    tokenSecret,
   }
 }

@@ -40,10 +40,6 @@ function runnerOwnKvSubject(runnerId: string): string {
   return `$KV.${RUNNER_REGISTRY_BUCKET}.${runnerId}`
 }
 
-/** Build the wildcard deny subject for all OTHER registry keys. */
-function runnerForeignKvSubject(): string {
-  return `$KV.${RUNNER_REGISTRY_BUCKET}.>`
-}
 
 // ── Policy factory ───────────────────────────────────────────────────────────
 

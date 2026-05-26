@@ -1,15 +1,19 @@
 /**
- * Auth-callout responder (Stage A, PR1).
+ * Auth-callout responder (Stage B, PR1).
  *
  * Subscribes to $SYS.REQ.USER.AUTH. For each request:
- *  1. Decode the AuthorizationRequest (plain JSON from NATS).
- *  2. Validate the credential in connect_opts.auth_token.
+ *  1. Decode the AuthorizationRequest JWT from NATS.
+ *  2. Validate the credential in connect_opts.auth_token via verifyCredentialToken.
  *  3. Resolve the connection class (and runnerId for runner class).
  *  4. Mint a scoped user JWT and respond with a signed AuthorizationResponse.
  *  5. Audit every decision (grant/deny).
  *
  * The responding connection itself uses the auth-service nkey (authUserKp) and
  * bypasses the callout, per the NATS auth_callout spec.
+ *
+ * Stage B: replaced in-memory credential registry with stateless HMAC-signed
+ * tokens (verifyCredentialToken). No registration step; both the server process
+ * (issuer) and this daemon child (verifier) share only the on-disk token secret.
  */
 
 import { connect, type NatsConnection, type Subscription } from "@nats-io/transport-node"
@@ -26,20 +30,9 @@ import type { AuthorizationRequest } from "@nats-io/jwt"
 import type { KeyPair } from "@nats-io/nkeys"
 import { permissionsFor } from "./scope-policy"
 import type { ResolvedIdentity } from "./scope-policy"
+import { verifyCredentialToken } from "./token"
 
 const CALLOUT_SUBJECT = "$SYS.REQ.USER.AUTH"
-
-// ── Credential registry ──────────────────────────────────────────────────────
-//
-// Stage A: credentials are simple tokens stored in this in-memory registry.
-// The responder mints them on demand (ensureServerAdminCred, ensureUiClientCred,
-// mintRunnerCred) and validates them by lookup.
-//
-// Stage B will wire this into the server's credential-issuance path.
-
-interface CredentialRecord {
-  identity: ResolvedIdentity
-}
 
 // ── Responder ─────────────────────────────────────────────────────────────────
 
@@ -58,24 +51,20 @@ export interface ResponderOptions {
    * which account to place the connection in.
    */
   accountName?: string
+  /**
+   * 32-byte shared secret loaded from NATS_DATA_DIR by the daemon child.
+   * Used to verify stateless credential tokens without any in-memory registry.
+   */
+  tokenSecret: Uint8Array
 }
 
 export class CalloutResponder {
   private nc: NatsConnection | null = null
   private sub: Subscription | null = null
-  private readonly credentials = new Map<string, CredentialRecord>()
   private readonly opts: ResponderOptions
 
   constructor(opts: ResponderOptions) {
     this.opts = opts
-  }
-
-  /**
-   * Register a credential token that the responder will recognise.
-   * Returns the token for the caller to hand to the connecting client.
-   */
-  registerCredential(token: string, identity: ResolvedIdentity): void {
-    this.credentials.set(token, { identity })
   }
 
   /**
@@ -133,15 +122,13 @@ export class CalloutResponder {
     const serverNkey = req.server_id.id
     const presentedToken = req.connect_opts?.auth_token
 
-    // Look up the credential.
-    const record = presentedToken ? this.credentials.get(presentedToken) : undefined
-    if (!record) {
-      this.audit("deny", userNkey, null, "unknown credential")
+    // Verify the stateless signed credential token.
+    const identity = await verifyCredentialToken(presentedToken, this.opts.tokenSecret)
+    if (!identity) {
+      this.audit("deny", userNkey, null, "unknown or invalid credential")
       await this.respondError(msg, accountKp, serverNkey, "unknown credential")
       return
     }
-
-    const identity = record.identity
     const scope = permissionsFor(identity)
 
     // Mint a fresh user keypair for this connection (the JWT subject).

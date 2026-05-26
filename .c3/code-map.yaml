@@ -40,8 +40,7 @@ c3-110:
   - src/client/app/useChatNavigator.ts
   - src/client/app/useScrollSync.ts
   - src/client/app/useStickyChatFocus.ts
-  - src/client/app/useTinkariaState.machine.ts
-  - src/client/app/useTinkariaState.ts
+  - src/client/app/useAppState.machine.ts
   - src/client/components/chat-ui/ForkSessionDialog.tsx
   - src/client/components/chat-ui/MergeSessionDialog.tsx
   - src/client/components/chat-ui/TerminalPane.tsx
@@ -57,7 +56,6 @@ c3-112:
   - src/client/components/chat-ui/SubagentIndicator.tsx
 c3-113:
   - src/client/app/AppSidebar.tsx
-  - src/client/components/chat-ui/SessionPicker.tsx
   - src/client/components/chat-ui/sidebar/*.tsx
 c3-115:
   - src/client/app/useRightSidebarToggleAnimation.ts
@@ -86,7 +84,6 @@ c3-203:
   - bin/kanna
   - bin/tinkaria
   - scripts/*.ts
-  - src/server/branding-migration.ts
   - src/server/cli-runtime.ts
   - src/server/cli-supervisor.ts
   - src/server/cli.ts
@@ -117,7 +114,6 @@ c3-206:
   - src/server/orchestration.test.ts
   - src/server/orchestration.ts
 c3-207:
-  - src/server/agent.test.ts
   - src/server/agent.ts
   - src/shared/web-context.test.ts
   - src/shared/web-context.ts
@@ -129,19 +125,12 @@ c3-208:
   - src/runner/runner.test.ts
   - src/runner/runner.ts
   - src/runner/turn-factories.ts
-  - src/server/codex-runtime.ts
-  - src/server/local-codex-kit.test.ts
-  - src/server/local-codex-kit.ts
 c3-209:
   - src/client/components/coordination/**
 c3-210:
-  - src/server/agent.test.ts
   - src/server/agent.ts
-  - src/server/claude-agent-coordinator.test.ts
   - src/server/claude-harness.ts
   - src/server/claude-turn.test.ts
-  - src/server/codex-harness.ts
-  - src/server/codex-turn.test.ts
   - src/server/harness-types.ts
   - src/server/runner-proxy.test.ts
   - src/server/runner-proxy.ts
@@ -198,7 +187,6 @@ ref-project-context:
   - postcss.config.js
   - public/**
   - skills-lock.json
-  - tasks/**
   - tsconfig.json
   - vite.config.ts
 ref-ref-event-sourcing:
@@ -232,10 +220,11 @@ rule-error-extraction:
 rule-graceful-fallbacks:
   - src/server/cli-runtime.ts
   - src/server/event-store.ts
-  - src/server/nats-publisher.ts,src/server/nats-bridge.ts
+  - src/server/nats-publisher.ts
+  - src/server/nats-bridge.ts
   - src/server/terminal-manager.ts
 rule-prefixed-logging:
-  - src/client/app/useKannaState.ts
+  - src/client/app/useAppState.ts
   - src/server/**/*.ts
   - src/shared/branding.ts
 rule-rule-bun-runtime:
@@ -251,10 +240,7 @@ rule-transcript-boundary-regressions:
   - src/runner/runner-agent.test.ts
   - src/runner/runner-nats.test.ts
   - src/runner/runner.test.ts
-  - src/server/agent.test.ts
-  - src/server/claude-agent-coordinator.test.ts
   - src/server/claude-turn.test.ts
-  - src/server/codex-turn.test.ts
   - src/server/transcript-consumer.test.ts
   - src/shared/tools.test.ts
 rule-type-guards:

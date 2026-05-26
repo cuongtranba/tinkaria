@@ -88,11 +88,34 @@ function uiClientScope(): SubjectScope {
   // ui-client may only publish to runtime.cmd.> (UI commands).
   // runtime.runner.cmd.> is NOT in the allow list → denied by NATS by default.
   // No deny list needed: NATS's allow-only model covers this.
+  //
+  // JetStream subjects: the browser calls js.consumers.get(KANNA_CHAT_MESSAGE_EVENTS, ...)
+  // which publishes to these $JS.API.* subjects (empirically confirmed in Stage D):
+  //   $JS.API.STREAM.INFO.KANNA_CHAT_MESSAGE_EVENTS  — stream lookup before consumer create
+  //   $JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS  — ephemeral consumer create
+  //   $JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS.*  — named variant (filter-subject path)
+  //   $JS.API.CONSUMER.INFO.KANNA_CHAT_MESSAGE_EVENTS.*    — status checks on reconnect
+  //   $JS.API.CONSUMER.DELETE.KANNA_CHAT_MESSAGE_EVENTS.*  — cleanup on close
+  //
+  // Scoped to KANNA_CHAT_MESSAGE_EVENTS only — the single stream the browser client
+  // accesses directly (see nats-socket.ts activateJetStreamConsumer). The browser
+  // never touches other KANNA_* streams or any admin API ($JS.API.STREAM.CREATE, etc).
   return {
     pub: {
       allow: [
         "runtime.cmd.>",  // UI commands only (runner cmds NOT included)
         "_INBOX.>",
+        // JetStream consumer lifecycle for KANNA_CHAT_MESSAGE_EVENTS only.
+        // When filter_subjects is set, the library appends both an ephemeral name
+        // AND the filter subject token, producing:
+        //   $JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS.<name>.<filter>
+        // so we need ">" (rest-of-subject wildcard) not just "*" (single token).
+        // INFO and DELETE also use "<stream>.<name>" (two tokens past the stream).
+        "$JS.API.STREAM.INFO.KANNA_CHAT_MESSAGE_EVENTS",
+        "$JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS",
+        "$JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS.>",
+        "$JS.API.CONSUMER.INFO.KANNA_CHAT_MESSAGE_EVENTS.>",
+        "$JS.API.CONSUMER.DELETE.KANNA_CHAT_MESSAGE_EVENTS.>",
       ],
       deny: [],
     },

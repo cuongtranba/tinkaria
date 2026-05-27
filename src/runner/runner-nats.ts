@@ -89,8 +89,13 @@ export async function probeProviders(
   try {
     await resolver({ env: process.env, homeDir: process.env.HOME ?? process.env.USERPROFILE ?? "" })
     providers.push("claude")
+    // claude-pty is the same claude binary driven through a PTY (the
+    // claude-pty driver) rather than the SDK. It has no separate binary, so
+    // if claude resolves, claude-pty is available too. Advertise it explicitly
+    // — otherwise the server's capability gate refuses every claude-pty turn.
+    providers.push("claude-pty")
   } catch {
-    // claude binary not found — exclude from capabilities
+    // claude binary not found — exclude claude and claude-pty from capabilities
   }
 
   // Probe codex via which (mirrors resolveCodexBinary in turn-factories.ts)

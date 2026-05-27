@@ -343,12 +343,15 @@ describe("probeProviders", () => {
     try {
       const caps = await probeProviders(fakeResolver)
       expect(caps.providers).toContain("claude")
+      // claude-pty rides on the same claude binary, so it must be advertised
+      // alongside claude — otherwise the server capability gate refuses it.
+      expect(caps.providers).toContain("claude-pty")
     } finally {
       warnSpy.mockRestore()
     }
   })
 
-  test("excludes claude when resolver throws", async () => {
+  test("excludes claude and claude-pty when resolver throws", async () => {
     const failingResolver = async (): Promise<ResolveClaudeBinaryResult> => {
       throw new Error("claude not found")
     }
@@ -357,6 +360,7 @@ describe("probeProviders", () => {
     try {
       const caps = await probeProviders(failingResolver)
       expect(caps.providers).not.toContain("claude")
+      expect(caps.providers).not.toContain("claude-pty")
     } finally {
       warnSpy.mockRestore()
     }

@@ -57,6 +57,12 @@ implemented until tests or validation evidence exist.
 | pty-runner-cpu-mem-sampling | Usage delta carries current phase, not stale spawning | yes | n/a | n/a | n/a | planned | |
 | pty-runner-cpu-mem-sampling | No usage delta after session removed/aborted (no resurrection in store) | yes | n/a | n/a | n/a | planned | |
 
+| PR2-runner-identity-pairing | `POST /api/pairing/code` issues a short-lived single-use code (callout mode); token mode → 409 | yes | yes | n/a | n/a | implemented | pairing-store.test.ts (10) + pairing-endpoints.test.ts; team-lead E2E issued `l7w5i-7tp44-7ierwt`; 80-bit base32 code |
+| PR2-runner-identity-pairing | `POST /api/pairing/exchange` redeems code once → {runnerId, token, natsUrl}; reused/expired → 410; unknown → 400 | yes | yes | n/a | n/a | implemented | atomic single-use; returned token verifies via PR1 verifyCredentialToken → {class:runner, runnerId}; team-lead E2E reused code → 410 |
+| PR2-runner-identity-pairing | Externally-launched runner starts from `~/.tinkaria/runner-secret.json` (0600), connects via PR1 callout, self-registers + heartbeats | yes | n/a | yes | yes | implemented | team-lead E2E: paired runner (no NATS env, only TINKARIA_RUNNER_HOME) loaded credential, connected, ready; server `decision=grant class=runner:runner-1779803611398-30530`; file `-rw-------` |
+| PR2-runner-identity-pairing | Multiple paired runners coexist with distinct runnerIds | n/a | n/a | yes | n/a | implemented | by design — each `/pairing/code` allocates a fresh runnerId; E2E paired runnerId distinct from the server-spawned one (explicit 2-runner coexistence run not separately captured) |
+| PR2-runner-identity-pairing | Paired runner shares PR1 scope: still DENIED on another runnerId's cmd/KV (isolation preserved) | n/a | yes | n/a | n/a | implemented | PR1 callout.integration test green (src/nats 60/60); paired runners use the same `{class:runner, runnerId}` scope — no widening |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

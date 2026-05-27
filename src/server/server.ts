@@ -21,6 +21,7 @@ import { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
 import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
 import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
+import { PairingStore } from "./pairing-store"
 import { RunnerProxy } from "./runner-proxy"
 import { TranscriptConsumer } from "./transcript-consumer"
 import type { AgentProvider, TranscriptEntry, SessionStatus } from "../shared/types"
@@ -410,6 +411,11 @@ export async function startServer(options: StartServerOptions = {}) {
   // Token mode (NATS_AUTH_MODE=token): shared static token — legacy escape hatch.
   let uiClientToken: string   // returned by /auth/token for browser WS connections
   let mintRunnerToken: ((runnerId: string) => Promise<string>) | undefined
+  // Durable runner credential mint for pairing (callout mode only).
+  // RUNNER_PAIR_TTL: long-lived token TTL in seconds (default 90 days).
+  // Paired runners persist this token and present it at every NATS connect.
+  const runnerPairTtl = Number(process.env.RUNNER_PAIR_TTL ?? 7_776_000)
+  let mintPairedRunnerToken: ((runnerId: string) => Promise<string>) | undefined
 
   if (natsMode === "external") {
     const natsUrl = process.env.NATS_URL
@@ -438,6 +444,9 @@ export async function startServer(options: StartServerOptions = {}) {
     uiClientToken = await mintCredentialToken({ class: "ui-client" }, keys.tokenSecret)
     mintRunnerToken = (runnerId: string) =>
       mintCredentialToken({ class: "runner", runnerId }, keys.tokenSecret)
+    // Paired runners get a long-lived token (RUNNER_PAIR_TTL, default 90d).
+    mintPairedRunnerToken = (runnerId: string) =>
+      mintCredentialToken({ class: "runner", runnerId }, keys.tokenSecret, runnerPairTtl)
 
     daemonManager = NatsDaemonManager.embedded()
     const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
@@ -451,6 +460,9 @@ export async function startServer(options: StartServerOptions = {}) {
     const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
     daemonInfo = info
   }
+
+  // Pairing code store (callout mode only — see POST /api/pairing/code).
+  const pairingStore = new PairingStore()
 
   // Push notifications
   initVapid()
@@ -892,6 +904,54 @@ export async function startServer(options: StartServerOptions = {}) {
             return Response.json({
               token: uiClientToken,
               ...(natsWsUrl ? { natsWsUrl } : {}),
+            })
+          }
+
+          // ── Pairing endpoints (PR2) ─────────────────────────────────────────
+          //
+          // Both routes are public (no user auth), matching /auth/token's posture.
+          // The code itself is the bearer secret — short TTL, single-use, unguessable.
+          // Gating on user-auth is the documented pre-multi-tenant follow-up.
+          //
+          if (url.pathname === "/api/pairing/code" && req.method === "POST") {
+            // Only available in callout mode — the minted token is a callout credential.
+            if (!mintPairedRunnerToken) {
+              return Response.json(
+                { error: "pairing requires NATS_AUTH_MODE=callout" },
+                { status: 409 }
+              )
+            }
+            // Allocate a runnerId (same format as runner-manager's spawned runners).
+            const newRunnerId = `runner-${Date.now()}-${process.pid}`
+            const token = await mintPairedRunnerToken(newRunnerId)
+            const { code, expiresAt } = pairingStore.issue({ runnerId: newRunnerId, token })
+            console.warn(LOG_PREFIX, `Pairing code issued for runner ${newRunnerId}, expires ${new Date(expiresAt).toISOString()}`)
+            return Response.json({ code, expiresAt })
+          }
+
+          if (url.pathname === "/api/pairing/exchange" && req.method === "POST") {
+            let body: { code?: unknown }
+            try {
+              body = await req.json() as { code?: unknown }
+            } catch {
+              return Response.json({ error: "invalid JSON body" }, { status: 400 })
+            }
+            const code = body?.code
+            if (typeof code !== "string" || !code.trim()) {
+              return Response.json({ error: "missing or invalid code" }, { status: 400 })
+            }
+            const result = pairingStore.exchange(code)
+            if (!result.ok) {
+              const isGone = result.error === "expired" || result.error === "consumed"
+              console.warn(LOG_PREFIX, `Pairing exchange rejected: ${result.error}`)
+              return Response.json({ error: result.error }, { status: isGone ? 410 : 400 })
+            }
+            console.warn(LOG_PREFIX, `Pairing exchange succeeded for runner ${result.runnerId}`)
+            return Response.json({
+              runnerId: result.runnerId,
+              token: result.token,
+              natsUrl: daemonInfo.url,
+              natsWsUrl: daemonInfo.wsUrl,
             })
           }
 

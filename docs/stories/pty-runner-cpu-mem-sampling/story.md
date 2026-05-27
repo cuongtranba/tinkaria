@@ -2,10 +2,11 @@
 
 ## Status
 
-implemented
+verified
 
-(Code + unit + typecheck + runtime health done. Live UI screenshot deferred to
-user verification per their choice.)
+(Code + unit + typecheck + runtime health done. Live UI confirmed by user in
+running app at http://localhost:5174 — CPU/mem render on PtyInstancesIndicator
+on the runner PTY path.)
 
 ## Lane
 

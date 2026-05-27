@@ -151,6 +151,11 @@ describe("RunnerProxy", () => {
       store,
       runnerId: RUNNER_ID,
       getActiveStatuses: () => activeStatuses,
+      // PR3 made the start_turn gate fail-closed: a RunnerProxy without a
+      // readiness source refuses start_turn. Provide a compatible default so
+      // these baseline tests exercise the happy path (incompatibility is covered
+      // in runner-incompatible-gate.test.ts).
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1 }),
       ...overrides,
     })
 
@@ -439,6 +444,7 @@ describe("RunnerProxy", () => {
       store: createMockStore(),
       runnerId: RUNNER_ID,
       getActiveStatuses: () => new Map(),
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1 }),
     })
 
     await expect(proxy.cancel("chat-err")).rejects.toThrow("Turn already active")

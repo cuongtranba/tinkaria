@@ -25,6 +25,7 @@ import type { ChatSnapshot, LocalWorkspacesSnapshot, SidebarChatRow, SidebarData
 import type { LocalFilePreview } from "../components/messages/LocalFilePreviewDialog"
 import type { useAppDialog } from "../components/ui/app-dialog"
 import { deleteCachedChat } from "./chatCache"
+import { generateUUID } from "../lib/utils"
 import {
   clearPendingSessionBootstrapAfterAttempt,
   deriveForkSessionPreviewTitle,
@@ -297,7 +298,7 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
 
   async function createChatForProject(workspaceId: string) {
     useChatPreferencesStore.getState().initializeComposerForNewChat()
-    const optimisticChatId = crypto.randomUUID()
+    const optimisticChatId = generateUUID()
     setProjectSelection((current) => transitionProjectSelection(current, {
       type: "project.explicitly_selected",
       workspaceId,

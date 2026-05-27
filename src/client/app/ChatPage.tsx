@@ -801,7 +801,7 @@ export function ChatPage() {
           style={{ bottom: effectiveScrollButtonBottomPx }}
           className={cn(
             "absolute left-1/2 -translate-x-1/2 z-30 transition-all",
-            state.showScrollButton
+            chatNav.visible
               ? "scale-100 duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
               : "scale-60 duration-300 ease-out pointer-events-none blur-sm opacity-0"
           )}

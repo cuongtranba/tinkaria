@@ -66,6 +66,7 @@ function serverAdminScope(): SubjectScope {
       allow: [
         "runtime.>",    // all runtime subjects
         "$JS.API.>",    // JetStream API
+        "$JS.ACK.>",    // JetStream message acknowledgements (separate tree from $JS.API)
         "$KV.>",        // all KV operations
         "_INBOX.>",     // inbox replies
       ],
@@ -75,6 +76,7 @@ function serverAdminScope(): SubjectScope {
       allow: [
         "runtime.>",
         "$JS.API.>",
+        "$JS.ACK.>",
         "$KV.>",
         "_INBOX.>",
         "$SYS.REQ.USER.AUTH", // callout responder subscription
@@ -116,6 +118,15 @@ function uiClientScope(): SubjectScope {
         "$JS.API.CONSUMER.CREATE.KANNA_CHAT_MESSAGE_EVENTS.>",
         "$JS.API.CONSUMER.INFO.KANNA_CHAT_MESSAGE_EVENTS.>",
         "$JS.API.CONSUMER.DELETE.KANNA_CHAT_MESSAGE_EVENTS.>",
+        // Pull-consumer fetch: the browser pulls messages via
+        //   $JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>
+        // This was missing, so every pull was denied (Publish Violation) and the
+        // browser could not read chat messages. Same per-stream scoping as above.
+        "$JS.API.CONSUMER.MSG.NEXT.KANNA_CHAT_MESSAGE_EVENTS.>",
+        // JetStream message acknowledgements for that consumer. $JS.ACK is a
+        // separate subject tree from $JS.API; without it the browser's consumer
+        // can't ack and stalls once max-ack-pending is hit. Scoped to the chat stream.
+        "$JS.ACK.KANNA_CHAT_MESSAGE_EVENTS.>",
       ],
       deny: [],
     },
@@ -167,6 +178,10 @@ function runnerScope(runnerId: string): SubjectScope {
         // This is a PILOT allowance — a runner can publish to any JS API subject,
         // including ones for other streams. Flag for Stage D security review.
         "$JS.API.>",
+        // JetStream message acknowledgements (separate tree from $JS.API). The
+        // runner consumes coordination/oauth streams; without this its consumers
+        // can't ack and stall. Matches the existing broad $JS.API.> pilot grant.
+        "$JS.ACK.>",
       ],
       deny: [],
     },

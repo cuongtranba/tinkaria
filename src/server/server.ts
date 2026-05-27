@@ -22,6 +22,8 @@ import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
 import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { PairingStore } from "./pairing-store"
+import { resolveRunnerPairingUrls } from "./runner-pairing-urls"
+import { forwardClientLogs } from "./client-log-forwarder"
 import { RunnerProxy } from "./runner-proxy"
 import { RunnerRouter } from "./runner-router"
 import { TranscriptConsumer } from "./transcript-consumer"
@@ -979,13 +981,38 @@ export async function startServer(options: StartServerOptions = {}) {
               console.warn(LOG_PREFIX, `Pairing exchange rejected: ${result.error}`)
               return Response.json({ error: result.error }, { status: isGone ? 410 : 400 })
             }
+            // A paired runner may be on another machine, so the credential's
+            // NATS URL host must be routable from there — never the wildcard
+            // bind host (0.0.0.0 / ::), which would resolve to the runner's own
+            // loopback and yield ECONNREFUSED. Honor NATS_ADVERTISED_HOST (same
+            // as /auth/token); refuse to hand out an unroutable URL otherwise.
+            const pairingUrls = resolveRunnerPairingUrls(daemonInfo)
+            if (!pairingUrls.ok) {
+              console.warn(LOG_PREFIX, `Pairing exchange blocked for runner ${result.runnerId}: ${pairingUrls.error}`)
+              return Response.json({ error: pairingUrls.error }, { status: 409 })
+            }
             console.warn(LOG_PREFIX, `Pairing exchange succeeded for runner ${result.runnerId}`)
             return Response.json({
               runnerId: result.runnerId,
               token: result.token,
-              natsUrl: daemonInfo.url,
-              natsWsUrl: daemonInfo.wsUrl,
+              natsUrl: pairingUrls.natsUrl,
+              natsWsUrl: pairingUrls.natsWsUrl,
             })
+          }
+
+          // ── Client log ingest (decision 0012) ──────────────────────────────
+          // Browser ships console logs + errors here; we forward to VictoriaLogs
+          // (localhost-only) so the browser never touches VL directly. Always
+          // 204 — logging must never error for the client, even if VL is down.
+          if (url.pathname === "/api/logs" && req.method === "POST") {
+            let body: unknown
+            try {
+              body = await req.json()
+            } catch {
+              return new Response(null, { status: 204 })
+            }
+            void forwardClientLogs(body)
+            return new Response(null, { status: 204 })
           }
 
           if (url.pathname.startsWith("/api/workspace/")) {

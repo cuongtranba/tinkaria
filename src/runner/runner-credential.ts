@@ -22,6 +22,14 @@ export interface RunnerCredential {
   token: string
   natsUrl: string
   natsWsUrl: string
+  /**
+   * WebSocket URL of the server's `/nats-ws` proxy (through the tunneled HTTP
+   * port), derived from the server URL the runner paired against. Preferred over
+   * the raw `natsUrl` TCP path: the raw NATS port is often not the tunneled one,
+   * and direct tailnet connections can fail to receive server-initiated pushes.
+   * Optional for backward compat — older credentials only have natsUrl (TCP).
+   */
+  natsWsProxyUrl?: string
   /** Unix epoch ms when the runner was paired. */
   pairedAt: number
 }

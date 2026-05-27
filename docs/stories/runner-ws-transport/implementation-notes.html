@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>runner-ws-transport — runner over WS-through-3210</title>
+<style>
+ :root{color-scheme:light dark}
+ body{font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:840px;margin:2rem auto;padding:0 1.2rem}
+ h1{font-size:1.5rem}h2{font-size:1.1rem;margin-top:1.6rem;border-bottom:1px solid #8884;padding-bottom:.2rem}
+ code,pre{font-family:ui-monospace,Menlo,monospace}pre{background:#8881;padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:13px}
+ code{background:#8881;padding:.08rem .3rem;border-radius:3px}.tag{display:inline-block;background:#dc2626;color:#fff;font-size:11px;padding:.1rem .5rem;border-radius:999px}
+ .ok{color:#16a34a}.q{background:#f59e0b22;border-left:3px solid #f59e0b;padding:.5rem .8rem;border-radius:0 6px 6px 0}
+</style></head><body>
+<h1>runner-ws-transport <span class="tag">high-risk</span></h1>
+<p>Working narrative. Contract in <code>overview/execplan/design/validation.md</code>.</p>
+
+<h2>The bug, end of a long hunt</h2>
+<p>A remote runner over the tailnet connects, heartbeats (→ "online"), and does
+JetStream request/reply — but never receives server-initiated <code>start_turn</code>
+pushes, so every turn times out. Confirmed via NATS <code>/connz</code>: the runner's
+command subscriptions ARE registered server-side (<code>cid=2242, pending_bytes=0</code>),
+yet delivery to the raw <code>:4222</code> tailnet connection fails. The browser works
+because it rides the server's <code>/nats-ws</code> proxy over the single tunneled port (3210).</p>
+
+<h2>Fix</h2>
+<p>Route the runner through the same <code>/nats-ws</code> proxy as the browser. The
+runner derives <code>wss://&lt;host&gt;/nats-ws</code> from the server URL it paired
+against, and connects via <code>wsconnect</code> (@nats-io/nats-core; Bun has a global
+WebSocket). Its NATS connection then terminates at the server-local proxy (appears as
+127.0.0.1), so server→runner delivery is local and reliable; the tailnet hop is the
+tunneled HTTP.</p>
+<pre>runner-credential.ts  + natsWsProxyUrl?: string
+runner-pair.ts        derive wss://host/nats-ws from serverUrl, store it
+runner-nats.ts        connectRunner: ws/wss -> wsconnect, else TCP connect
+runner.ts             prefer cred.natsWsProxyUrl over cred.natsUrl</pre>
+
+<h2>Design decisions</h2>
+<ul>
+  <li><b>Runner derives the proxy URL, no server change.</b> The runner already knows
+  the server URL it paired against; deriving <code>wss://host/nats-ws</code> avoids
+  touching the pairing response and matches the browser's own derivation.</li>
+  <li><b>TCP fallback kept.</b> Older credentials (no <code>natsWsProxyUrl</code>) and
+  env-driven local runners (<code>NATS_URL</code>) keep using raw TCP — loopback, where
+  it works fine. Only paired/remote runners switch to WS.</li>
+  <li><b>wsconnect is Kvm/JetStream-compatible</b> — verified locally: the WS runner
+  registered in KV and subscribed, identical to the TCP path.</li>
+</ul>
+
+<h2>Verification <span class="ok">(local — connection level)</span></h2>
+<pre>typecheck exit 0; runner-pair/nats/credential tests pass (+ derivation assertion)
+dev boot: paired runner credential has natsWsProxyUrl=ws://127.0.0.1:5179/nats-ws
+/connz: runner connected as cid=57 ip=127.0.0.1 lang=nats.ws, all 5 cmd subs registered
+  (i.e. now a local proxied connection, like the browser — not a raw tailnet socket)</pre>
+
+<h2>Open</h2>
+<div class="q"><p><b>Remote turn-completion is pending operator verification.</b> Local
+proves the WS transport + registration work and that the runner now connects as a
+proxied/local connection, but local TCP already worked, so it can't prove the tailnet
+fix. The operator re-pairs the remote runner (to get <code>natsWsProxyUrl</code>),
+restarts it, and sends a turn; it should complete with no <code>start_turn</code>
+timeout. Confirm via VL + <code>/connz</code> (runner now 127.0.0.1/nats.ws).</p></div>
+</body></html>

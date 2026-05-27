@@ -28,6 +28,10 @@ describe("server-admin scope", () => {
     expect(matchesAny("runtime.runner.cmd.A.start", scope.pub.allow)).toBe(true)
   })
 
+  test("may publish JetStream ACKs (regression: $JS.ACK is a separate tree from $JS.API)", () => {
+    expect(matchesAny("$JS.ACK.KANNA_RUNNER_EVENTS.consumer.1.1.1.1.0", scope.pub.allow)).toBe(true)
+  })
+
   test("may publish to JetStream API", () => {
     expect(matchesAny("$JS.API.STREAM.INFO", scope.pub.allow)).toBe(true)
   })
@@ -57,6 +61,20 @@ describe("ui-client scope", () => {
 
   test("may subscribe to runner events", () => {
     expect(matchesAny("runtime.runner.evt.chat123", scope.sub.allow)).toBe(true)
+  })
+
+  test("may pull chat messages via JS CONSUMER.MSG.NEXT (regression: was denied)", () => {
+    // The browser uses a pull consumer; without this it got Publish Violations
+    // and could not read chat messages. See intake #21.
+    expect(
+      matchesAny("$JS.API.CONSUMER.MSG.NEXT.KANNA_CHAT_MESSAGE_EVENTS.someConsumer_1", scope.pub.allow),
+    ).toBe(true)
+  })
+
+  test("pull fetch is still scoped to the chat stream only (not other streams)", () => {
+    expect(
+      matchesAny("$JS.API.CONSUMER.MSG.NEXT.KANNA_RUNNER_EVENTS.c", scope.pub.allow),
+    ).toBe(false)
   })
 
   test("may subscribe to snapshots", () => {

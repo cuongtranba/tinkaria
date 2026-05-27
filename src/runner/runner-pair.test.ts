@@ -76,6 +76,9 @@ describe("runner-pair (integration)", () => {
     expect(typeof cred!.natsUrl).toBe("string")
     expect(typeof cred!.natsWsUrl).toBe("string")
     expect(typeof cred!.pairedAt).toBe("number")
+    // Runner connects via the server's /nats-ws proxy (tunneled HTTP port),
+    // derived from the paired server URL — not the raw NATS TCP port.
+    expect(cred!.natsWsProxyUrl).toBe(`ws://127.0.0.1:${port}/nats-ws`)
   }, 30_000)
 
   test("pairRunner: consumed code throws with status 410", async () => {

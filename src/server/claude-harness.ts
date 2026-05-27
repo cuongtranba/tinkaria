@@ -1,6 +1,7 @@
 import * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk"
 import type { CanUseTool, McpServerConfig, Options as ClaudeOptions, PermissionResult, Query } from "@anthropic-ai/claude-agent-sdk"
 import { homedir } from "node:os"
+import { existsSync } from "node:fs"
 import { resolveClaudeApiModelId, type TranscriptEntry } from "../shared/types"
 import { getWebContextPrompt } from "../shared/web-context"
 import { normalizeToolCall } from "../shared/tools"
@@ -143,11 +144,16 @@ async function createClaudeOptions(args: {
   // that CLAUDE_EXECUTABLE / CLAUDE_CODE_EXECPATH set via profile are honoured.
   const resolver = args._resolveBinary ?? resolveClaudeBinary
   const mergedEnv = { ...process.env, ...args.extraEnv }
+  // DIAGNOSTIC: localPath is the chat's workspace dir; on a remote runner a
+  // server-side path won't exist. Log it + cwd existence, and bracket the resolve.
+  console.warn("[claude-harness] resolving binary — localPath=" + args.localPath
+    + " cwdExists=" + (args.localPath ? existsSync(args.localPath) : false))
   const resolved = await resolver({
     env: mergedEnv,
     homeDir: homedir(),
     cwd: args.localPath,
   })
+  console.warn("[claude-harness] binary resolved — path=" + resolved.path)
 
   return {
     cwd: args.localPath,
@@ -316,12 +322,15 @@ export async function startClaudeTurn(args: {
   /** Injected binary resolver; defaults to the real resolve-binary.adapter. Tests override this. */
   _resolveBinary?: typeof resolveClaudeBinary
 }): Promise<HarnessTurn> {
+  console.warn("[claude-harness] startClaudeTurn begin — model=" + args.model + " localPath=" + args.localPath)
   const options = await createClaudeOptions(args)
+  console.warn("[claude-harness] options built; starting SDK query (startup=" + Boolean((args.sdk ?? (ClaudeAgentSdk as ClaudeSdkBinding)).startup) + ")")
   const sdk = args.sdk ?? (ClaudeAgentSdk as ClaudeSdkBinding)
 
   const q = sdk.startup
     ? (await sdk.startup({ options })).query(args.content)
     : sdk.query({ prompt: args.content, options })
+  console.warn("[claude-harness] SDK query handle created")
 
   return {
     provider: "claude",

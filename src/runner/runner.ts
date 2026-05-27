@@ -22,6 +22,12 @@ import { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
 import { ALL_OAUTH_EVENTS } from "../shared/nats-subjects"
 import { pairRunner } from "./runner-pair"
 import { readRunnerCredential } from "./runner-credential"
+import { installConsoleTee } from "../shared/log-sink"
+
+// Observability (decision 0012): tee runner console output to VictoriaLogs when
+// VICTORIALOGS_URL is set; no-op otherwise. A remote runner only ships if it can
+// reach the URL (localhost VL is server-machine-only) — see story design notes.
+installConsoleTee(process.env, "runner")
 
 // ── Subcommand dispatch ───────────────────────────────────────────────────────
 //
@@ -59,7 +65,10 @@ if (!natsUrl) {
   // No env — try the credential file written by the pair flow.
   const cred = await readRunnerCredential()
   if (cred) {
-    natsUrl = cred.natsUrl
+    // Prefer the /nats-ws proxy URL (WS over the tunneled HTTP port) when present
+    // — it's the reliable path the browser uses. Fall back to the raw TCP natsUrl
+    // for older credentials paired before this field existed.
+    natsUrl = cred.natsWsProxyUrl ?? cred.natsUrl
     natsToken = cred.token
     runnerId = cred.runnerId
     console.warn(LOG_PREFIX, `Loading credential from file — runnerId: ${runnerId}`)

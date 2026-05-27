@@ -1,5 +1,11 @@
 import process from "node:process"
 import { LOG_PREFIX } from "../shared/branding"
+import { installConsoleTee } from "../shared/log-sink"
+
+// Observability (decision 0012): tee console output to VictoriaLogs when
+// VICTORIALOGS_URL is set; no-op otherwise. Installed first so all startup
+// logs are captured.
+installConsoleTee(process.env, "server")
 
 // Safety net: prevent stray unhandled rejections from crashing the server.
 // Root causes should still be fixed, but this prevents cascading process death

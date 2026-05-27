@@ -182,13 +182,30 @@ export class RunnerProxy {
     // reason) propagates. Other providers/commands keep fast failure detection.
     const isPtyStartTurn = cmd === "start_turn"
       && (payload as { provider?: string } | null)?.provider === "claude-pty"
-    const reply = await this.nc.request(
-      runnerCmdSubject(runnerId, cmd),
-      encoder.encode(JSON.stringify(payload)),
-      { timeout: isPtyStartTurn ? 90_000 : 10_000 },
-    )
+    const timeoutMs = isPtyStartTurn ? 90_000 : 10_000
+    const subject = runnerCmdSubject(runnerId, cmd)
+    // Observability (decision 0012): the dispatch path was previously silent, so a
+    // start_turn that timed out left no server-side trace of which runner it went
+    // to. Log the dispatch and its outcome (timeout vs not-ok reply).
+    const provider = (payload as { provider?: string } | null)?.provider
+    console.warn(`[RunnerProxy] dispatch cmd=${cmd} runnerId=${runnerId} provider=${provider ?? "-"} subject=${subject} timeoutMs=${timeoutMs}`)
+    let reply
+    try {
+      reply = await this.nc.request(
+        subject,
+        encoder.encode(JSON.stringify(payload)),
+        { timeout: timeoutMs },
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[RunnerProxy] cmd=${cmd} runnerId=${runnerId} request FAILED (no reply within ${timeoutMs}ms): ${message}`)
+      throw error
+    }
     const response = JSON.parse(decoder.decode(reply.data))
-    if (!response.ok) throw new Error(response.error ?? "Runner command failed")
+    if (!response.ok) {
+      console.warn(`[RunnerProxy] cmd=${cmd} runnerId=${runnerId} runner replied not-ok: ${response.error ?? "(no error)"}`)
+      throw new Error(response.error ?? "Runner command failed")
+    }
     return response.result
   }
 

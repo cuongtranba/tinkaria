@@ -61,7 +61,20 @@ export async function pairRunner({ serverUrl, code }: PairRunnerOptions): Promis
     natsWsUrl: string
   }
 
-  await writeRunnerCredential({ runnerId, token, natsUrl, natsWsUrl, pairedAt: Date.now() })
+  // Derive the server's /nats-ws proxy URL from the server we paired against, so
+  // the runner connects over the SAME tunneled HTTP port as the browser (e.g.
+  // https://host -> wss://host/nats-ws) instead of the raw NATS TCP port, which
+  // is often not tunneled and can drop server->runner pushes over the tailnet.
+  let natsWsProxyUrl: string | undefined
+  try {
+    const u = new URL(serverUrl)
+    const wsProtocol = u.protocol === "https:" ? "wss:" : "ws:"
+    natsWsProxyUrl = `${wsProtocol}//${u.host}/nats-ws`
+  } catch {
+    // malformed server URL — leave undefined; runner falls back to natsUrl (TCP)
+  }
+
+  await writeRunnerCredential({ runnerId, token, natsUrl, natsWsUrl, natsWsProxyUrl, pairedAt: Date.now() })
 
   console.warn(`[tinkaria] Runner paired — runnerId: ${runnerId}`)
   console.warn(`[tinkaria] Credential written. Start the runner with: bun run src/runner/runner.ts`)

@@ -106,6 +106,43 @@ describe("pairing endpoints (callout mode)", () => {
     const body = await res.json() as { error: string }
     expect(body.error).toBe("unknown")
   }, 30_000)
+
+  test("bound to 0.0.0.0 without NATS_ADVERTISED_HOST → exchange rejects with 409", async () => {
+    natsDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pr2-pair-test-"))
+    process.env.NATS_AUTH_MODE = "callout"
+    process.env.NATS_DATA_DIR = natsDataDir
+    delete process.env.NATS_ADVERTISED_HOST
+    // Bind to 0.0.0.0 — the daemon URL becomes nats://0.0.0.0:<port>, which a
+    // remote runner cannot reach. The exchange must refuse, not hand it out.
+    started = await startServer({ port: 4385, host: "0.0.0.0", strictPort: true })
+    const port = started.port
+
+    const { code } = await post(port, "/api/pairing/code").then((r) => r.json()) as { code: string }
+    const res = await post(port, "/api/pairing/exchange", { code })
+    expect(res.status).toBe(409)
+    const body = await res.json() as { error: string }
+    expect(body.error).toContain("NATS_ADVERTISED_HOST")
+  }, 30_000)
+
+  test("bound to 0.0.0.0 with NATS_ADVERTISED_HOST → natsUrl carries the advertised host", async () => {
+    natsDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pr2-pair-test-"))
+    process.env.NATS_AUTH_MODE = "callout"
+    process.env.NATS_DATA_DIR = natsDataDir
+    process.env.NATS_ADVERTISED_HOST = "100.64.0.2"
+    try {
+      started = await startServer({ port: 4386, host: "0.0.0.0", strictPort: true })
+      const port = started.port
+
+      const { code } = await post(port, "/api/pairing/code").then((r) => r.json()) as { code: string }
+      const res = await post(port, "/api/pairing/exchange", { code })
+      expect(res.status).toBe(200)
+      const body = await res.json() as { natsUrl: string; natsWsUrl: string }
+      expect(new URL(body.natsUrl).hostname).toBe("100.64.0.2")
+      expect(new URL(body.natsWsUrl).hostname).toBe("100.64.0.2")
+    } finally {
+      delete process.env.NATS_ADVERTISED_HOST
+    }
+  }, 30_000)
 })
 
 // ── Token-mode suite ──────────────────────────────────────────────────────────

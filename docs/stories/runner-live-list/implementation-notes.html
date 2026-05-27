@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>US-RLL — Runners tab live list</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1.2rem; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.8rem; border-bottom: 1px solid #8884; padding-bottom: .2rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #8881; padding: .7rem .9rem; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  code { background: #8881; padding: .08rem .3rem; border-radius: 3px; }
+  .tag { display: inline-block; background: #2563eb; color: #fff; font-size: 11px; padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  .q { background: #f59e0b22; border-left: 3px solid #f59e0b; padding: .5rem .8rem; border-radius: 0 6px 6px 0; }
+  .ok { color: #16a34a; }
+</style>
+</head>
+<body>
+<h1>US-RLL — Runners tab live list <span class="tag">normal lane</span></h1>
+<p>Working narrative. Contract lives in <code>story.md</code> beside this file.</p>
+
+<h2>What the user asked for</h2>
+<p>"Real-time status update of the pairing — the instance would appear on the UI
+after the command executed and connected." The Runners tab previously had only a
+"Generate pairing code" button: a runner could connect and the tab would never
+show it.</p>
+
+<h2>Design decisions</h2>
+<ul>
+  <li><b>Reuse <code>GET /health</code>, poll every 2s.</b> <code>/health</code>
+  already returns <code>runners[]</code> (the server's <code>RunnerDescriptor</code>),
+  is public, and needs no server change. A 2s client poll surfaces a new runner
+  within ~2s of it registering. Chose polling over a NATS KV-watch over the
+  browser socket: the KV registry has ~220 stale tombstones (no TTL), so a watch
+  would stream noise on connect, and polling is far simpler for a settings tab
+  that's open briefly. (KV-watch remains an option if we ever want sub-second.)</li>
+  <li><b>Filter to relevant runners</b> (<code>!incompatible &amp;&amp; state !== "offline"</code>),
+  online sorted before degraded. Without this the list is ~220 dead tombstones.
+  Filtering lives in a pure helper, unit-tested.</li>
+  <li><b>"Just connected" = a relevant runnerId not present when the code was
+  generated.</b> We snapshot the relevant ids into a ref at code-gen; any new id
+  is highlighted (green ring + "connected" badge). Until one appears, a dashed
+  "Waiting for a runner to connect…" row shows.</li>
+  <li><b>Prefill the command with <code>window.location.origin</code></b> instead
+  of the old <code>&lt;server-url&gt;</code> placeholder — copy-paste-ready.</li>
+</ul>
+
+<h2>Files</h2>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>src/client/app/runner-list.ts</code></td><td>Pure helpers: <code>filterRelevantRunners</code>, <code>newlyConnectedIds</code>, <code>runnerShortName</code>, <code>HealthRunner</code> type.</td></tr>
+  <tr><td><code>src/client/app/runner-list.test.ts</code></td><td>8 unit tests for the above.</td></tr>
+  <tr><td><code>src/client/app/RunnersTab.tsx</code></td><td>Adds <code>useLiveRunners</code> (2s poll), the "Connected runners" list, waiting/connected feedback, prefilled command.</td></tr>
+</table>
+
+<h2>Verification (dual-signal, dev profile, never the live :3210)</h2>
+<pre>bunx @typescript/native-preview --noEmit -p tsconfig.json   # exit 0
+bun test src/client/app/runner-list.test.ts                 # 8 pass / 0 fail
+bun run build                                               # client built
+# dev boot on dev profile (data dir ~/.tinkaria-dev, ephemeral NATS) — live :3210 = prod, untouched</pre>
+<p class="ok">browser-harness on <code>:5175</code> (same-origin build): list rendered
+2 relevant runners out of 222 KV entries; generated code → "Waiting…" row +
+prefilled <code>--server http://127.0.0.1:5175</code>; paired+started an isolated
+runner (<code>TINKARIA_RUNNER_HOME=/tmp/rll-runner</code>) → it appeared at the top
+with the green "connected" highlight ~2s later, no page refresh. Server-side runner
+log confirmed <code>connected to NATS … ready</code>. Live <code>:3210</code>
+re-checked after teardown: <code>ok:true, runner:online</code>.</p>
+
+<h2>Deviations</h2>
+<p>None. Scope held to "live list + connect feedback" (the option chosen). The
+command-prefill was a tiny adjacent improvement folded in (it's the same code
+block and was actively misleading with the placeholder).</p>
+
+<h2>Open questions / follow-ups (logged, not fixed here)</h2>
+<div class="q"><p><b>Vite dev proxy doesn't forward <code>/api/pairing/</code></b>
+(allowlist is <code>/health</code>, <code>/api/render/pug</code>, <code>/api/ext/</code>,
+<code>/nats-ws</code>). So generating a pairing code through the <code>:5174</code>
+vite client 404s — dev-only, not a production issue (the real server is single-origin).
+Verified the full flow on the same-origin build instead. Logged to backlog.</p></div>
+<div class="q"><p><b>Stale KV tombstones</b> (~220, no TTL) — the list filters them
+out client-side, but the source problem is still the pre-existing PR5 backlog item
+(HARNESS_BACKLOG #6/#7). Not this story.</p></div>
+</body>
+</html>

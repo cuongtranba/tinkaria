@@ -1,4 +1,5 @@
 import { connect, type NatsConnection, type Subscription } from "@nats-io/transport-node"
+import { wsconnect } from "@nats-io/nats-core"
 import { Kvm } from "@nats-io/kv"
 import { spawnSync } from "node:child_process"
 import { LOG_PREFIX } from "../shared/branding"
@@ -38,7 +39,12 @@ export interface ConnectRunnerOptions {
 export async function connectRunner(
   options: ConnectRunnerOptions,
 ): Promise<NatsConnection> {
-  const { natsUrl, token, connectFn = connect } = options
+  const { natsUrl, token } = options
+  // ws:// or wss:// → connect through the server's /nats-ws proxy (same path the
+  // browser uses, over the tunneled HTTP port) via wsconnect. Otherwise use the
+  // TCP transport. Bun provides a global WebSocket, so wsconnect works here.
+  const isWs = /^wss?:\/\//i.test(natsUrl)
+  const connectFn = options.connectFn ?? (isWs ? wsconnect : connect)
   return connectFn({
     servers: natsUrl,
     ...(token ? { token } : {}),
@@ -196,18 +202,32 @@ export class RunnerNatsHandler {
     const subject = runnerCmdSubject(this.runnerId, cmd)
     const sub = this.nc.subscribe(subject)
     this.subscriptions.push(sub)
+    // Observability (decision 0012): confirm each command subscription is actually
+    // established, and surface it if the subscription loop ever ends/errors (e.g. a
+    // permission denial would otherwise be silent — unlike the oauth sub which logs).
+    console.warn(LOG_PREFIX, `subscribed to command subject ${subject}`)
 
     void (async () => {
-      for await (const msg of sub) {
-        try {
-          const data = decoder.decode(msg.data)
-          await handler(data)
-          msg.respond(encoder.encode(JSON.stringify({ ok: true })))
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          console.warn(LOG_PREFIX, `Runner command ${cmd} failed: ${message}`)
-          msg.respond(encoder.encode(JSON.stringify({ ok: false, error: message })))
+      try {
+        for await (const msg of sub) {
+          // Observability (decision 0012): log on receipt so we can tell whether a
+          // command actually reaches the runner (vs the subscription being silently
+          // denied or messages never delivered).
+          console.warn(LOG_PREFIX, `received command ${cmd} on ${subject}`)
+          try {
+            const data = decoder.decode(msg.data)
+            await handler(data)
+            msg.respond(encoder.encode(JSON.stringify({ ok: true })))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.warn(LOG_PREFIX, `Runner command ${cmd} failed: ${message}`)
+            msg.respond(encoder.encode(JSON.stringify({ ok: false, error: message })))
+          }
         }
+        console.warn(LOG_PREFIX, `command subscription ${subject} ended (iterator closed)`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.warn(LOG_PREFIX, `command subscription ${subject} ERRORED: ${message}`)
       }
     })()
   }

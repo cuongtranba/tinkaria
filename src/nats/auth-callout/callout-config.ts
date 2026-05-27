@@ -19,6 +19,12 @@ export interface CalloutConfigOptions {
   host?: string
   /** JetStream store directory. */
   storeDir?: string
+  /**
+   * Optional HTTP monitoring port (bound to 127.0.0.1 only). When set, enables
+   * the nats-server monitoring endpoints (/connz, /subsz, /varz) for diagnostics.
+   * Localhost-only — never exposed beyond the server host. Off when undefined.
+   */
+  monitorPort?: number
   /** Public key of the callout issuer account. */
   accountPublicKey: string
   /** Public key of the auth-service user (bypasses the callout). */
@@ -47,6 +53,10 @@ export function buildCalloutConfig(opts: CalloutConfigOptions): string {
     `jetstream: true`,
     ...(opts.storeDir ? [`store_dir: "${opts.storeDir}"`] : []),
     ``,
+    // HTTP monitoring (diagnostics only, localhost-bound). Enables /connz, /subsz,
+    // /varz so we can inspect connections + per-connection subscriptions. Off
+    // unless monitorPort is provided.
+    ...(opts.monitorPort ? [`http: "127.0.0.1:${opts.monitorPort}"`, ``] : []),
     `# WebSocket`,
     `websocket {`,
     `  host: "${host}"`,

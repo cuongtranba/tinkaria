@@ -118,7 +118,6 @@ normal
 
 proposed
 
-
 ## Operational Finding (backlog #6)
 
 ### Title
@@ -149,6 +148,146 @@ since PR3 (registration added no TTL); PR5 merely exposed it via enumeration.
 ### Risk
 
 tiny
+
+### Status
+
+proposed
+
+## Missing Harness Capability
+
+### Title
+
+Harness CLI binary + harness.db unavailable inside git worktrees (gitignored)
+
+### Discovered While
+
+Authoring the Personal Runners PR1 story packet in an isolated worktree
+(`.worktrees/pr1-nats-isolation`).
+
+### Current Pain
+
+`scripts/bin/harness-cli` and `harness.db` are both gitignored, so a freshly
+created `git worktree` has neither. Recording intake/story/decision/trace must
+be run from the **main checkout** while the packet docs live on the feature
+branch in the worktree — splitting one logical task across two directories.
+Minor secondary gap: `harness trace --outcome` enforces a CHECK constraint
+(`completed|blocked|partial|failed`) that `--help` does not list, so the first
+attempt failed on an invalid value.
+
+### Suggested Improvement
+
+Make `scripts/harness` auto-locate the common checkout's `harness.db` via
+`git rev-parse --git-common-dir` (and resolve a shared binary), OR document the
+"record harness state from the main checkout" rule in `docs/HARNESS.md`. List
+the valid `--outcome` values in the `trace` help text.
+
+### Risk
+
+tiny
+
+### Status
+
+proposed
+
+---
+
+## Missing Harness Capability
+
+### Title
+
+Embedded NATS daemon uses an ephemeral port — paired runner credentials go stale on server restart
+
+### Discovered While
+
+US-RPAH (fixing the pairing-exchange unroutable-host bug).
+
+### Current Pain
+
+The paired-runner credential is long-lived (90 days, `RUNNER_PAIR_TTL`), but the
+`natsUrl` *port* inside it is ephemeral: `NATS_PORT` defaults to `-1`
+(`src/nats/nats-daemon-callout.ts:26`), so the embedded daemon binds a random
+port each boot. After any server restart the daemon picks a new port and every
+paired runner's stored URL is stale, forcing a re-pair. The host fix in US-RPAH
+makes pairing routable across machines, but durability across restarts is still
+broken.
+
+### Suggested Improvement
+
+Default the embedded NATS port to a stable value, or persist + reuse the chosen
+port across restarts, so a durable credential keeps working without re-pairing.
+
+### Risk
+
+normal
+
+### Status
+
+proposed
+
+---
+
+## Missing Harness Capability
+
+### Title
+
+Vite dev proxy does not forward /api/pairing/* — pairing code can't be generated through the :5174 dev client
+
+### Discovered While
+
+Verifying US-RLL (Runners tab live list) in the running app.
+
+### Current Pain
+
+`vite.config` proxy allowlist is `/health`, `/api/render/pug`, `/api/ext/`,
+`/nats-ws`. `POST /api/pairing/code` through the vite client (`:5174`) returns
+`404` with an empty body, while the backend (`:5175`) returns `200`. The empty
+body also makes the client's `res.json()` throw "Unexpected end of JSON input".
+Dev-only (production server is single-origin, so unaffected), but it blocks
+dogfooding the Runners pairing flow through the vite dev client — verification
+had to be done on a same-origin `bun run build` instead.
+
+### Suggested Improvement
+
+Add `/api/pairing/` to the vite dev proxy (or a broader `/api/` rule that
+excludes client-owned routes).
+
+### Risk
+
+tiny
+
+### Status
+
+proposed
+
+---
+
+## Missing Harness Capability
+
+### Title
+
+Ship remote-runner logs to VictoriaLogs over NATS (VL is localhost-only)
+
+### Discovered While
+
+US-OBS-VL (VictoriaLogs observability).
+
+### Current Pain
+
+VictoriaLogs is bound to 127.0.0.1 only (it stores chat content + tokens). A
+runner on another machine can't reach it, so the backend console tee only covers
+the server and a *local* runner. The remote runner's logs — the key signal for
+the remote turn-dispatch timeout this whole thread is chasing — are not captured.
+
+### Suggested Improvement
+
+Have the runner publish its log lines over its existing NATS connection to a
+server subject (e.g. `runtime.runner.log.<runnerId>`); the server subscribes and
+forwards to VictoriaLogs. Keeps VL localhost-only. Needs a `pub` allow for that
+subject in `scope-policy.ts` (security-sensitive — review the scope).
+
+### Risk
+
+normal
 
 ### Status
 

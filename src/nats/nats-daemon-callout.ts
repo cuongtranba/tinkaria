@@ -27,6 +27,8 @@ const port = process.env.NATS_PORT ? Number(process.env.NATS_PORT) : -1
 const wsPort = process.env.NATS_WS_PORT ? Number(process.env.NATS_WS_PORT) : -1
 const storeDir = process.env.NATS_STORE_DIR
 const dataDir = process.env.NATS_DATA_DIR
+// Opt-in localhost-only HTTP monitoring for diagnostics (/connz, /subsz, /varz).
+const monitorPort = process.env.NATS_MONITOR_PORT ? Number(process.env.NATS_MONITOR_PORT) : undefined
 
 if (!dataDir) {
   console.error(LOG_PREFIX, "NATS_DATA_DIR is required in callout mode (key storage)")
@@ -46,6 +48,7 @@ const configContent = buildCalloutConfig({
   port,
   wsPort,
   storeDir,
+  monitorPort,
   accountPublicKey: keys.accountPublicKey,
   authUserPublicKey: keys.authUserPublicKey,
 })
@@ -60,7 +63,7 @@ const binaryPath = resolveBinary()
 console.warn(LOG_PREFIX, `Spawning binary: ${binaryPath}`)
 
 const child = spawn(binaryPath, ["-c", configPath], {
-  stdio: ["ignore", "ignore", "pipe"],
+  stdio: ["ignore", "pipe", "pipe"],
 })
 
 interface PortResult {
@@ -118,6 +121,27 @@ const portResult = await new Promise<PortResult>((resolve, reject) => {
 
 const natsUrl = `nats://${host}:${portResult.tcpPort}`
 const wsUrl = `ws://${host}:${portResult.wsPort}`
+
+// Observability (decision 0012): forward nats-server's own runtime logs onward
+// (to this process's stderr, which the daemon manager pipes into VictoriaLogs).
+// Previously the stderr listener was removed after port parsing and stdout was
+// discarded, hiding the entire NATS layer — slow-consumer drops, per-connection
+// delivery errors, auth violations, and disconnects. Continuously draining also
+// prevents the pipe buffer from backing up.
+function forwardNatsServerOutput(stream: NodeJS.ReadableStream | null): void {
+  if (!stream) return
+  let buf = ""
+  stream.on("data", (chunk: Buffer) => {
+    buf += chunk.toString()
+    const lines = buf.split("\n")
+    buf = lines.pop() ?? ""
+    for (const line of lines) {
+      if (line.trim()) console.warn("[nats-server]", line)
+    }
+  })
+}
+forwardNatsServerOutput(child.stdout)
+forwardNatsServerOutput(child.stderr)
 
 console.warn(LOG_PREFIX, `nats-server ready — url: ${natsUrl}, ws: ${wsUrl}`)
 

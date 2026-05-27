@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Implementation notes — pty-runner-cpu-mem-sampling</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 ui-sans-serif, system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; } h2 { margin-top: 2rem; font-size: 1.15rem; border-bottom: 1px solid #8884; padding-bottom: .25rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #8881; padding: .75rem; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  .tag { display: inline-block; font-size: 11px; padding: .1rem .5rem; border-radius: 999px; background: #6cf3; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #8884; padding: .35rem .5rem; text-align: left; }
+</style>
+</head>
+<body>
+<h1>pty-runner-cpu-mem-sampling <span class="tag">normal lane</span></h1>
+<p>Make runner-spawned claude-pty instances surface live CPU% and resident memory
+(current + session peak) to the <code>PtyInstancesIndicator</code> UI.</p>
+
+<h2>Root cause</h2>
+<p>Tinkaria runs PTY two ways:</p>
+<table>
+  <tr><th>Path</th><th>Entry</th><th>Sampler wired?</th></tr>
+  <tr><td>Server (single-process, kanna-style)</td><td><code>pty-responders.ts</code></td><td>Yes — passes <code>ptyInstanceRegistry</code>; sampler upserts → delta</td></tr>
+  <tr><td>Runner (live execution process)</td><td><code>turn-factories.ts</code> <code>startClaudePtyTurn</code></td><td>No — passed only <code>ptyRegistry</code> (on-disk pid registry)</td></tr>
+</table>
+<p>The driver memory sampler upserts into <code>args.ptyInstanceRegistry?.upsert(...)</code>.
+On the runner path that arg is <code>undefined</code>, so every ps sample was computed
+then discarded. The runner publishes deltas <em>manually</em> from a
+<code>baseInstance</code> whose <code>rssBytes</code>/<code>cpuPercent</code> were hardcoded
+<code>null</code> — so the UI received every field except cpu/mem (and the UI gates
+those rows on <code>!== null</code>). Kanna worked because it only ever ran the
+single-process server path.</p>
+
+<h2>Design decisions</h2>
+<ul>
+  <li><b>Callback over registry (user-approved).</b> Added an optional
+    <code>onUsageSample</code> callback to <code>StartClaudeSessionPtyArgs</code>. The
+    sampler tick invokes it alongside the existing <code>ptyInstanceRegistry.upsert</code>,
+    passing the same <code>{rss, rssPeak, cpu, cpuPeak}</code>. Additive; the server
+    path is untouched. Avoids giving the runner a second registry whose deltas
+    would race the manual ones.</li>
+  <li><b><code>baseInstance</code> becomes the canonical mutable record.</b> Phase
+    transitions now mutate <code>baseInstance.phase</code> (instead of inline spread
+    overrides) so a usage delta published between transitions carries the correct
+    current phase, not a stale <code>spawning</code>.</li>
+  <li><b>Stop-flag guard.</b> The store re-adds an instance on an <code>updated</code>
+    delta for an unknown live chatId. A stray sampler tick after teardown/abort
+    could resurrect a removed instance. <code>usageStopped</code> (flipped on spawn
+    failure and via <code>session.stopUsage()</code> in the reader's finally) suppresses
+    late samples.</li>
+</ul>
+
+<h2>Files changed</h2>
+<pre>src/server/claude-pty/driver.ts        + onUsageSample arg + PtyUsageSample type; invoke in sampler tick
+src/runner/turn-factories.ts           + onUsageSample wiring, baseInstance canonical, stopUsage guard
+src/server/claude-pty/driver.test.ts   + unit: sampler → onUsageSample, monotonic peaks
+docs/TEST_MATRIX.md                    + 3 rows
+docs/stories/pty-runner-cpu-mem-sampling/  story.md + this file</pre>
+
+<h2>Verification</h2>
+<table>
+  <tr><th>Signal</th><th>Result</th></tr>
+  <tr><td>Typecheck (<code>tsgo --noEmit</code>)</td><td>0 errors</td></tr>
+  <tr><td>Unit: driver sampler→onUsageSample monotonic peaks</td><td>pass (rss 100→50 keeps peak 100; cpu 10→40 climbs)</td></tr>
+  <tr><td>Touched suites (driver/registry/sampler/store)</td><td>green, no regressions</td></tr>
+  <tr><td>Dev <code>/health</code> (5175)</td><td>natsDaemon + natsConnection + runner all ok</td></tr>
+  <tr><td>Live PTY turn in browser (UI screenshot of cpu/mem rows)</td><td><b>PENDING</b> — requires a billable claude-pty turn against the user's OAuth pool</td></tr>
+</table>
+
+<h2>Pre-existing issue (flagged, not caused by this change)</h2>
+<p>7 tests in <code>parity-matrix.test.ts</code> ("SDK ↔ PTY HarnessEvent equivalence
+matrix") fail identically on the clean <code>main</code> checkout (HEAD c607df8).
+Unrelated to this change — no event-mapping code was touched.</p>
+
+<h2>Open questions</h2>
+<ul>
+  <li><b>Live verification billing.</b> Final UI proof needs a real claude-pty turn
+    (bills the user's token). Recommendation: run one cheap haiku turn, screenshot
+    the indicator showing cpu/mem, then attach to story Evidence. Awaiting user OK.</li>
+</ul>
+</body>
+</html>

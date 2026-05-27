@@ -27,7 +27,7 @@ export { startClaudeTurn } from "../server/claude-harness"
 import { CodexAppServerManager } from "../server/codex-app-server"
 import type { HarnessToolRequest, HarnessTurn } from "../shared/harness-types"
 import type { CodexReasoningEffort, ServiceTier } from "../shared/types"
-import { startClaudeSessionPTY } from "../server/claude-pty/driver"
+import { startClaudeSessionPTY, type PtyUsageSample } from "../server/claude-pty/driver"
 import { ptyDeltaSubject } from "../shared/nats-subjects"
 import { compressPayload } from "../shared/compression"
 import type { NatsConnection } from "@nats-io/transport-node"
@@ -54,6 +54,8 @@ interface ClaudePtySession {
   /** Timestamp of the last turn end (or session start). Used by idle sweeper. */
   lastUsedAt: number
   publishDelta: (delta: PtyInstanceDelta) => void
+  /** Stops further onUsageSample deltas (called once the session is torn down). */
+  stopUsage: () => void
 }
 
 interface TurnDispatcher {
@@ -173,6 +175,7 @@ function startSessionReader(session: ClaudePtySession): void {
         }
       }
     } finally {
+      session.stopUsage()
       session.currentTurn?.end()
       if (claudePtySessions.get(session.chatId) === session) {
         claudePtySessions.delete(session.chatId)
@@ -369,6 +372,22 @@ export async function startClaudePtyTurn(args: {
 
     publishDelta({ type: "added", instance: baseInstance })
 
+    // `baseInstance` is the canonical, mutable record for this session: phase
+    // transitions and usage samples both write into it so every published
+    // delta stays internally coherent. `usageStopped` suppresses late sampler
+    // ticks (spawn-failure or post-teardown) that would otherwise resurrect a
+    // removed instance in the client store.
+    let usageStopped = false
+    const onUsageSample = (usage: PtyUsageSample): void => {
+      if (usageStopped) return
+      baseInstance.rssBytes = usage.rssBytes
+      baseInstance.rssPeakBytes = usage.rssPeakBytes
+      baseInstance.cpuPercent = usage.cpuPercent
+      baseInstance.cpuPeakPercent = usage.cpuPeakPercent
+      baseInstance.lastEventAt = Date.now()
+      publishDelta({ type: "updated", instance: { ...baseInstance } })
+    }
+
     let handle: ClaudeSessionHandle
     try {
       handle = await startClaudeSessionPTY({
@@ -383,15 +402,19 @@ export async function startClaudePtyTurn(args: {
         oauthToken: picked.token,
         oauthLabel: picked.label,
         ptyRegistry: sharedRegistry ?? undefined,
+        onUsageSample,
         onToolRequest: args.onToolRequest as never,
       })
     } catch (err) {
+      usageStopped = true
       publishDelta({ type: "removed", chatId: args.chatId })
       try { sharedPool.release(args.chatId) } catch { /* swallow */ }
       throw err
     }
 
-    publishDelta({ type: "updated", instance: { ...baseInstance, phase: "ready", lastEventAt: Date.now() } })
+    baseInstance.phase = "ready"
+    baseInstance.lastEventAt = Date.now()
+    publishDelta({ type: "updated", instance: { ...baseInstance } })
 
     session = {
       chatId: args.chatId,
@@ -402,6 +425,7 @@ export async function startClaudePtyTurn(args: {
       activeTokenId: picked.id,
       lastUsedAt: Date.now(),
       publishDelta,
+      stopUsage: () => { usageStopped = true },
     }
     claudePtySessions.set(args.chatId, session)
     startSessionReader(session)
@@ -411,15 +435,10 @@ export async function startClaudePtyTurn(args: {
   session.currentTurn = dispatcher
   session.turnCount += 1
   session.lastUsedAt = Date.now()
-  session.publishDelta({
-    type: "updated",
-    instance: {
-      ...session.baseInstance,
-      phase: "streaming",
-      lastEventAt: Date.now(),
-      turnCount: session.turnCount,
-    },
-  })
+  session.baseInstance.phase = "streaming"
+  session.baseInstance.lastEventAt = Date.now()
+  session.baseInstance.turnCount = session.turnCount
+  session.publishDelta({ type: "updated", instance: { ...session.baseInstance } })
 
   await session.handle.sendPrompt(args.content)
 

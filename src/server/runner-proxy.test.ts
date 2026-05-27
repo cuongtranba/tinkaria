@@ -155,7 +155,8 @@ describe("RunnerProxy", () => {
       // readiness source refuses start_turn. Provide a compatible default so
       // these baseline tests exercise the happy path (incompatibility is covered
       // in runner-incompatible-gate.test.ts).
-      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1 }),
+      // PR4: also supply capabilities so the capability gate passes for both providers.
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1, capabilities: { providers: ["claude" as const, "codex" as const] } }),
       ...overrides,
     })
 
@@ -445,7 +446,7 @@ describe("RunnerProxy", () => {
       store: createMockStore(),
       runnerId: RUNNER_ID,
       getActiveStatuses: () => new Map(),
-      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1 }),
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1, capabilities: { providers: ["claude" as const, "codex" as const] } }),
     })
 
     await expect(proxy.cancel("chat-err")).rejects.toThrow("Turn already active")

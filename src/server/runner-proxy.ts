@@ -4,7 +4,7 @@ import type { ProviderProfileRecord } from "../shared/profile-types"
 import { resolveProfile } from "../shared/profile-types"
 import type { AgentProvider, SessionStatus, PendingToolSnapshot } from "../shared/types"
 import { resolveClaudeApiModelId } from "../shared/types"
-import { runnerCmdSubject, SUPPORTED_RANGE, type StartTurnCommand } from "../shared/runner-protocol"
+import { runnerCmdSubject, SUPPORTED_RANGE, type RunnerCapabilities, type StartTurnCommand } from "../shared/runner-protocol"
 import type { EventStore } from "./event-store"
 import type { RuntimeRegistry } from "./runtime-registry"
 import {
@@ -27,8 +27,8 @@ export interface RunnerProxyOptions {
   getActiveStatuses: () => Map<string, SessionStatus>
   getPendingTool?: (chatId: string) => PendingToolSnapshot | null
   runtimeRegistry?: RuntimeRegistry | null
-  /** Optional: called before start_turn dispatch to enforce the protocol-version gate. */
-  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null }
+  /** Optional: called before start_turn dispatch to enforce the protocol-version + capability gate. */
+  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }
 }
 
 export class RunnerProxy {
@@ -37,7 +37,7 @@ export class RunnerProxy {
   private readonly runnerId: string
   private readonly _getActiveStatuses: () => Map<string, SessionStatus>
   private readonly runtimeRegistry: RuntimeRegistry | null
-  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null }) | null
+  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }) | null
   private readonly recentlyStartedChats = new Set<string>()
 
   /** Orchestration compatibility: check if a chat has an active turn */
@@ -99,11 +99,28 @@ export class RunnerProxy {
           `RunnerProxy ${this.runnerId}: getRunnerReadiness not provided — refusing start_turn (cannot enforce the compatibility gate)`,
         )
       }
-      const { incompatible, protocolVersion } = this._getRunnerReadiness()
+      const { incompatible, protocolVersion, capabilities } = this._getRunnerReadiness()
       if (incompatible) {
         throw new Error(
           `Runner ${this.runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max}) — run tinkaria-runner upgrade`,
         )
+      }
+      // Capability gate: if the runner advertised capabilities, verify the
+      // requested provider is installed. If capabilities is null/undefined (not
+      // yet probed — e.g. pre-PR4 runner), skip and allow (fail open for
+      // backward compat with runners that haven't registered capabilities yet).
+      if (capabilities) {
+        const turn = payload as { provider?: AgentProvider }
+        const requestedProvider = turn.provider
+        if (requestedProvider && !capabilities.providers.includes(requestedProvider)) {
+          const installed = capabilities.providers.join(", ") || "none"
+          console.warn(
+            `[RunnerProxy] capability gate: runner ${this.runnerId} cannot run provider="${requestedProvider}" (installed: ${installed})`,
+          )
+          throw new Error(
+            `Runner ${this.runnerId} cannot run ${requestedProvider} (installed: ${installed}) — install it on the runner or pick another`,
+          )
+        }
       }
     }
     const reply = await this.nc.request(

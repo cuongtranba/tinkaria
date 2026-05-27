@@ -7,6 +7,7 @@ import {
   isProtocolSupported,
   runnerLivenessState,
   SUPPORTED_RANGE,
+  type RunnerCapabilities,
   type RunnerHeartbeat,
   type RunnerLivenessState,
   type RunnerRegistration,
@@ -44,6 +45,8 @@ export interface RunnerReadiness {
   protocolVersion: number | null
   /** True when the runner's protocolVersion is outside the server's SUPPORTED_RANGE. */
   incompatible: boolean
+  /** Capabilities advertised by the runner at registration time. Null if not yet registered. */
+  capabilities: RunnerCapabilities | null
 }
 
 export class RunnerManager {
@@ -81,6 +84,7 @@ export class RunnerManager {
       protocolVersion === null
         ? registered // if registered but no version field, it's incompatible
         : !isProtocolSupported(protocolVersion)
+    const capabilities = this.runnerRegistration?.capabilities ?? null
     return {
       ok: this.runnerId !== null && registered && heartbeatFresh && !incompatible,
       runnerId: this.runnerId,
@@ -91,6 +95,7 @@ export class RunnerManager {
       lastHeartbeatAt: this.lastHeartbeatAt,
       protocolVersion,
       incompatible,
+      capabilities,
     }
   }
 

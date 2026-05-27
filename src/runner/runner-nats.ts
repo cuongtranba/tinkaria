@@ -1,11 +1,13 @@
 import { connect, type NatsConnection, type Subscription } from "@nats-io/transport-node"
 import { Kvm } from "@nats-io/kv"
+import { spawnSync } from "node:child_process"
 import { LOG_PREFIX } from "../shared/branding"
 import {
   runnerCmdSubject,
   runnerHeartbeatSubject,
   RUNNER_REGISTRY_BUCKET,
   PROTOCOL_VERSION,
+  type RunnerCapabilities,
   type StartTurnCommand,
   type CancelTurnCommand,
   type RespondToolCommand,
@@ -13,6 +15,8 @@ import {
   type RunnerRegistration,
   type RunnerHeartbeat,
 } from "../shared/runner-protocol"
+import type { AgentProvider } from "../shared/types"
+import { resolveClaudeBinary } from "../server/claude-pty/resolve-binary.adapter"
 import type { RunnerAgent } from "./runner-agent"
 
 const encoder = new TextEncoder()
@@ -68,11 +72,48 @@ export async function shutdownConnection(
   }
 }
 
+/**
+ * Probe which agent providers are actually installed on this runner.
+ * A provider is present if its binary resolves successfully. Errors are caught
+ * and treated as "not installed" so a bad probe never crashes registration.
+ *
+ * Exported for testing only — callers within this module use `probeProviders()`.
+ */
+export async function probeProviders(
+  _resolveClaudeBinary?: typeof resolveClaudeBinary,
+): Promise<RunnerCapabilities> {
+  const resolver = _resolveClaudeBinary ?? resolveClaudeBinary
+  const providers: AgentProvider[] = []
+
+  // Probe claude (SDK provider)
+  try {
+    await resolver({ env: process.env, homeDir: process.env.HOME ?? process.env.USERPROFILE ?? "" })
+    providers.push("claude")
+  } catch {
+    // claude binary not found — exclude from capabilities
+  }
+
+  // Probe codex via which (mirrors resolveCodexBinary in turn-factories.ts)
+  try {
+    const which = spawnSync("which", ["codex"], { encoding: "utf-8", timeout: 3000 })
+    if (which.status === 0 && which.stdout.trim()) {
+      providers.push("codex")
+    }
+  } catch {
+    // which failed — exclude codex
+  }
+
+  console.warn(LOG_PREFIX, `Probed capabilities: providers=[${providers.join(", ")}]`)
+  return { providers }
+}
+
 export interface RunnerNatsHandlerOptions {
   nc: NatsConnection
   agent: RunnerAgent
   runnerId: string
   heartbeatIntervalMs?: number
+  /** Override the capability probe for testing — if provided, skips the real probe. */
+  _probeProviders?: () => Promise<RunnerCapabilities>
 }
 
 export class RunnerNatsHandler {
@@ -80,6 +121,7 @@ export class RunnerNatsHandler {
   private readonly agent: RunnerAgent
   private readonly runnerId: string
   private readonly heartbeatIntervalMs: number
+  private readonly _probeProviders: () => Promise<RunnerCapabilities>
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private subscriptions: Subscription[] = []
   // Cache the registration shape so heartbeats can update lastSeenAt without
@@ -94,6 +136,7 @@ export class RunnerNatsHandler {
     this.agent = options.agent
     this.runnerId = options.runnerId
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000
+    this._probeProviders = options._probeProviders ?? probeProviders
   }
 
   async start(): Promise<void> {
@@ -167,14 +210,24 @@ export class RunnerNatsHandler {
   private async register(): Promise<void> {
     // Allow tests to simulate a protocol skew via RUNNER_PROTOCOL_VERSION env.
     const protocolVersion = Number(process.env.RUNNER_PROTOCOL_VERSION ?? PROTOCOL_VERSION)
-    const providers: RunnerRegistration["providers"] = ["claude", "codex"]
+
+    // Probe installed providers — defensive: a probe error excludes that provider, never crashes.
+    let capabilities: RunnerCapabilities
+    try {
+      capabilities = await this._probeProviders()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(LOG_PREFIX, `Capability probe failed (defaulting to empty): ${message}`)
+      capabilities = { providers: [] }
+    }
+
     const registration: RunnerRegistration = {
       runnerId: this.runnerId,
       pid: process.pid,
       startedAt: Date.now(),
-      providers,
+      providers: capabilities.providers,
       protocolVersion,
-      capabilities: { providers },
+      capabilities,
       lastSeenAt: Date.now(),
     }
     this.registration = registration

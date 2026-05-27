@@ -34,9 +34,26 @@ bun test src/nats/                           # PR1–PR3 green
 # refuse an absent-provider turn; audit the wire command for secrets/binaryPath
 ```
 
-## Acceptance Evidence
+## Acceptance Evidence (2026-05-27 — team-lead independent gate, dedicated ports)
 
-Add after verification: the no-`binaryPath` command + runner-resolved-binary turn;
-probed `capabilities` in `/health`/registry; the capability-gate refusal message;
-the secret-audit assertion (no secrets/binaryPath in the command); PR1–PR3 +
-port-claude PTY still green.
+- **No `binaryPath` / no secret in the command**: `runner-protocol.test.ts`
+  shape-audit (no `binaryPath`; regex API_KEY|TOKEN|SECRET|Bearer|sk- finds
+  nothing); `resolveProfileOverrides` returns env only. typecheck 0.
+- **Runner resolves its own binary**: Claude SDK via `resolveClaudeBinary` (the
+  PTY adapter), Codex via `resolveCodexBinary` (`which codex`); no server path on
+  the wire. PTY unchanged.
+- **Capabilities advertised**: boot `/health` → `capabilities:{providers:
+  ["claude","codex"]}`; server log `Probed capabilities: providers=[claude, codex]`.
+- **Capability gate**: `runner-incompatible-gate.test.ts` —
+  `cannot run provider="codex" (installed: claude)`, not dispatched.
+- **Tests**: 144/0 across `src/runner` + gate + runner-proxy + pr3-liveness +
+  `src/nats`. `runner-proxy.test.ts` 16/0 (after fixing the PR3-fail-closed-gate
+  regression + port-claude `disposeChat` staleness).
+
+**Caveats / deferred:** model-level capability probing (providers-only now —
+`RuntimeRegistry.probeCapabilities` is server-side); the capability gate is
+**fail-open when `capabilities=null`** (pre-PR4 KV entry, backward-compat) — under
+Stage-3 security review. Model-level gate + multi-runner routing = PR5.
+
+**Stage-3 security review** of the secret boundary is in flight; findings + any
+must-fix will be appended.

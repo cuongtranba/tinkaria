@@ -25,7 +25,7 @@
 </head>
 <body>
 <h1>PR4 — Command Profile Split</h1>
-<p class="sub">Working narrative · <span class="status">Stage 1 — implemented</span></p>
+<p class="sub">Working narrative · <span class="status">Stage 2 — implemented</span></p>
 <p>Contract: <code>execplan/overview/design/validation.md</code>; decision <code>0010</code>. Stacks on PR3 (reconciled with port-claude).</p>
 
 <h2>Stage 1 — completed (drop binaryPath + unify runner-side binary resolution)</h2>
@@ -93,9 +93,57 @@
   rather than passed in.</p>
 </div>
 
+<h2>Stage 2 — completed (capability probe + advertise + turn-start gate)</h2>
+
+<div class="card done">
+  <span class="label">What changed</span>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>src/runner/runner-nats.ts</code></td><td>Added <code>probeProviders()</code> — checks <code>resolveClaudeBinary</code> (throws → not installed) and <code>spawnSync("which","codex")</code>. Probe errors caught per-provider (never crash). <code>register()</code> calls probe; writes <code>capabilities</code> + <code>providers</code> from probed set instead of hardcoded <code>["claude","codex"]</code>. <code>RunnerNatsHandlerOptions</code> adds <code>_probeProviders</code> injectable for tests.</td></tr>
+    <tr><td><code>src/server/runner-manager.ts</code></td><td>Imports <code>RunnerCapabilities</code>; <code>RunnerReadiness</code> gains <code>capabilities: RunnerCapabilities | null</code>; <code>getReadiness()</code> threads <code>runnerRegistration?.capabilities ?? null</code> through.</td></tr>
+    <tr><td><code>src/server/runner-proxy.ts</code></td><td><code>getRunnerReadiness</code> type extended to carry <code>capabilities?: RunnerCapabilities | null</code>. <code>sendCommand("start_turn")</code> gate: after protocol check, if <code>capabilities</code> is non-null, refuse turns whose <code>provider</code> is not in <code>capabilities.providers</code> with the message <code>"Runner X cannot run Y (installed: Z) — install it on the runner or pick another"</code>. <code>capabilities=null</code> skips the gate (backward compat with pre-PR4 runners that haven't registered capabilities).</td></tr>
+    <tr><td><code>src/runner/runner-nats.test.ts</code></td><td>Added <code>probeProviders</code> unit tests (claude resolves, claude fails, probe throws→no crash). Added KV-integration tests for <code>RunnerNatsHandler</code> using <code>_probeProviders</code> injectable: providers=[claude], [claude,codex], probe-crash→empty.</td></tr>
+    <tr><td><code>src/server/runner-incompatible-gate.test.ts</code></td><td>Updated <code>setupGateTest</code> to accept optional <code>capabilities</code>. Updated "allows start_turn" to supply capabilities so capability gate passes. Added <code>RunnerProxy start_turn gate — capability check (PR4)</code> suite: refuse+no-dispatch, allow, null→fail-open, PR3 regression guard.</td></tr>
+    <tr><td><code>src/server/runner-proxy.test.ts</code></td><td>Updated both <code>getRunnerReadiness</code> stubs to include <code>capabilities: { providers: ["claude","codex"] }</code> so baseline happy-path tests continue to pass.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — model probing not wired (providers-only)</span>
+  <p><code>RuntimeRegistry.probeCapabilities</code> runs server-side and requires the registry
+  file. Wiring it runner-side would require either duplicating state or a cross-process call.
+  PR4 gates on provider presence only (which is the key personal-runners invariant); model-level
+  gating is deferred as a follow-up. Noted in open questions.</p>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — fail open for null capabilities (backward compat)</span>
+  <p>A runner registered without <code>capabilities</code> (pre-PR4 KV entry) returns
+  <code>capabilities=null</code> from <code>getReadiness()</code>. The proxy skips the
+  capability gate in that case rather than blocking all turns — any newly-registered runner
+  will carry the probed capabilities, so this only applies transiently during rolling upgrade.</p>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — probe injected via _probeProviders in RunnerNatsHandlerOptions</span>
+  <p>The probe is async and calls real I/O (fs stat, execFile, spawnSync). Tests inject a
+  synchronous fake via <code>_probeProviders</code> to stay isolated. The production path
+  uses the real <code>probeProviders</code> exported from <code>runner-nats.ts</code>.</p>
+</div>
+
+<h2>Open questions (updated)</h2>
+<div class="card open">
+  <span class="label">Q1 — model-level capability gating</span>
+  <p>PR4 gates on provider only. Model-level gating (e.g. refuse claude-opus-4-7 if runner
+  doesn't have a capable claude version) is deferred. <b>Recommendation:</b> wire
+  model probing in a follow-up when multi-runner routing (PR5) lands — the gate seam is
+  already in place (<code>capabilities.models</code> field on <code>RunnerCapabilities</code>
+  if populated).</p>
+</div>
+
 <h2>Deferred</h2>
-<p class="muted">Stage 2: capability probe + advertise + turn-start gate. Stage 3: dual-signal
-E2E verify + security review. Multi-runner routing (PR5); general local secret vault; ownerId.</p>
+<p class="muted">Stage 3: dual-signal E2E verify + security review. Multi-runner routing (PR5);
+model-level capability gate; general local secret vault; ownerId.</p>
 
 <h2>Verification log — Stage 1</h2>
 <div class="card done">
@@ -117,6 +165,28 @@ E2E verify + security review. Multi-runner routing (PR5); general local secret v
   <code>RunnerProxy</code> gate tests missing <code>getRunnerReadiness</code> wiring (PR3 issue),
   PTY smoke-gate, MCP tool tests, and browser integration SKIPs.
   Zero new failures introduced by Stage 1.</p>
+</div>
+
+<h2>Verification log — Stage 2</h2>
+<div class="card done">
+  <span class="label">Typecheck</span>
+  <p><code>bunx @typescript/native-preview --noEmit -p tsconfig.json</code> — clean (exit 0).</p>
+</div>
+<div class="card done">
+  <span class="label">Targeted tests (gate + proxy + runner-nats)</span>
+  <p><code>bun test src/runner/runner-nats.test.ts src/server/runner-incompatible-gate.test.ts src/server/runner-proxy.test.ts</code> — 41 pass, 0 fail.</p>
+</div>
+<div class="card done">
+  <span class="label">Full suite (src/runner + gate + proxy + pr3-liveness + src/nats)</span>
+  <p><code>bun test src/runner src/server/runner-incompatible-gate.test.ts src/server/runner-proxy.test.ts src/server/pr3-liveness.test.ts src/nats/</code> — 144 pass, 0 fail. Real runner-pair tests show probe firing: <code>providers=[claude, codex]</code> on this dev machine.</p>
+</div>
+<div class="card done">
+  <span class="label">Capability refusal observed in test output</span>
+  <p><code>[RunnerProxy] capability gate: runner cap-runner cannot run provider="codex" (installed: claude)</code> — logged on the gate refusal path as expected.</p>
+</div>
+<div class="card done">
+  <span class="label">Commit hash</span>
+  <p><code>fa55f0b</code> — feat(runner): PR4 Stage 2 — probe + advertise capabilities + capability turn-start gate. Working tree clean post-commit.</p>
 </div>
 </body>
 </html>

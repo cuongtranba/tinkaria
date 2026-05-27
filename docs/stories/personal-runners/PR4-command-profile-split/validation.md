@@ -55,5 +55,19 @@ bun test src/nats/                           # PR1–PR3 green
 **fail-open when `capabilities=null`** (pre-PR4 KV entry, backward-compat) — under
 Stage-3 security review. Model-level gate + multi-runner routing = PR5.
 
-**Stage-3 security review** of the secret boundary is in flight; findings + any
-must-fix will be appended.
+**Stage-3 security review (2026-05-27):** verdict — the core invariant ("secrets
+never transit the server": API keys, OAuth tokens, and `binaryPath` are absent
+from `StartTurnCommand`) **is enforced; no holes.** `apiKeyRef` never enters
+`extraEnv`; no secret leakage into logs; the probe uses the runner's own
+`process.env`. Must-fixes applied (commit `267688f`):
+- **M1** — a server-supplied `PATH` in `extraEnv` could redirect `which codex`;
+  PATH is now stripped so codex resolution + the spawned process use the runner's
+  own PATH only.
+- **A2** — `resolveProfileOverrides` now warns + drops secret-shaped env
+  (`API_KEY|TOKEN|SECRET|Bearer|sk-`) at runtime — the boundary is enforced, not
+  just test-asserted.
+- **M2** — the codex-manager singleton is documented (binary now always
+  runner-local, so not server-steerable).
+Accepted for pilot: **A1** — the capability gate is fail-open when
+`capabilities=null` (pre-PR4 KV entry; PR3's protocol-version gate fires first;
+an unsupported turn fails on the runner, not silently). Post-fix: 135/0, typecheck 0.

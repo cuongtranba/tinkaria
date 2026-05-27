@@ -1,5 +1,43 @@
 import type { AgentProvider, TranscriptEntry, SessionStatus, PendingToolSnapshot } from "./types"
 
+// ── Protocol versioning ──────────────────────────────────────────────
+
+/** Current protocol version emitted by this runner build. */
+export const PROTOCOL_VERSION = 1
+
+/** Server-side supported protocol range. Runners outside [min, max] are incompatible. */
+export const SUPPORTED_RANGE: { min: number; max: number } = { min: 1, max: 1 }
+
+/** Returns true if v is within the supported protocol range. */
+export function isProtocolSupported(v: number): boolean {
+  return v >= SUPPORTED_RANGE.min && v <= SUPPORTED_RANGE.max
+}
+
+// ── Liveness ─────────────────────────────────────────────────────────
+
+/** Age threshold below which a runner is considered online (ms). */
+export const LIVENESS_DEGRADED_MS = 25_000
+
+/** Age threshold at-or-above which a runner is considered offline (ms). */
+export const LIVENESS_OFFLINE_MS = 60_000
+
+export type RunnerLivenessState = "online" | "degraded" | "offline"
+
+/**
+ * Compute liveness state from last heartbeat timestamp and current time.
+ * Pure function — no I/O or side effects.
+ */
+export function runnerLivenessState(
+  lastHeartbeatAt: number | null,
+  now: number,
+): RunnerLivenessState {
+  if (lastHeartbeatAt === null) return "offline"
+  const age = now - lastHeartbeatAt
+  if (age < LIVENESS_DEGRADED_MS) return "online"
+  if (age < LIVENESS_OFFLINE_MS) return "degraded"
+  return "offline"
+}
+
 // ── Subject helpers ──────────────────────────────────────────────────
 
 const PREFIX = "runtime.runner"
@@ -140,11 +178,25 @@ export type RunnerTurnEvent =
 
 // ── Registration & heartbeat ─────────────────────────────────────────
 
+export interface RunnerCapabilities {
+  providers: AgentProvider[]
+}
+
 export interface RunnerRegistration {
   runnerId: string
   pid: number
   startedAt: number
   providers: AgentProvider[]
+  /** Protocol version reported by the runner. Missing → treated as incompatible. */
+  protocolVersion: number
+  /** Optional capability probe (shape only; rich probe added in PR4). */
+  capabilities?: RunnerCapabilities
+  /**
+   * Timestamp (ms since epoch) of the runner's last KV self-write, piggybacked on
+   * the heartbeat loop. Used by the discover path (no live heartbeat subscription)
+   * to judge liveness via runnerLivenessState. Not written by the server.
+   */
+  lastSeenAt?: number
 }
 
 export interface RunnerHeartbeat {

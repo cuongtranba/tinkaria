@@ -667,6 +667,7 @@ export async function startServer(options: StartServerOptions = {}) {
     runnerId,
     getActiveStatuses: () => transcriptConsumer.getActiveStatuses(),
     runtimeRegistry,
+    getRunnerReadiness: () => runnerManager.getReadiness(),
   })
 
   console.warn(LOG_PREFIX, "Runner process handles turn execution")

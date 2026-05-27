@@ -5,6 +5,7 @@ import {
   runnerCmdSubject,
   runnerHeartbeatSubject,
   RUNNER_REGISTRY_BUCKET,
+  PROTOCOL_VERSION,
   type StartTurnCommand,
   type CancelTurnCommand,
   type RespondToolCommand,
@@ -81,6 +82,12 @@ export class RunnerNatsHandler {
   private readonly heartbeatIntervalMs: number
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private subscriptions: Subscription[] = []
+  // Cache the registration shape so heartbeats can update lastSeenAt without
+  // re-constructing the full object each time.
+  private registration: RunnerRegistration | null = null
+  // Cached KV handle for the registry bucket — reused across heartbeat
+  // lastSeenAt writes instead of re-opening (kvm.open) on every beat.
+  private registryKv: Awaited<ReturnType<Kvm["open"]>> | null = null
 
   constructor(options: RunnerNatsHandlerOptions) {
     this.nc = options.nc
@@ -158,29 +165,32 @@ export class RunnerNatsHandler {
   }
 
   private async register(): Promise<void> {
+    // Allow tests to simulate a protocol skew via RUNNER_PROTOCOL_VERSION env.
+    const protocolVersion = Number(process.env.RUNNER_PROTOCOL_VERSION ?? PROTOCOL_VERSION)
+    const providers: RunnerRegistration["providers"] = ["claude", "codex"]
+    const registration: RunnerRegistration = {
+      runnerId: this.runnerId,
+      pid: process.pid,
+      startedAt: Date.now(),
+      providers,
+      protocolVersion,
+      capabilities: { providers },
+      lastSeenAt: Date.now(),
+    }
+    this.registration = registration
     try {
       const kvm = new Kvm(this.nc)
       const kvStore = await kvm.create(RUNNER_REGISTRY_BUCKET, {
         max_bytes: 1024 * 1024,
       })
-      const registration: RunnerRegistration = {
-        runnerId: this.runnerId,
-        pid: process.pid,
-        startedAt: Date.now(),
-        providers: ["claude", "codex"],
-      }
+      this.registryKv = kvStore
       await kvStore.put(this.runnerId, encoder.encode(JSON.stringify(registration)))
     } catch (error) {
       // KV bucket may already exist — try to open instead
       try {
         const kvm = new Kvm(this.nc)
         const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
-        const registration: RunnerRegistration = {
-          runnerId: this.runnerId,
-          pid: process.pid,
-          startedAt: Date.now(),
-          providers: ["claude", "codex"],
-        }
+        this.registryKv = kvStore
         await kvStore.put(this.runnerId, encoder.encode(JSON.stringify(registration)))
       } catch (innerError) {
         const message = innerError instanceof Error ? innerError.message : String(innerError)
@@ -204,6 +214,28 @@ export class RunnerNatsHandler {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(LOG_PREFIX, `runner heartbeat publish failed: ${message}`)
     }
+    // Update lastSeenAt in KV on every heartbeat so the discover path (no live
+    // subscription) has a fresh TTL signal. Fire-and-forget; a missed write just
+    // means the cached value ages naturally — still bounded by heartbeatIntervalMs.
+    this.updateLastSeenAt()
+  }
+
+  private updateLastSeenAt(): void {
+    if (!this.registration) return
+    const updated: RunnerRegistration = { ...this.registration, lastSeenAt: Date.now() }
+    this.registration = updated
+    void (async () => {
+      try {
+        // Reuse the cached KV handle from register(); open once if absent.
+        if (!this.registryKv) {
+          this.registryKv = await new Kvm(this.nc).open(RUNNER_REGISTRY_BUCKET)
+        }
+        await this.registryKv.put(this.runnerId, encoder.encode(JSON.stringify(updated)))
+      } catch {
+        // Best-effort; drop the (possibly stale) handle so the next beat re-opens.
+        this.registryKv = null
+      }
+    })()
   }
 
   /** Test-only wrapper for the private heartbeat publisher. */

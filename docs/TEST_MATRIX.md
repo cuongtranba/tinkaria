@@ -66,6 +66,12 @@ implemented until tests or validation evidence exist.
 | PR3-registration-liveness | Discover path uses heartbeat age, NOT `process.kill(pid,0)` (cross-machine correct) | n/a | yes | n/a | yes | implemented | discover uses runnerLivenessState(reg.lastSeenAt,now)!=="offline"; pr3-liveness.test.ts stale/fresh discover; runner stamps lastSeenAt in KV each heartbeat. NOTE: second-host reachability not locally exercised (single host) |
 | PR3-registration-liveness | `/health` runner gains `state` + `protocolVersion` + `incompatible`; live runner shows online + version | n/a | n/a | yes | n/a | implemented | team-lead E2E boot: `{state:"online",protocolVersion:1,incompatible:false,ok:true}`; skew runner → `{state:"online",protocolVersion:999,incompatible:true,ok:false}` |
 
+| PR4-command-profile-split | `StartTurnCommand` no longer carries `binaryPath`; server stops resolving it | yes | yes | n/a | n/a | planned | remove binaryPath from shape + resolveProfileOverrides branch |
+| PR4-command-profile-split | Runner resolves its own binary for all providers (Codex + Claude SDK + PTY) via the unified resolve-binary adapter | yes | n/a | yes | yes | planned | unify on port-claude's resolver; E2E turn uses runner-resolved binary, no server path |
+| PR4-command-profile-split | `extraEnv` is non-secret-only; secrets never transit the server (resolved runner-side) | yes | n/a | n/a | yes | planned | audit: serialized command has no secret-shaped values / binaryPath; secrets via local env + OAuth pool |
+| PR4-command-profile-split | Runner advertises real probed capabilities (providers + models) in RunnerRegistration (not hardcoded) | yes | yes | n/a | n/a | planned | probe installed binaries/models; replace `["claude","codex"]` hardcode |
+| PR4-command-profile-split | Capability turn-start gate: turn for an unsupported provider/model is REFUSED with a clear message (not silent downgrade) | yes | yes | n/a | n/a | planned | reuse PR3 gate seam; routing among runners is PR5 |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

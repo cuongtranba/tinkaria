@@ -48,6 +48,10 @@ implemented until tests or validation evidence exist.
 
 | mobile-artifact-controls-split | Mobile artifact card: copy+fullscreen on top edge, only expand on bottom edge | yes | n/a | yes | yes | implemented | RichContentBlock controls split; browser-harness @668px mermaid card: top=[zoom,Copy,Open in overlay], bottom=[Expand]; desktop unchanged; 85 tests + typecheck 0 |
 
+| pty-runner-cpu-mem-sampling | Runner-spawned PTY delta carries non-null rss/cpu (current+peak) once sampler reads; peaks monotonic | yes | yes | yes | macOS-ps | planned | |
+| pty-runner-cpu-mem-sampling | Usage delta carries current phase, not stale spawning | yes | n/a | n/a | n/a | planned | |
+| pty-runner-cpu-mem-sampling | No usage delta after session removed/aborted (no resurrection in store) | yes | n/a | n/a | n/a | planned | |
+
 ## Evidence Rules
 
 - Unit proof covers pure domain and application rules.

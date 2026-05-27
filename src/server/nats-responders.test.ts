@@ -554,6 +554,97 @@ describe("nats-responders", () => {
     expect(responses).toHaveLength(1)
   })
 
+  // ── PR5: chat.selectRunner ────────────────────────────────────────────────
+
+  test("chat.selectRunner calls store.setChatRunner and returns ok", async () => {
+    const calls: Array<{ chatId: string; runnerId: string | null }> = []
+    const mockStore = {
+      ...createMockStore(),
+      setChatRunner: async (chatId: string, runnerId: string | null) => {
+        calls.push({ chatId, runnerId })
+      },
+    }
+    const { clientNc } = await setup({ store: mockStore as never })
+    const res = await sendCommand(clientNc, {
+      type: "chat.selectRunner",
+      chatId: "chat-1",
+      runnerId: "runner-abc",
+    })
+    expect(res.ok).toBe(true)
+    expect(calls).toEqual([{ chatId: "chat-1", runnerId: "runner-abc" }])
+  })
+
+  test("chat.send maps RunnerPickRequired to needsPick result", async () => {
+    const { RunnerPickRequired } = await import("./runner-proxy")
+    const mockAgent = {
+      ...createMockAgent(),
+      send: async () => {
+        throw new RunnerPickRequired({
+          chatId: "chat-pick",
+          candidates: [
+            { runnerId: "runner-A", state: "online", capabilities: null, isShared: true, incompatible: false, protocolVersion: 1, lastSeenAt: null, pid: null, ownerId: null },
+          ],
+          reason: "ambiguous",
+        })
+      },
+    }
+    const { clientNc } = await setup({ agent: mockAgent as never })
+    const res = await sendCommand(clientNc, {
+      type: "chat.send",
+      chatId: "chat-pick",
+      content: "Hello",
+    })
+    // Must be ok:true with needsPick structure (not ok:false)
+    expect(res.ok).toBe(true)
+    const result = res.result as { needsPick: boolean; chatId: string; candidates: unknown[]; reason: string }
+    expect(result.needsPick).toBe(true)
+    expect(result.chatId).toBe("chat-pick")
+    expect(result.reason).toBe("ambiguous")
+    expect(Array.isArray(result.candidates)).toBe(true)
+    expect(result.candidates).toHaveLength(1)
+  })
+
+  test("chat.queue maps RunnerPickRequired to needsPick result", async () => {
+    const { RunnerPickRequired } = await import("./runner-proxy")
+    const mockAgent = {
+      ...createMockAgent(),
+      queue: async () => {
+        throw new RunnerPickRequired({
+          chatId: "chat-pick",
+          candidates: [],
+          reason: "sticky_offline",
+        })
+      },
+    }
+    const { clientNc } = await setup({ agent: mockAgent as never })
+    const res = await sendCommand(clientNc, {
+      type: "chat.queue",
+      chatId: "chat-pick",
+      content: "Follow-up",
+    })
+    expect(res.ok).toBe(true)
+    const result = res.result as { needsPick: boolean; reason: string }
+    expect(result.needsPick).toBe(true)
+    expect(result.reason).toBe("sticky_offline")
+  })
+
+  test("chat.send still propagates non-RunnerPickRequired errors as ok:false", async () => {
+    const mockAgent = {
+      ...createMockAgent(),
+      send: async () => { throw new Error("runner unavailable") },
+    }
+    const { clientNc } = await setup({ agent: mockAgent as never })
+    const res = await sendCommand(clientNc, {
+      type: "chat.send",
+      chatId: "chat-1",
+      content: "Hello",
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe("runner unavailable")
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   test("project.open returns workspaceId and triggers onStateChange", async () => {
     let changed = false
     const { clientNc } = await setup({ onStateChange: () => { changed = true } })

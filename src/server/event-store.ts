@@ -442,6 +442,13 @@ export class EventStore {
         chat.updatedAt = event.timestamp
         break
       }
+      case "chat_runner_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.runnerId = event.runnerId
+        chat.updatedAt = event.timestamp
+        break
+      }
       case "message_appended": {
         this.applyMessageMetadata(event.chatId, event.entry)
         const existing = this.legacyMessagesByChatId.get(event.chatId) ?? []
@@ -1144,6 +1151,19 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
       provider,
+    }
+    await this.append(this.chatsLogPath, event)
+  }
+
+  async setChatRunner(chatId: string, runnerId: string | null) {
+    const chat = this.requireChat(chatId)
+    if ((chat.runnerId ?? null) === runnerId) return
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_runner_set",
+      timestamp: Date.now(),
+      chatId,
+      runnerId,
     }
     await this.append(this.chatsLogPath, event)
   }

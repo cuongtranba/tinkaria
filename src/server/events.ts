@@ -37,6 +37,8 @@ export interface ChatRecord {
   sessionToken: string | null
   lastMessageAt?: number
   lastTurnOutcome: "success" | "failed" | "cancelled" | null
+  /** PR5: sticky runner pin. Absent on pre-PR5 chats → treated as no pin. */
+  runnerId?: string | null
 }
 
 export interface QueuedChatTurnRecord {
@@ -195,6 +197,13 @@ export type ChatEvent =
       timestamp: number
       chatId: string
       unread: boolean
+    }
+  | {
+      v: 3
+      type: "chat_runner_set"
+      timestamp: number
+      chatId: string
+      runnerId: string | null
     }
 
 export type MessageEvent = {

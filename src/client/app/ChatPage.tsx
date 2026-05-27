@@ -40,6 +40,7 @@ import type { TranscriptRenderUnit } from "../../shared/types"
 import { useEventCallback } from "../hooks/useEventCallback"
 import { ChatNavigator } from "./ChatNavigator"
 import { useChatNavigator } from "./useChatNavigator"
+import { RunnerPickerDialog } from "../components/chat-ui/RunnerPickerDialog"
 
 // Navbar is now a flow element — no offset constant needed
 const SCROLL_BUTTON_BASE_BOTTOM_PX = 120
@@ -369,6 +370,8 @@ export function ChatPage() {
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [composerLiftPx, setComposerLiftPx] = useState(0)
+  // PR5: track last pinned runner name for the composer indicator (best-effort)
+  const [pinnedRunnerName, setPinnedRunnerName] = useState<string | null>(null)
   const requestedSidebarDialog = getRequestedSidebarDialog(location.state)
   const mergeSourceProjectId = state.pendingMergeProjectId ?? workspaceId
   const mergeAvailableChats = useMemo(() => {
@@ -642,6 +645,12 @@ export function ChatPage() {
           onMerge={state.handleMergeSession}
         />
 
+        <RunnerPickerDialog
+          request={state.needsPickRequest}
+          onClose={state.clearNeedsPickRequest}
+          onPicked={(runnerId) => setPinnedRunnerName(runnerId.slice(-8))}
+        />
+
         <div className="flex-1 min-h-0 relative" {...getUiIdentityAttributeProps(CHAT_PAGE_UI_DESCRIPTORS.transcript)}>
           <ScrollArea
             ref={state.scrollRef}
@@ -808,7 +817,12 @@ export function ChatPage() {
         >
         <div className="bg-gradient-to-t from-background via-background pointer-events-auto" ref={state.inputRef}>
           <div className="px-3 pb-2">
-            <div className="max-w-[840px] mx-auto flex justify-end">
+            <div className="max-w-[840px] mx-auto flex justify-end items-center gap-2">
+              {pinnedRunnerName ? (
+                <span className="text-xs text-muted-foreground/70 select-none" title="Pinned runner for this session">
+                  runner: {pinnedRunnerName}
+                </span>
+              ) : null}
               <SubagentIndicator
                 parentChatId={state.activeChatId}
                 hierarchy={state.orchestrationHierarchy}

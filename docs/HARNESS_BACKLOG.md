@@ -118,3 +118,38 @@ normal
 
 proposed
 
+
+## Operational Finding (backlog #6)
+
+### Title
+
+Runner registry KV bucket has no TTL / offline-purge — tombstones accumulate unbounded
+
+### Discovered While
+
+PR5 (session routing) dual-signal boot on the DEV profile (:3399). `RunnerRouter.list()`
+enumerated **213 entries** in `runtime_runner_registry`; only **1 was online** (the
+freshly-spawned shared runner). The other 212 are stale tombstones from past runner
+spawns that exited without removing their KV entry.
+
+### Current Pain
+
+Unbounded KV growth; `/health` `runners[]` payload bloat (~35KB for 213 entries);
+`list()` slows as entries accumulate. Routing itself is **correct** — `select()` is
+fail-closed on liveness + compat, so the 212 stale entries are filtered out and never
+selected. Impact is observability/performance only, not correctness.
+
+### Suggested Improvement
+
+Add a KV TTL to `runtime_runner_registry` (e.g. a few minutes, refreshed by each
+heartbeat) so dead runners expire; OR purge offline-beyond-grace entries on
+`list()`/registration; optionally cap or paginate `/health` `runners[]`. Pre-existing
+since PR3 (registration added no TTL); PR5 merely exposed it via enumeration.
+
+### Risk
+
+tiny
+
+### Status
+
+proposed

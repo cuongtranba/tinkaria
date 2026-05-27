@@ -24,6 +24,7 @@ import type { RepoManager } from "./repo-manager"
 import type { GitClonePolicy } from "./git-clone-policy"
 import type { RuntimeRegistry } from "./runtime-registry"
 import { resolveProfile } from "../shared/profile-types"
+import { RunnerPickRequired } from "./runner-proxy"
 
 /** Session coordinator interface — RunnerProxy delegates turn execution to the runner process */
 interface Coordinator {
@@ -180,6 +181,7 @@ const SERVER_COMMANDS: readonly ClientCommand["type"][] = [
   "workspace.profile.override.remove",
   "extension.preference.set",
   "extension.preference.list",
+  "chat.selectRunner",
 ]
 
 const DETECT_OPTIONS: Record<string, { binaryName: string; packageName: string; versionParser: (stdout: string) => string }> = {
@@ -360,11 +362,32 @@ export function registerCommandResponders(args: RegisterRespondersArgs): { dispo
         return undefined
       }
 
-      case "chat.send":
-        return agent.send(command)
+      case "chat.send": {
+        try {
+          return await agent.send(command)
+        } catch (e) {
+          if (e instanceof RunnerPickRequired) {
+            return { needsPick: true, chatId: e.chatId, candidates: e.candidates, reason: e.reason }
+          }
+          throw e
+        }
+      }
 
-      case "chat.queue":
-        return agent.queue(command)
+      case "chat.queue": {
+        try {
+          return await agent.queue(command)
+        } catch (e) {
+          if (e instanceof RunnerPickRequired) {
+            return { needsPick: true, chatId: e.chatId, candidates: e.candidates, reason: e.reason }
+          }
+          throw e
+        }
+      }
+
+      case "chat.selectRunner": {
+        await store.setChatRunner(command.chatId, command.runnerId)
+        return { ok: true }
+      }
 
       case "chat.cancel": {
         await agent.cancel(command.chatId)

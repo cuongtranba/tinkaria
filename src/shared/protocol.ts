@@ -144,3 +144,4 @@ export type ClientCommand =
   | { type: "workspace.profile.override.remove"; workspaceId: string; profileId: string }
   | { type: "extension.preference.set"; extensionId: string; enabled: boolean }
   | { type: "extension.preference.list" }
+  | { type: "chat.selectRunner"; chatId: string; runnerId: string }

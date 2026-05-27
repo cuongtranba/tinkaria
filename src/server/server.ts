@@ -23,6 +23,7 @@ import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEvents
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { PairingStore } from "./pairing-store"
 import { RunnerProxy } from "./runner-proxy"
+import { RunnerRouter } from "./runner-router"
 import { TranscriptConsumer } from "./transcript-consumer"
 import type { AgentProvider, TranscriptEntry, SessionStatus } from "../shared/types"
 import type { ClientCommand } from "../shared/protocol"
@@ -340,6 +341,8 @@ export interface ServerHealthcheck {
   natsDaemon: NatsDaemonReadiness | null
   natsConnection: ReturnType<NatsConnector["getReadiness"]>
   runner: RunnerReadiness
+  /** PR5: all registered runners from the KV fleet. Only present in /health responses. Empty array when NATS is not ready. */
+  runners?: import("./runner-router").RunnerDescriptor[]
 }
 
 /** Session coordinator interface — satisfied by RunnerProxy which delegates turn execution to the runner process. */
@@ -661,13 +664,39 @@ export async function startServer(options: StartServerOptions = {}) {
   })
   await runtimeRegistry.initialize()
 
+  const runnerRouter = new RunnerRouter({
+    nc: natsConnector.nc,
+    sharedRunnerId: () => {
+      try { return runnerManager.getRunnerId() } catch { return null }
+    },
+  })
+
   const coordinator: SessionCoordinator = new RunnerProxy({
     nc: natsConnector.nc,
     store,
     runnerId,
     getActiveStatuses: () => transcriptConsumer.getActiveStatuses(),
     runtimeRegistry,
-    getRunnerReadiness: () => runnerManager.getReadiness(),
+    router: runnerRouter,
+    sharedRunnerId: () => runnerManager.getRunnerId(),
+    getRunnerReadiness: (targetRunnerId: string) => {
+      // For the shared/local runner, use the authoritative RunnerManager readiness.
+      // For personal runners, we keep the gate synchronous by failing closed when
+      // the descriptor has not been pre-fetched.  resolveRunnerForChat already
+      // called router.select (which calls router.list), but that descriptor is not
+      // cached here.  To avoid making getRunnerReadiness async (which would ripple
+      // into sendCommand and every call-site), we apply a conservative policy:
+      // the shared runner uses its live readiness; a selected personal runner
+      // passes the gate (fail-open for the readiness check — the eligibleFor()
+      // filter in selectFrom already enforced liveness + compat before selection,
+      // so a selected runner is already known-compatible at the time of dispatch).
+      if (targetRunnerId === runnerId) {
+        return runnerManager.getReadiness()
+      }
+      // Personal runner: trust that router.select already enforced
+      // liveness + protocol compat via eligibleFor().  Return compatible.
+      return { incompatible: false, protocolVersion: null, capabilities: null }
+    },
   })
 
   console.warn(LOG_PREFIX, "Runner process handles turn execution")
@@ -890,7 +919,10 @@ export async function startServer(options: StartServerOptions = {}) {
 
           if (url.pathname === "/health") {
             const healthcheck = getHealthcheck()
-            return Response.json(healthcheck, {
+            // runners is async (KV list); fetch in parallel with the sync healthcheck.
+            // Failures return [] so the existing ok/status logic is never blocked.
+            const runners = await runnerRouter.list().catch(() => [])
+            return Response.json({ ...healthcheck, runners }, {
               status: healthcheck.ok ? 200 : 503,
             })
           }

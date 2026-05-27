@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR5 Session Routing — Implementation Notes</title>
+<style>
+  :root { --fg:#1a1a2e; --muted:#5b5b77; --ok:#1a7f4b; --warn:#b06a00; --bd:#e2e2ee; --bg:#fafafe; --code:#f0f0f7; }
+  * { box-sizing:border-box; }
+  body { font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); max-width:920px; margin:0 auto; padding:2.5rem 1.5rem; }
+  h1 { font-size:1.7rem; margin:0 0 .25rem; }
+  h2 { font-size:1.2rem; margin:2rem 0 .5rem; padding-top:1rem; border-top:1px solid var(--bd); }
+  h3 { font-size:1rem; margin:1.2rem 0 .3rem; }
+  .sub { color:var(--muted); margin:0 0 1rem; }
+  code { background:var(--code); padding:.1em .35em; border-radius:4px; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--code); padding:.8rem 1rem; border-radius:8px; overflow:auto; font:13px/1.5 ui-monospace,Menlo,monospace; }
+  .tag { display:inline-block; font-size:.72rem; font-weight:600; padding:.1em .5em; border-radius:999px; vertical-align:middle; }
+  .tag.risk { background:#fde8e8; color:#b3261e; }
+  .tag.plan { background:#e8eefd; color:#1a47b3; }
+  .tag.done { background:#e3f6ec; color:var(--ok); }
+  table { border-collapse:collapse; width:100%; margin:.5rem 0; font-size:14px; }
+  th,td { border:1px solid var(--bd); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f2f2fa; }
+  .q { background:#fff8ec; border-left:3px solid var(--warn); padding:.6rem .9rem; border-radius:0 6px 6px 0; margin:.6rem 0; }
+  .rec { color:var(--ok); font-weight:600; }
+  ul { margin:.3rem 0; padding-left:1.3rem; }
+  .stamp { color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<h1>PR5 — Session Routing <span class="tag risk">high-risk (laned up)</span></h1>
+<p class="sub">Personal Runners epic PR5 · concept #3 · stacks on PR3+PR4 · decision <code>0011</code>.
+Working narrative — the packet (<code>overview/design/execplan/validation.md</code>) is the contract; this explains <em>how</em> the implementation gets there. Updated as work proceeds.</p>
+
+<h2>State <span class="stamp">— 2026-05-27, all 3 stages implemented + dual-signal verified</span></h2>
+<table>
+  <tr><th>Stage</th><th>Scope</th><th>Status</th></tr>
+  <tr><td>1 — <code>RunnerRouter</code></td><td>enumerate KV fleet + deterministic <code>select()</code>; no behavior change</td><td><span class="tag done">done · 7f1ecc6 · 41 tests</span></td></tr>
+  <tr><td>2 — <code>RunnerProxy</code> rewire</td><td>per-session dispatch + <code>chat.runnerId</code> persistence; superset of single-runner</td><td><span class="tag done">done · faa1732 · 10 tests + 16 unchanged</span></td></tr>
+  <tr><td>3 — surfaces + verify</td><td><code>/health</code> fleet + client picker + dual-signal boot (dedicated port)</td><td><span class="tag done">done · f34809f · +4 tests + boot</span></td></tr>
+</table>
+
+<h2>Dual-signal boot result <span class="stamp">(:3399, isolated DEV profile — never :3210)</span></h2>
+<p>Booted the worktree on <code>TINKARIA_RUNTIME_PROFILE=dev</code> (data dir <code>~/.tinkaria-dev/data</code>, NATS ephemeral 50170/50169) alongside the user's live PROD <code>:3210</code> — <strong>zero collision; :3210 confirmed LIVE-OK after shutdown</strong>.</p>
+<ul>
+  <li><code>/health</code>: <code>ok:true</code>, natsDaemon/natsConnection ok, shared <code>runner</code> online (protocolVersion 1, caps <code>[claude,codex]</code>), and <strong><code>runners[]</code> field present</strong>.</li>
+  <li><strong>Routing proof:</strong> of <strong>213</strong> KV registry entries, <strong>exactly 1 eligible</strong> (the online shared runner, <code>isShared:true</code>) → <code>select()</code> hits <em>sole-eligible → auto-select (zero-click)</em>, no picker. The 212 stale tombstones correctly excluded by fail-closed liveness/compat. Log + <code>/health</code> + real-NATS enumeration <strong>agree</strong>.</li>
+  <li><strong>Not driven live:</strong> the picker (<code>needs_pick</code>) needs ≥2 eligible runners — covered by unit/integration tests + the <code>RunnerPickerDialog</code> component; browser multi-runner picker is a follow-up (needs a 2nd real runner, ~PR8).</li>
+</ul>
+<div class="q"><strong>Finding (logged → HARNESS_BACKLOG #6, risk tiny):</strong> <code>runtime_runner_registry</code> has no TTL — 212 dead-runner tombstones accumulated across past DEV boots. <span class="rec">Pre-existing (PR3 added no TTL), not caused by PR5; <code>select()</code> filters them so routing is correct. PR5's <code>list()</code> merely exposes it (35KB <code>/health</code>). Rec: KV TTL refreshed by heartbeat, or purge-offline-on-list.</span></div>
+
+<h2>Design decisions (where the spec was ambiguous)</h2>
+<h3>Lane: normal → high-risk</h3>
+<p>The change-request pre-triaged PR5 <em>normal</em>. We lane up because the realized change rewires the turn-dispatch chokepoint (<code>RunnerProxy</code>) from a fixed <code>runnerId</code> to per-session selection — large Existing-behavior blast radius across server+client+protocol. No hard gate fires (so it's judgment, not forced); when pre-triage and realized blast radius disagree, lane up. Same care as PR1–PR4.</p>
+
+<h3>Sticky pin (persisted) vs per-turn selection</h3>
+<p>Chosen: <strong>persist <code>chat.runnerId</code></strong>, select once, honor for the chat's life, recompute only when the pinned runner is no longer eligible. A turn + its cancel + tool responses + PTY teardown must reach the <em>same</em> machine (the session's claude-pty child / OAuth pool / MCP server live there). Per-turn re-selection could strand an in-flight session. This is the concept's "sticky-default."</p>
+
+<h3>Shared-runner fallback not special-cased</h3>
+<p>The server-spawned runner is just another <code>list()</code> entry flagged <code>isShared</code>. A member with no personal runner finds it as the sole eligible candidate → auto-selected. Avoids a separate fallback branch.</p>
+
+<h3>Fail-closed liveness/compat, fail-open capability</h3>
+<p>Offline + incompatible runners are never eligible (fail-closed). <code>capabilities===null</code> (pre-PR4 runner) is treated capable (fail-open) — matching PR4; the turn-start capability gate still catches a real mismatch loudly. Avoids excluding older runners that simply haven't probed yet.</p>
+
+<h2>Tradeoffs</h2>
+<ul>
+  <li><strong>No <code>list()</code> caching.</strong> Selection reads KV each turn-start (cheap, infrequent). Caching risks routing to a just-died runner. Revisit only if hot.</li>
+  <li><strong>Superset constraint over clean rewrite.</strong> <code>RunnerProxy</code> must keep single-runner behavior bit-identical (existing <code>runner-proxy.test.ts</code> green <em>unchanged</em>) rather than a from-scratch multi-runner proxy — lower blast radius, provable.</li>
+</ul>
+
+<h2>Deviations from plan</h2>
+<ul>
+  <li><strong>Lane:</strong> took PR5 as high-risk though the change-request pre-triaged it normal (rationale in overview/decision 0011).</li>
+  <li><strong><code>getRunnerReadiness</code> kept synchronous</strong> (design left it open). Shared/local runner → live <code>runnerManager.getReadiness()</code>; a selected <em>personal</em> runner → <code>{incompatible:false, capabilities:null}</code> (fail-open). Safe because <code>select()</code> already enforced <code>!incompatible &amp;&amp; state!=="offline" &amp;&amp; capable</code> before returning <code>selected</code> — the gate is redundant for an already-selected runner, and avoiding async kept blast radius off every caller of the sync <code>getHealthcheck</code>.</li>
+  <li><strong>Empty-candidate <code>needs_pick</code> → fail-fast.</strong> design.md ordered the sticky-offline check before the empty check, so a gone sticky pin with zero other eligible yields <code>needs_pick</code> with empty candidates. <code>resolveRunnerForChat</code> guards this: empty candidates → a plain fail-fast <code>Error</code> (no dead-end picker), non-empty → <code>RunnerPickRequired</code>.</li>
+  <li><strong><code>/health</code> <code>runners[]</code> computed at the route</strong> (not in sync <code>getHealthcheck</code>) with <code>.catch(()=>[])</code> — zero blast radius on existing healthcheck callers.</li>
+  <li><strong>Runner indicator is best-effort local</strong> (last-8 of runnerId, resets on navigation). A live name needs <code>runnerId</code> in <code>ChatSnapshot</code> — out of scope per the design's "minimal" guidance.</li>
+</ul>
+
+<h2>Open questions <span class="stamp">(each with a recommendation)</span></h2>
+<div class="q"><strong>Picker UX placement.</strong> Modal vs inline-in-composer for <code>chat.runnerPickRequired</code>. <span class="rec">Rec: inline composer affordance + a lightweight popover list (matches the existing model-indicator menu pattern from recent mobile work); only block the send when a pick is actually required.</span></div>
+<div class="q"><strong>Re-pick affordance scope.</strong> Whether to ship the deliberate "runner: &lt;name&gt;" re-pick control in PR5 or defer to a follow-up. <span class="rec">Rec: ship a minimal read-only "runner: &lt;name&gt;" indicator in PR5; full re-pick menu can be a fast-follow if the picker plumbing lands clean.</span></div>
+<div class="q"><strong><code>/health.ok</code> semantics with a fleet.</strong> Keep gating on the shared runner only, or also reflect personal-runner health. <span class="rec">Rec: keep <code>ok</code> gated on the shared runner (server usability invariant); expose per-runner health in <code>runners[]</code> for observability without flipping <code>ok</code>.</span></div>
+
+<h2>Code review outcomes <span class="stamp">(ecc:typescript-reviewer)</span></h2>
+<p><strong>Fixed (commit 76d9df1):</strong></p>
+<ul>
+  <li><strong>Persist-after-dispatch</strong> (HIGH) — <code>resolveRunnerForChat</code> no longer persists the pin before dispatch; returns <code>{runnerId, shouldPersist}</code> and callers persist <em>only</em> after <code>sendCommand</code> succeeds, so a failed dispatch can't strand a chat on an unreachable runner.</li>
+  <li><strong>Client retry re-opens picker</strong> (HIGH) — if the post-pick retry itself returns <code>needsPick</code> (picked runner went ineligible), the dialog re-opens instead of closing silently.</li>
+  <li><strong>Per-entry JSON.parse guard</strong> (MED) in <code>RunnerRouter.list()</code> — one corrupt KV value can't truncate the fleet.</li>
+  <li><strong>Dialog state reset</strong> (MED) — <code>RunnerPickerDialog</code> clears selected/error/busy on a new request.</li>
+</ul>
+<p><strong>Consciously deferred / dispositioned:</strong></p>
+<ul>
+  <li><strong>Start-turn race</strong> (reviewer HIGH) — re-analyzed as <em>not</em> a divergent-dispatch bug: with no pin, two concurrent starts run <code>select()</code> on the same registry → either 1 eligible (both resolve to the <em>same</em> runner = the pre-existing single-runner double-send, already guarded by <code>recentlyStartedChats</code>) or ≥2 eligible (→ <code>needs_pick</code>, no dispatch). Persist-after-dispatch narrows the window further. No per-chat mutex added (would be over-engineering for this path).</li>
+  <li><strong>O(n) serial KV <code>get()</code> on every start_turn</strong> (MED) — folded into HARNESS_BACKLOG #6 (registry no-TTL / enumeration cost); ties to capping the 213-entry registry.</li>
+  <li><strong>Anonymous-type casts</strong> for <code>protocolVersion</code>/<code>ownerId</code> (MED) — left; declaring <code>ownerId?</code> on <code>RunnerRegistration</code> belongs with the deferred ownerId work (PR2 deferral). <code>protocolVersion</code> is already typed on the registration.</li>
+  <li><strong>Fail-open <code>protocolVersion:null</code></strong> for personal runners (MED) — cosmetic (error string only); the gate is redundant post-<code>select()</code>. Left as documented.</li>
+  <li><strong>dispose-on-missed-pin leak</strong> (LOW) + indicator naming (NIT) — edge/cosmetic; noted, not fixed.</li>
+</ul>
+
+<h2>GitNexus note</h2>
+<p>Impact analysis unavailable all session (index read-only). Compensating control per PR1–PR4: existing turn-path suite green unchanged (superset proof) + new unit/integration tests + dual-signal boot + reviews.</p>
+</body>
+</html>

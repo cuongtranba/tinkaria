@@ -7,12 +7,38 @@ import { resolveClaudeApiModelId } from "../shared/types"
 import { runnerCmdSubject, SUPPORTED_RANGE, type RunnerCapabilities, type StartTurnCommand } from "../shared/runner-protocol"
 import type { EventStore } from "./event-store"
 import type { RuntimeRegistry } from "./runtime-registry"
+import type { RunnerRouter } from "./runner-router"
 import {
   deriveServerProviderCatalog,
   getServerProviderCatalog,
   normalizeClaudeModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
+
+// ── RunnerPickRequired ────────────────────────────────────────────────────────
+
+/**
+ * Thrown by `resolveRunnerForChat` when selection returns `needs_pick` with
+ * non-empty candidates. The WS layer converts this to a `chat.runnerPickRequired`
+ * event so the client can render a picker.
+ */
+export class RunnerPickRequired extends Error {
+  readonly chatId: string
+  readonly candidates: import("./runner-router").RunnerDescriptor[]
+  readonly reason: "ambiguous" | "sticky_offline"
+
+  constructor(args: {
+    chatId: string
+    candidates: import("./runner-router").RunnerDescriptor[]
+    reason: "ambiguous" | "sticky_offline"
+  }) {
+    super(`Runner pick required for chat ${args.chatId}: ${args.reason}`)
+    this.name = "RunnerPickRequired"
+    this.chatId = args.chatId
+    this.candidates = args.candidates
+    this.reason = args.reason
+  }
+}
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -27,8 +53,16 @@ export interface RunnerProxyOptions {
   getActiveStatuses: () => Map<string, SessionStatus>
   getPendingTool?: (chatId: string) => PendingToolSnapshot | null
   runtimeRegistry?: RuntimeRegistry | null
-  /** Optional: called before start_turn dispatch to enforce the protocol-version + capability gate. */
-  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }
+  /** Optional: called before start_turn dispatch to enforce the protocol-version + capability gate.
+   *  When `router` is provided the signature becomes `(runnerId: string) => {...}` so each runner
+   *  can be checked individually. A zero-arg `() => ({...})` (as existing tests pass) is still
+   *  assignable in TS — the parameter is simply ignored in the legacy path. */
+  getRunnerReadiness?: (runnerId: string) => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }
+  /** PR5: optional router for per-session runner selection. When absent the proxy
+   *  behaves exactly as before — always dispatching to `this.runnerId`. */
+  router?: RunnerRouter
+  /** PR5: returns the current shared/fallback runner id. Defaults to `() => this.runnerId`. */
+  sharedRunnerId?: () => string
 }
 
 export class RunnerProxy {
@@ -37,8 +71,10 @@ export class RunnerProxy {
   private readonly runnerId: string
   private readonly _getActiveStatuses: () => Map<string, SessionStatus>
   private readonly runtimeRegistry: RuntimeRegistry | null
-  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }) | null
+  private readonly _getRunnerReadiness: ((runnerId: string) => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }) | null
   private readonly recentlyStartedChats = new Set<string>()
+  private readonly router: RunnerRouter | null
+  private readonly _sharedRunnerId: () => string
 
   /** Orchestration compatibility: check if a chat has an active turn */
   readonly activeTurns: { has(chatId: string): boolean }
@@ -50,6 +86,8 @@ export class RunnerProxy {
     this._getActiveStatuses = options.getActiveStatuses
     this.runtimeRegistry = options.runtimeRegistry ?? null
     this._getRunnerReadiness = options.getRunnerReadiness ?? null
+    this.router = options.router ?? null
+    this._sharedRunnerId = options.sharedRunnerId ?? (() => this.runnerId)
     this.activeTurns = {
       has: (chatId: string) => this.hasActiveOrJustStartedTurn(chatId),
     }
@@ -99,20 +137,20 @@ export class RunnerProxy {
     return this.hasObservedActiveTurn(chatId) || this.recentlyStartedChats.has(chatId)
   }
 
-  private async sendCommand(cmd: string, payload: unknown): Promise<unknown> {
+  private async sendCommand(cmd: string, payload: unknown, runnerId: string): Promise<unknown> {
     // Gate: incompatible runners must not receive start_turn — fail fast with a clear message.
     // Fail CLOSED: if no readiness source is wired we cannot prove compatibility, so refuse
     // rather than silently dispatching to a possibly-incompatible runner.
     if (cmd === "start_turn") {
       if (!this._getRunnerReadiness) {
         throw new Error(
-          `RunnerProxy ${this.runnerId}: getRunnerReadiness not provided — refusing start_turn (cannot enforce the compatibility gate)`,
+          `RunnerProxy ${runnerId}: getRunnerReadiness not provided — refusing start_turn (cannot enforce the compatibility gate)`,
         )
       }
-      const { incompatible, protocolVersion, capabilities } = this._getRunnerReadiness()
+      const { incompatible, protocolVersion, capabilities } = this._getRunnerReadiness(runnerId)
       if (incompatible) {
         throw new Error(
-          `Runner ${this.runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max}) — run tinkaria-runner upgrade`,
+          `Runner ${runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max}) — run tinkaria-runner upgrade`,
         )
       }
       // Capability gate: if the runner advertised capabilities, verify the
@@ -125,10 +163,10 @@ export class RunnerProxy {
         if (requestedProvider && !capabilities.providers.includes(requestedProvider)) {
           const installed = capabilities.providers.join(", ") || "none"
           console.warn(
-            `[RunnerProxy] capability gate: runner ${this.runnerId} cannot run provider="${requestedProvider}" (installed: ${installed})`,
+            `[RunnerProxy] capability gate: runner ${runnerId} cannot run provider="${requestedProvider}" (installed: ${installed})`,
           )
           throw new Error(
-            `Runner ${this.runnerId} cannot run ${requestedProvider} (installed: ${installed}) — install it on the runner or pick another`,
+            `Runner ${runnerId} cannot run ${requestedProvider} (installed: ${installed}) — install it on the runner or pick another`,
           )
         }
       }
@@ -145,13 +183,64 @@ export class RunnerProxy {
     const isPtyStartTurn = cmd === "start_turn"
       && (payload as { provider?: string } | null)?.provider === "claude-pty"
     const reply = await this.nc.request(
-      runnerCmdSubject(this.runnerId, cmd),
+      runnerCmdSubject(runnerId, cmd),
       encoder.encode(JSON.stringify(payload)),
       { timeout: isPtyStartTurn ? 90_000 : 10_000 },
     )
     const response = JSON.parse(decoder.decode(reply.data))
     if (!response.ok) throw new Error(response.error ?? "Runner command failed")
     return response.result
+  }
+
+  /**
+   * PR5: Resolve which runner should handle the next turn for this chat.
+   *
+   * - No router → legacy single-runner path: return `{ runnerId: this.runnerId, shouldPersist: false }`.
+   * - Router present → consult it with the chat's sticky pin (if any):
+   *   - `selected` → return `{ runnerId, shouldPersist: runnerId !== chat.runnerId }`.
+   *   - `needs_pick` with no candidates → fail-fast (no eligible runners at all).
+   *   - `needs_pick` with candidates → throw RunnerPickRequired for the picker.
+   *   - `unavailable` → fail-fast Error.
+   *
+   * NOTE: does NOT persist the pin — callers must call `store.setChatRunner` after
+   * a successful dispatch when `shouldPersist` is true.
+   */
+  private async resolveRunnerForChat(chatId: string, provider: AgentProvider): Promise<{ runnerId: string; shouldPersist: boolean }> {
+    if (!this.router) {
+      return { runnerId: this.runnerId, shouldPersist: false }
+    }
+
+    const chat = this.store.requireChat(chatId)
+    const preferred = chat.runnerId ?? null
+    const sel = await this.router.select({ provider, preferredRunnerId: preferred })
+
+    if (sel.kind === "selected") {
+      const shouldPersist = sel.runnerId !== (chat.runnerId ?? null)
+      return { runnerId: sel.runnerId, shouldPersist }
+    }
+
+    if (sel.kind === "needs_pick") {
+      if (sel.candidates.length === 0) {
+        throw new Error(
+          `No eligible runners for provider "${provider}" — start or pair a runner`,
+        )
+      }
+      throw new RunnerPickRequired({ chatId, candidates: sel.candidates, reason: sel.reason })
+    }
+
+    // unavailable
+    throw new Error(sel.reason)
+  }
+
+  /**
+   * For non-start commands (cancel, respond_tool, stop_chat_pty) the runner
+   * MUST be the already-pinned one — never re-route mid-session. If the chat
+   * has no pin yet (e.g. being disposed before any turn) fall back to the
+   * shared/default runner.
+   */
+  private pinnedRunnerForChat(chatId: string): string {
+    const chat = this.store.requireChat(chatId)
+    return chat.runnerId ?? this._sharedRunnerId()
   }
 
   /** Send a chat message — creates chat if needed, delegates turn to runner */
@@ -213,7 +302,9 @@ export class RunnerProxy {
     await this.store.setChatModel(chatId, model)
     await this.store.setPlanMode(chatId, planMode)
 
-    await this.sendCommand("start_turn", startCmd)
+    const { runnerId, shouldPersist } = await this.resolveRunnerForChat(chatId, provider)
+    await this.sendCommand("start_turn", startCmd, runnerId)
+    if (shouldPersist) await this.store.setChatRunner(chatId, runnerId)
     this.recentlyStartedChats.add(chatId)
     return { chatId }
   }
@@ -276,12 +367,13 @@ export class RunnerProxy {
     const project = this.store.getProject(chat.workspaceId)
     if (!project) throw new Error("Project not found")
 
-    const profileOverrides = this.resolveProfileOverrides(chat.workspaceId, chat.provider ?? "claude")
+    const provider = chat.provider ?? "claude"
+    const profileOverrides = this.resolveProfileOverrides(chat.workspaceId, provider)
     const existingMessages = await this.store.getMessages(chatId)
 
     const startCmd: StartTurnCommand = {
       chatId,
-      provider: chat.provider ?? "claude",
+      provider,
       content: `[Delegation result ready] The delegated agent has completed. Review the agent_result entry above and continue.`,
       model: chat.model ?? "sonnet",
       planMode: chat.planMode ?? false,
@@ -294,7 +386,9 @@ export class RunnerProxy {
       ...profileOverrides,
     }
 
-    await this.sendCommand("start_turn", startCmd)
+    const { runnerId, shouldPersist } = await this.resolveRunnerForChat(chatId, provider)
+    await this.sendCommand("start_turn", startCmd, runnerId)
+    if (shouldPersist) await this.store.setChatRunner(chatId, runnerId)
     this.recentlyStartedChats.add(chatId)
     return true
   }
@@ -342,25 +436,30 @@ export class RunnerProxy {
       workspaceId: chat.workspaceId,
       ...profileOverrides,
     }
-    await this.sendCommand("start_turn", startCmd)
+    const { runnerId, shouldPersist } = await this.resolveRunnerForChat(args.chatId, args.provider)
+    await this.sendCommand("start_turn", startCmd, runnerId)
+    if (shouldPersist) await this.store.setChatRunner(args.chatId, runnerId)
     this.recentlyStartedChats.add(args.chatId)
   }
 
   async cancel(chatId: string): Promise<void> {
-    await this.sendCommand("cancel_turn", { chatId })
+    const runnerId = this.pinnedRunnerForChat(chatId)
+    await this.sendCommand("cancel_turn", { chatId }, runnerId)
   }
 
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>): Promise<void> {
+    const runnerId = this.pinnedRunnerForChat(command.chatId)
     await this.sendCommand("respond_tool", {
       chatId: command.chatId,
       toolUseId: command.toolUseId,
       result: command.result,
-    })
+    }, runnerId)
   }
 
   async disposeChat(chatId: string): Promise<void> {
+    const runnerId = this.pinnedRunnerForChat(chatId)
     try {
-      await this.cancel(chatId)
+      await this.sendCommand("cancel_turn", { chatId }, runnerId)
     } catch (_error) {
       // Chat might not be running — swallow
     }
@@ -370,7 +469,7 @@ export class RunnerProxy {
     // CLI child + MCP HTTP server + file watcher + memory sampler + OAuth
     // pool reservation. Mirrors kanna's `closeChat` discipline.
     try {
-      await this.sendCommand("stop_chat_pty", { chatId })
+      await this.sendCommand("stop_chat_pty", { chatId }, runnerId)
     } catch (_error) {
       // Runner may have already cleared the session — swallow
     }

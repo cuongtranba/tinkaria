@@ -1,13 +1,25 @@
-import { describe, test, expect, afterEach } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { connect } from "@nats-io/transport-node"
 import { NatsDaemonManager } from "./nats-daemon-manager"
 
 describe("NatsDaemonManager", () => {
   let manager: NatsDaemonManager | null = null
+  let prevAuthMode: string | undefined
+
+  // These tests exercise the token-mode daemon path (they pass a token and
+  // connect with it). The server default is now NATS_AUTH_MODE=callout, which
+  // spawns the callout daemon (requires NATS_DATA_DIR + key material); the
+  // callout daemon path is covered by src/nats/auth-callout/callout.integration.test.ts.
+  beforeEach(() => {
+    prevAuthMode = process.env.NATS_AUTH_MODE
+    process.env.NATS_AUTH_MODE = "token"
+  })
 
   afterEach(async () => {
     await manager?.dispose()
     manager = null
+    if (prevAuthMode === undefined) delete process.env.NATS_AUTH_MODE
+    else process.env.NATS_AUTH_MODE = prevAuthMode
   })
 
   test("ensureDaemon starts daemon and returns connection info", async () => {

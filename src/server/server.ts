@@ -9,14 +9,17 @@ import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { NatsDaemonManager, type NatsDaemonReadiness } from "./nats-daemon-manager"
 import { NatsConnector } from "./nats-connector"
 import { generateAuthToken } from "./nats-auth"
+import { requiresCalloutForBind } from "./nats-bind-guard"
 import { readToken } from "../nats/nats-token"
+import { ensureCalloutKeys } from "../nats/auth-callout/keys"
+import { mintCredentialToken } from "../nats/auth-callout/token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
 import { registerPtyResponders } from "./pty-responders"
 import { OAuthSettingsStore } from "./oauth-pool/oauth-settings-store"
 import { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
 import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
-import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream } from "./nats-streams"
+import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
 import { RunnerProxy } from "./runner-proxy"
 import { TranscriptConsumer } from "./transcript-consumer"
@@ -384,11 +387,29 @@ export async function startServer(options: StartServerOptions = {}) {
     : null
 
   const natsMode = process.env.NATS_MODE ?? "embedded"
+  const authMode = process.env.NATS_AUTH_MODE ?? "callout"
   const runnerMode = process.env.RUNNER_MODE ?? "spawn"
+
+  // Guard: a non-loopback bind is only safe in callout mode (decision 0007).
+  // Token mode must stay loopback-only — a shared-token bus must not be exposed
+  // beyond the local machine. Callout mode provides per-connection scoped creds,
+  // so WireGuard on the tailnet is sufficient for confidentiality (no TLS needed).
+  const bindGuard = requiresCalloutForBind(hostname, authMode as "callout" | "token")
+  if (!bindGuard.ok) {
+    throw new Error(bindGuard.reason!)
+  }
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "::1" && authMode === "callout") {
+    console.warn(LOG_PREFIX, `Binding NATS to ${hostname} in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet`)
+  }
 
   let authToken: string
   let daemonManager: NatsDaemonManager
   let daemonInfo: { url: string; wsUrl: string; wsPort: number }
+
+  // Callout mode: stateless signed tokens per connection class.
+  // Token mode (NATS_AUTH_MODE=token): shared static token — legacy escape hatch.
+  let uiClientToken: string   // returned by /auth/token for browser WS connections
+  let mintRunnerToken: ((runnerId: string) => Promise<string>) | undefined
 
   if (natsMode === "external") {
     const natsUrl = process.env.NATS_URL
@@ -398,12 +419,34 @@ export async function startServer(options: StartServerOptions = {}) {
       throw new Error("NATS_MODE=external requires NATS_URL, NATS_WS_PORT, and NATS_DATA_DIR")
     }
     authToken = await readToken(natsDataDir)
+    uiClientToken = authToken
     daemonManager = NatsDaemonManager.fromExternal({ natsUrl, wsPort: natsWsPort })
     const url = new URL(natsUrl)
     daemonInfo = { url: natsUrl, wsUrl: `ws://${url.hostname}:${natsWsPort}`, wsPort: natsWsPort }
     console.warn(LOG_PREFIX, `NATS_MODE=external — connecting to ${natsUrl}`)
+  } else if (authMode === "callout") {
+    // Callout mode: load (or generate) signing keys + shared token secret.
+    const natsDataDir = process.env.NATS_DATA_DIR ?? store.dataDir
+    // The callout daemon child (spawned by ensureDaemon) loads its keys + token
+    // secret from NATS_DATA_DIR and refuses to start without it. ensureDaemon
+    // reads it from the environment, so default the env to the resolved dir here
+    // — otherwise a normal `tinkaria` run (no NATS_DATA_DIR set) fails to boot.
+    process.env.NATS_DATA_DIR ??= natsDataDir
+    const keys = await ensureCalloutKeys(natsDataDir)
+
+    authToken = await mintCredentialToken({ class: "server-admin" }, keys.tokenSecret)
+    uiClientToken = await mintCredentialToken({ class: "ui-client" }, keys.tokenSecret)
+    mintRunnerToken = (runnerId: string) =>
+      mintCredentialToken({ class: "runner", runnerId }, keys.tokenSecret)
+
+    daemonManager = NatsDaemonManager.embedded()
+    const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
+    daemonInfo = info
+    console.warn(LOG_PREFIX, `NATS_AUTH_MODE=callout — scoped credentials active`)
   } else {
+    // Token mode (legacy escape hatch): shared static token, token-mode daemon.
     authToken = generateAuthToken()
+    uiClientToken = authToken
     daemonManager = NatsDaemonManager.embedded()
     const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
     daemonInfo = info
@@ -427,6 +470,9 @@ export async function startServer(options: StartServerOptions = {}) {
     ensureRunnerEventsStream(natsConnector.nc),
     ensureWorkspaceCoordinationStream(natsConnector.nc),
     ensureSandboxEventsStream(natsConnector.nc),
+    // Pre-create the runner registry KV bucket so spawned runners (whose
+    // callout scope excludes STREAM.CREATE) can open it immediately.
+    ensureRunnerRegistryBucket(natsConnector.nc),
   ])
 
   const getHealthcheck = (): ServerHealthcheck => {
@@ -498,6 +544,7 @@ export async function startServer(options: StartServerOptions = {}) {
     nc: natsConnector.nc,
     natsUrl: daemonInfo.url,
     authToken,
+    mintToken: mintRunnerToken,
     mode: runnerMode as "spawn" | "discover",
   })
   const runnerId = await runnerManager.ensureRunner()
@@ -840,8 +887,10 @@ export async function startServer(options: StartServerOptions = {}) {
             const natsWsUrl = advertisedHost
               ? `ws://${advertisedHost}:${natsConnector.natsWsPort}`
               : undefined
+            // In callout mode: return the ui-client scoped token (not the server-admin token).
+            // In token mode: uiClientToken === authToken — same behaviour as before.
             return Response.json({
-              token: authToken,
+              token: uiClientToken,
               ...(natsWsUrl ? { natsWsUrl } : {}),
             })
           }

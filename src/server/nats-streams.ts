@@ -1,7 +1,8 @@
 import { jetstreamManager, RetentionPolicy, StorageType } from "@nats-io/jetstream"
+import { Kvm } from "@nats-io/kv"
 import type { NatsConnection } from "@nats-io/transport-node"
 import { ALL_TERMINAL_EVENTS, ALL_CHAT_MESSAGE_EVENTS, CHAT_MESSAGE_EVENTS_STREAM_NAME, ALL_WORKSPACE_COORDINATION_EVENTS, WORKSPACE_COORDINATION_EVENTS_STREAM_NAME, ALL_SANDBOX_EVENTS, SANDBOX_EVENTS_STREAM_NAME } from "../shared/nats-subjects"
-import { RUNNER_EVENTS_STREAM, ALL_RUNNER_EVENTS } from "../shared/runner-protocol"
+import { RUNNER_EVENTS_STREAM, ALL_RUNNER_EVENTS, RUNNER_REGISTRY_BUCKET } from "../shared/runner-protocol"
 import { LOG_PREFIX } from "../shared/branding"
 
 export const TERMINAL_EVENTS_STREAM = "KANNA_TERMINAL_EVENTS"
@@ -99,4 +100,30 @@ export function ensureSandboxEventsStream(nc: NatsConnection): Promise<void> {
     max_msgs: 5_000,
     max_bytes: 10 * 1024 * 1024,
   })
+}
+
+/**
+ * Ensure the runner registry KV bucket exists.
+ *
+ * Called by the server (server-admin connection) at startup so that spawned
+ * runners — whose NATS scope does not include STREAM.CREATE — can open the
+ * bucket immediately without needing to create it themselves.
+ *
+ * Stage D: narrow the runner's $JS.API.> pub allow to the specific subjects
+ * needed for kvm.open + kvStore.put once the exact set is empirically confirmed.
+ */
+export async function ensureRunnerRegistryBucket(nc: NatsConnection): Promise<void> {
+  const kvm = new Kvm(nc)
+  try {
+    // Create with idempotent semantics: if the bucket already exists the
+    // underlying STREAM.CREATE call is treated as an update by nats-server.
+    await kvm.create(RUNNER_REGISTRY_BUCKET, {
+      max_bytes: 1024 * 1024,
+    })
+    console.warn(LOG_PREFIX, `Runner registry KV bucket '${RUNNER_REGISTRY_BUCKET}' ready`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(LOG_PREFIX, `Runner registry KV bucket ensure failed: ${message}`)
+    throw err
+  }
 }

@@ -55,8 +55,11 @@ export class RunnerProxy {
     }
   }
 
-  /** Resolve profile overrides for a workspace+provider into binaryPath and extraEnv */
-  private resolveProfileOverrides(workspaceId: string, provider: AgentProvider): { binaryPath?: string; extraEnv?: Record<string, string> } {
+  /**
+   * Resolve profile overrides for a workspace+provider into non-secret extraEnv.
+   * Binary resolution is done runner-side; the server no longer sets binaryPath.
+   */
+  private resolveProfileOverrides(workspaceId: string, provider: AgentProvider): { extraEnv?: Record<string, string> } {
     // Find all profiles for this provider
     const profiles = [...this.store.state.providerProfiles.values()]
       .filter((r: ProviderProfileRecord) => r.profile.provider === provider)
@@ -69,15 +72,7 @@ export class RunnerProxy {
     const override = wsOverrides?.get(record.id)
     const resolved = resolveProfile(record.profile, override?.overrides)
 
-    // Resolve binary path from runtime spec
-    let binaryPath: string | undefined
-    if (resolved.runtime !== "system" && this.runtimeRegistry) {
-      const entry = this.runtimeRegistry.resolve(provider, resolved.runtime.version)
-      if (entry) binaryPath = entry.binaryPath
-    }
-
     return {
-      binaryPath,
       extraEnv: resolved.env,
     }
   }

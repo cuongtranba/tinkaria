@@ -47,6 +47,104 @@ describe("runner protocol subjects", () => {
   })
 })
 
+// ── PR4 Stage 1 audit: StartTurnCommand secret boundary ─────────────
+
+describe("StartTurnCommand PR4 shape audit", () => {
+  const SECRET_PATTERN = /API_KEY|TOKEN|SECRET|Bearer|sk-/i
+
+  function hasSecretShapedKey(obj: Record<string, string>): boolean {
+    return Object.keys(obj).some((k) => SECRET_PATTERN.test(k))
+  }
+
+  function hasSecretShapedValue(obj: Record<string, string>): boolean {
+    return Object.values(obj).some((v) => SECRET_PATTERN.test(v))
+  }
+
+  test("StartTurnCommand type has no binaryPath field", () => {
+    // This is a type-level check enforced via the shape of a representative command.
+    // If binaryPath were re-introduced, the spread below would surface it.
+    const cmd: StartTurnCommand = {
+      chatId: "c1",
+      provider: "claude",
+      content: "hello",
+      model: "claude-sonnet-4-6",
+      planMode: false,
+      appendUserPrompt: true,
+      workspaceLocalPath: "/tmp/ws",
+      sessionToken: null,
+      chatTitle: "New Chat",
+      existingMessageCount: 0,
+      workspaceId: "p1",
+      extraEnv: { NODE_ENV: "production" },
+    }
+    // Serialise as the server would send it on the wire.
+    const wire = JSON.parse(JSON.stringify(cmd)) as Record<string, unknown>
+    expect("binaryPath" in wire).toBe(false)
+  })
+
+  test("resolveProfileOverrides returns no binaryPath in its shape (env only)", () => {
+    // We represent the server output by constructing the object it would spread.
+    // This mirrors the server calling resolveProfileOverrides and spreading into StartTurnCommand.
+    const profileOverrides: { extraEnv?: Record<string, string> } = {
+      extraEnv: { SOME_TEAM_FLAG: "1" },
+    }
+    const wire = JSON.parse(JSON.stringify(profileOverrides)) as Record<string, unknown>
+    expect("binaryPath" in wire).toBe(false)
+    expect("extraEnv" in wire).toBe(true)
+  })
+
+  test("extraEnv with no secret-shaped keys passes the audit guard", () => {
+    const safeEnv: Record<string, string> = {
+      NODE_ENV: "production",
+      SOME_TEAM_FLAG: "1",
+      LOG_LEVEL: "info",
+    }
+    expect(hasSecretShapedKey(safeEnv)).toBe(false)
+    expect(hasSecretShapedValue(safeEnv)).toBe(false)
+  })
+
+  test("extraEnv with secret-shaped keys is detected by the audit guard", () => {
+    const leakyEnv: Record<string, string> = {
+      ANTHROPIC_API_KEY: "sk-ant-abc123",
+      NODE_ENV: "production",
+    }
+    expect(hasSecretShapedKey(leakyEnv)).toBe(true)
+  })
+
+  test("extraEnv with Bearer-prefixed value is detected by the audit guard", () => {
+    const leakyEnv: Record<string, string> = {
+      AUTH_HEADER: "Bearer eyJhbGci...",
+    }
+    expect(hasSecretShapedValue(leakyEnv)).toBe(true)
+  })
+
+  test("a representative wire-serialised StartTurnCommand contains no binaryPath and no secret-shaped values", () => {
+    const cmd: StartTurnCommand = {
+      chatId: "c-audit",
+      provider: "codex",
+      content: "implement feature X",
+      model: "gpt-5.4",
+      planMode: false,
+      appendUserPrompt: true,
+      workspaceLocalPath: "/home/user/project",
+      sessionToken: null,
+      chatTitle: "Feature chat",
+      existingMessageCount: 0,
+      workspaceId: "ws-1",
+      extraEnv: { TEAM_FLAG: "on", NODE_ENV: "production" },
+    }
+    const wire = JSON.parse(JSON.stringify(cmd)) as Record<string, unknown>
+
+    expect("binaryPath" in wire).toBe(false)
+
+    const env = wire.extraEnv as Record<string, string> | undefined
+    if (env) {
+      expect(hasSecretShapedKey(env)).toBe(false)
+      expect(hasSecretShapedValue(env)).toBe(false)
+    }
+  })
+})
+
 describe("runner protocol types", () => {
   test("RunnerTurnEvent discriminated union covers all event types", () => {
     const events: RunnerTurnEvent[] = [

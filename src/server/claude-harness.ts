@@ -1,5 +1,6 @@
 import * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk"
 import type { CanUseTool, McpServerConfig, Options as ClaudeOptions, PermissionResult, Query } from "@anthropic-ai/claude-agent-sdk"
+import { homedir } from "node:os"
 import { resolveClaudeApiModelId, type TranscriptEntry } from "../shared/types"
 import { getWebContextPrompt } from "../shared/web-context"
 import { normalizeToolCall } from "../shared/tools"
@@ -8,6 +9,7 @@ import type { SessionOrchestrator } from "./orchestration"
 import { createOrchestrationMcpServer } from "./orchestration"
 import { createCoordinationMcpServer } from "./coordination-mcp"
 import type { CoordinationStore } from "../shared/coordination-store"
+import { resolveClaudeBinary } from "./claude-pty/resolve-binary.adapter"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -112,7 +114,7 @@ function createClaudeCanUseTool(
   }
 }
 
-function createClaudeOptions(args: {
+async function createClaudeOptions(args: {
   localPath: string
   model: string
   effort?: string
@@ -122,9 +124,10 @@ function createClaudeOptions(args: {
   orchestrator?: SessionOrchestrator
   chatId?: string
   store?: CoordinationStore
-  binaryPath?: string
   extraEnv?: Record<string, string>
-}): ClaudeOptions {
+  /** Injected binary resolver; defaults to the real resolve-binary.adapter. Tests override this. */
+  _resolveBinary?: typeof resolveClaudeBinary
+}): Promise<ClaudeOptions> {
   const mcpServers: Record<string, McpServerConfig> = {}
 
   if (args.orchestrator && args.chatId) {
@@ -134,6 +137,17 @@ function createClaudeOptions(args: {
   if (args.store) {
     mcpServers["project-coordination"] = createCoordinationMcpServer(args.store)
   }
+
+  // Resolve the claude binary runner-side — same adapter used by startClaudePtyTurn.
+  // Merge extraEnv (non-secret profile env) into the env passed to the resolver so
+  // that CLAUDE_EXECUTABLE / CLAUDE_CODE_EXECPATH set via profile are honoured.
+  const resolver = args._resolveBinary ?? resolveClaudeBinary
+  const mergedEnv = { ...process.env, ...args.extraEnv }
+  const resolved = await resolver({
+    env: mergedEnv,
+    homeDir: homedir(),
+    cwd: args.localPath,
+  })
 
   return {
     cwd: args.localPath,
@@ -154,7 +168,7 @@ function createClaudeOptions(args: {
       const { CLAUDECODE: _, ...env } = process.env
       return { ...env, ...args.extraEnv }
     })(),
-    pathToClaudeCodeExecutable: args.binaryPath,
+    pathToClaudeCodeExecutable: resolved.path,
   } satisfies ClaudeOptions
 }
 
@@ -298,10 +312,11 @@ export async function startClaudeTurn(args: {
   chatId?: string
   store?: CoordinationStore
   sdk?: ClaudeSdkBinding
-  binaryPath?: string
   extraEnv?: Record<string, string>
+  /** Injected binary resolver; defaults to the real resolve-binary.adapter. Tests override this. */
+  _resolveBinary?: typeof resolveClaudeBinary
 }): Promise<HarnessTurn> {
-  const options = createClaudeOptions(args)
+  const options = await createClaudeOptions(args)
   const sdk = args.sdk ?? (ClaudeAgentSdk as ClaudeSdkBinding)
 
   const q = sdk.startup

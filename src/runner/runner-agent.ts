@@ -34,7 +34,6 @@ export type TurnFactory = (args: {
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   chatId: string
   store?: CoordinationStore
-  binaryPath?: string
   extraEnv?: Record<string, string>
 }) => Promise<HarnessTurn>
 
@@ -176,7 +175,7 @@ export class RunnerAgent {
       })
     }
 
-    // Start the harness turn
+    // Start the harness turn — binary resolution is done inside each factory
     const turn = await this.createTurn({
       provider: cmd.provider,
       content: buildHarnessInput(cmd),
@@ -187,7 +186,6 @@ export class RunnerAgent {
       onToolRequest,
       chatId: cmd.chatId,
       store: this.coordinationStore,
-      binaryPath: cmd.binaryPath,
       extraEnv: cmd.extraEnv,
     })
 

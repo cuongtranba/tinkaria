@@ -152,13 +152,13 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
 
 const createTurn: TurnFactory = async (args) => {
   if (args.provider === "claude") {
-    return startClaudeTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
+    return startClaudeTurn({ ...args, extraEnv: args.extraEnv })
   }
   if (args.provider === "claude-pty") {
     return startClaudePtyTurn({ ...args, nc })
   }
   if (args.provider === "codex") {
-    return startCodexTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
+    return startCodexTurn({ ...args, extraEnv: args.extraEnv })
   }
   throw new Error(`Provider ${args.provider} not supported in runner`)
 }

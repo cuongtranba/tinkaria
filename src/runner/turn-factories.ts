@@ -36,6 +36,7 @@ import type { HarnessEvent } from "../shared/harness-types"
 import type { ClaudeSessionHandle } from "../server/claude-pty/agent-normalizers"
 import type { OAuthTokenPool } from "../server/oauth-pool/oauth-token-pool"
 import type { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
+import { spawnSync } from "node:child_process"
 
 const ptyDeltaEncoder = new TextEncoder()
 function encodeDelta(delta: PtyInstanceDelta): Uint8Array {
@@ -226,8 +227,25 @@ export function sweepIdleClaudePtySessions(now: number, idleMs: number): number 
 
 let codexManager: CodexAppServerManager | null = null
 
-function getCodexManager(binaryPath?: string, extraEnv?: Record<string, string>): CodexAppServerManager {
+/**
+ * Resolve the codex binary runner-side by checking PATH, then falling back to
+ * the well-known `codex` name (lets the shell find it via the runner's PATH).
+ * Always runner-local — never relies on a server-sent binaryPath.
+ */
+function resolveCodexBinary(extraEnv?: Record<string, string>): string {
+  const env = { ...process.env, ...extraEnv }
+  const which = spawnSync("which", ["codex"], { encoding: "utf-8", timeout: 3000, env })
+  if (which.status === 0) {
+    const p = which.stdout.trim()
+    if (p) return p
+  }
+  // Fall back: let the OS resolve it at spawn time
+  return "codex"
+}
+
+function getCodexManager(extraEnv?: Record<string, string>): CodexAppServerManager {
   if (!codexManager) {
+    const binaryPath = resolveCodexBinary(extraEnv)
     codexManager = new CodexAppServerManager({ binaryPath, extraEnv })
   }
   return codexManager
@@ -243,10 +261,9 @@ export async function startCodexTurn(args: {
   planMode: boolean
   sessionToken: string | null
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
-  binaryPath?: string
   extraEnv?: Record<string, string>
 }): Promise<HarnessTurn> {
-  const manager = getCodexManager(args.binaryPath, args.extraEnv)
+  const manager = getCodexManager(args.extraEnv)
 
   await manager.startSession({
     chatId: args.chatId,

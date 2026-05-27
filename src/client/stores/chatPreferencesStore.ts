@@ -503,7 +503,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     }),
     {
       name: "chat-preferences",
-      version: 3,
+      version: 4,
       migrate: (persistedState) => migrateChatPreferencesState(persistedState as Partial<PersistedChatPreferencesState> | undefined),
     }
   )

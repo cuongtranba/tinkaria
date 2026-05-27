@@ -397,6 +397,12 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
 
       scrollFollowToBottom("auto")
 
+      // A claude-pty first turn triggers a one-time PTY spawn + smoke-probe on
+      // the runner that can take up to ~65s on a cold cache. Use a window
+      // slightly longer than the server→runner start_turn timeout (90s) so the
+      // server's real outcome (success or the actual error) wins the race
+      // instead of the client surfacing a premature generic "timeout".
+      const sendTimeoutMs = options?.provider === "claude-pty" ? 95_000 : undefined
       const result = await socket.command<{ chatId?: string }>({
         type: "chat.send",
         chatId: activeChatId ?? undefined,
@@ -406,7 +412,7 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
         model: options?.model,
         modelOptions: options?.modelOptions,
         planMode: options?.planMode,
-      })
+      }, sendTimeoutMs ? { timeoutMs: sendTimeoutMs } : undefined)
 
       if (!activeChatId && result.chatId) {
         setPendingChatId(result.chatId)

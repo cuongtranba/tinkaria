@@ -133,10 +133,21 @@ export class RunnerProxy {
         }
       }
     }
+
+    // A claude-pty first turn runs a one-time PTY spawn + security smoke-probe
+    // that can legitimately take up to ~65s on a cold cache. The runner only
+    // replies once startTurn (and thus the spawn) resolves, so the default 10s
+    // window expires while the runner is still spawning — the request then
+    // fails with a generic NATS "timeout" even though the turn proceeds and
+    // streams via events. Give claude-pty start_turn a window that covers the
+    // worst-case probe so the real outcome (success or the actual refusal
+    // reason) propagates. Other providers/commands keep fast failure detection.
+    const isPtyStartTurn = cmd === "start_turn"
+      && (payload as { provider?: string } | null)?.provider === "claude-pty"
     const reply = await this.nc.request(
       runnerCmdSubject(this.runnerId, cmd),
       encoder.encode(JSON.stringify(payload)),
-      { timeout: 10_000 },
+      { timeout: isPtyStartTurn ? 90_000 : 10_000 },
     )
     const response = JSON.parse(decoder.decode(reply.data))
     if (!response.ok) throw new Error(response.error ?? "Runner command failed")

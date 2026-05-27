@@ -111,6 +111,20 @@ export interface StartClaudeSessionPtyArgs {
   sampleProcessTreeUsage?: (pid: number) => Promise<ProcessTreeSample | null>
   /** Optional poll-interval override (ms). Defaults to 2000. */
   memorySamplerIntervalMs?: number
+  /**
+   * Optional usage-sample sink. Invoked on every memory-sampler tick with the
+   * process-tree resident memory and CPU% plus their session peaks. Lets the
+   * runner path (which publishes its own deltas instead of wiring a
+   * PtyInstanceRegistry) surface cpu/mem to the UI.
+   */
+  onUsageSample?: (usage: PtyUsageSample) => void
+}
+
+export interface PtyUsageSample {
+  rssBytes: number
+  rssPeakBytes: number
+  cpuPercent: number
+  cpuPeakPercent: number
 }
 
 /**
@@ -473,6 +487,12 @@ export async function startClaudeSessionPTY(args: StartClaudeSessionPtyArgs): Pr
       if (sample.rssBytes > rssPeakBytes) rssPeakBytes = sample.rssBytes
       if (sample.cpuPercent > cpuPeakPercent) cpuPeakPercent = sample.cpuPercent
       args.ptyInstanceRegistry?.upsert(args.chatId, {
+        rssBytes: sample.rssBytes,
+        rssPeakBytes,
+        cpuPercent: sample.cpuPercent,
+        cpuPeakPercent,
+      })
+      args.onUsageSample?.({
         rssBytes: sample.rssBytes,
         rssPeakBytes,
         cpuPercent: sample.cpuPercent,

@@ -233,7 +233,10 @@ let codexManager: CodexAppServerManager | null = null
  * Always runner-local — never relies on a server-sent binaryPath.
  */
 function resolveCodexBinary(extraEnv?: Record<string, string>): string {
-  const env = { ...process.env, ...extraEnv }
+  // Runner-local resolution: NEVER let a server-supplied PATH redirect which
+  // binary we run (security M1) — strip PATH so the runner's own PATH decides.
+  const { PATH: _serverPath, ...safeEnv } = extraEnv ?? {}
+  const env = { ...process.env, ...safeEnv }
   const which = spawnSync("which", ["codex"], { encoding: "utf-8", timeout: 3000, env })
   if (which.status === 0) {
     const p = which.stdout.trim()
@@ -243,10 +246,15 @@ function resolveCodexBinary(extraEnv?: Record<string, string>): string {
   return "codex"
 }
 
+// NOTE: the codex manager is a once-per-runner-lifetime singleton — the first
+// turn's (PATH-stripped) extraEnv fixes the manager. The binary is always
+// runner-local (PATH stripped above), so this cannot be steered by the server.
 function getCodexManager(extraEnv?: Record<string, string>): CodexAppServerManager {
   if (!codexManager) {
-    const binaryPath = resolveCodexBinary(extraEnv)
-    codexManager = new CodexAppServerManager({ binaryPath, extraEnv })
+    // Strip server-supplied PATH from the spawned process env too (M1).
+    const { PATH: _serverPath, ...safeEnv } = extraEnv ?? {}
+    const binaryPath = resolveCodexBinary(safeEnv)
+    codexManager = new CodexAppServerManager({ binaryPath, extraEnv: safeEnv })
   }
   return codexManager
 }

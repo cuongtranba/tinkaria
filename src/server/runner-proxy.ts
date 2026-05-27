@@ -72,9 +72,19 @@ export class RunnerProxy {
     const override = wsOverrides?.get(record.id)
     const resolved = resolveProfile(record.profile, override?.overrides)
 
-    return {
-      extraEnv: resolved.env,
+    // Runtime secret-boundary guard: extraEnv transits the server → the runner,
+    // so it must carry NO secrets. Drop (and warn on) any secret-shaped key/value
+    // before it leaves the server — secrets are resolved runner-side only.
+    const SECRET_PATTERN = /API_KEY|TOKEN|SECRET|Bearer|sk-/i
+    const safe: Record<string, string> = {}
+    for (const [k, v] of Object.entries(resolved.env ?? {})) {
+      if (SECRET_PATTERN.test(k) || SECRET_PATTERN.test(v)) {
+        console.warn(`[RunnerProxy] dropping secret-shaped env "${k}" from extraEnv — secrets must stay runner-side`)
+        continue
+      }
+      safe[k] = v
     }
+    return { extraEnv: Object.keys(safe).length > 0 ? safe : undefined }
   }
 
   getActiveStatuses(): Map<string, SessionStatus> {

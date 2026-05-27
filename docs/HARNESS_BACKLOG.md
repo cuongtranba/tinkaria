@@ -74,3 +74,47 @@ normal
 
 proposed
 
+## Pre-existing Test Failure
+
+### Title
+
+parity-matrix.test.ts red since port-claude-pty merge (SDK ↔ PTY event divergence)
+
+### Discovered While
+
+Verifying the `pty-runner-cpu-mem-sampling` fix — running the
+`src/server/claude-pty/` suite surfaced 7 failures in
+`parity-matrix.test.ts` ("SDK ↔ PTY HarnessEvent equivalence matrix").
+Confirmed identical on clean `main` (HEAD c607df8); unrelated to the cpu/mem
+change.
+
+### Current Pain
+
+`parity-matrix.test.ts` asserts the PTY JSONL parser
+(`createJsonlEventParser`) and the SDK normalizer
+(`createClaudeHarnessStream`) emit an identical `HarnessEvent` sequence. They
+no longer do: the PTY parser intentionally emits extra `session_token` (for any
+message carrying a `session_id`, tagged D3) and `context_window_updated` (from
+usage deltas, tagged D1) events that the SDK path does not emit. The file
+entered the repo already-red at the `port-claude-pty` merge (PR #2, c607df8) and
+has never passed on `main` — a test merged broken, reflecting an intentional PTY
+enrichment that was never reconciled on the SDK side or in the test contract.
+
+### Suggested Improvement
+
+Decide the parity contract and either (a) relax the test so SDK events are a
+subsequence of PTY events (allowing the intended PTY-only enrichment, no runtime
+change), or (b) bring `createClaudeHarnessStream` to parity by also emitting
+`session_token` + `context_window_updated` (changes SDK provider runtime
+behavior — verify downstream consumers first). Option (a) is the low-risk match
+to apparent intent. Also confirm whether the SDK provider is genuinely missing
+context-window / session info at runtime (real product gap) before choosing.
+
+### Risk
+
+normal
+
+### Status
+
+proposed
+

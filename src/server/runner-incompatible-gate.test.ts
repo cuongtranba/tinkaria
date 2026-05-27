@@ -132,7 +132,11 @@ describe("RunnerProxy start_turn gate — incompatible runner", () => {
     await server?.stop()
   })
 
-  async function setupGateTest(incompatible: boolean, protocolVersion: number | null) {
+  async function setupGateTest(
+    incompatible: boolean,
+    protocolVersion: number | null,
+    capabilities?: { providers: Array<"claude" | "codex"> } | null,
+  ) {
     server = await NatsServer.start({})
     clientNc = await connect({ servers: server.url })
     runnerNc = await connect({ servers: server.url })
@@ -152,7 +156,7 @@ describe("RunnerProxy start_turn gate — incompatible runner", () => {
       store: makeMockStore(),
       runnerId: "test-runner",
       getActiveStatuses: () => new Map<string, SessionStatus>(),
-      getRunnerReadiness: () => ({ incompatible, protocolVersion }),
+      getRunnerReadiness: () => ({ incompatible, protocolVersion, capabilities }),
     })
 
     return { proxy, received, disposeRunner: () => sub.unsubscribe() }
@@ -176,7 +180,8 @@ describe("RunnerProxy start_turn gate — incompatible runner", () => {
   })
 
   test("allows start_turn when incompatible=false", async () => {
-    const { proxy, received, disposeRunner } = await setupGateTest(false, 1)
+    // Supply capabilities so the capability gate also passes (claude is the default provider).
+    const { proxy, received, disposeRunner } = await setupGateTest(false, 1, { providers: ["claude"] })
 
     try {
       await proxy.send({ type: "chat.send", chatId: "c1", content: "hi", model: "sonnet" })
@@ -231,5 +236,148 @@ describe("RunnerProxy start_turn gate — incompatible runner", () => {
     } finally {
       sub.unsubscribe()
     }
+  })
+})
+
+// ── PR4 Stage 2: capability gate ──────────────────────────────────────
+
+describe("RunnerProxy start_turn gate — capability check (PR4)", () => {
+  let server: NatsServer
+  let clientNc: NatsConnection
+  let runnerNc: NatsConnection
+
+  afterEach(async () => {
+    if (clientNc && !clientNc.isClosed()) await clientNc.drain()
+    if (runnerNc && !runnerNc.isClosed()) await runnerNc.drain()
+    await server?.stop()
+  })
+
+  async function setupCapabilityTest(installedProviders: Array<"claude" | "codex">) {
+    server = await NatsServer.start({})
+    clientNc = await connect({ servers: server.url })
+    runnerNc = await connect({ servers: server.url })
+
+    const received: unknown[] = []
+    const sub = runnerNc.subscribe("runtime.runner.cmd.cap-runner.>")
+    void (async () => {
+      for await (const msg of sub) {
+        received.push({ subject: msg.subject, data: JSON.parse(decoder.decode(msg.data)) })
+        msg.respond(encoder.encode(JSON.stringify({ ok: true })))
+      }
+    })()
+    await runnerNc.flush()
+
+    const proxy = new RunnerProxy({
+      nc: clientNc,
+      store: makeMockStore(),
+      runnerId: "cap-runner",
+      getActiveStatuses: () => new Map<string, SessionStatus>(),
+      getRunnerReadiness: () => ({
+        incompatible: false,
+        protocolVersion: 1,
+        capabilities: { providers: installedProviders },
+      }),
+    })
+
+    return { proxy, received, dispose: () => sub.unsubscribe() }
+  }
+
+  test("refuses start_turn for provider NOT in capabilities with clear message, does NOT dispatch", async () => {
+    // Runner only has claude; try to dispatch a codex turn via startTurnForChat
+    // (which passes provider directly into the StartTurnCommand without chat-record override).
+    const { proxy, received, dispose } = await setupCapabilityTest(["claude"])
+
+    try {
+      await expect(
+        proxy.startTurnForChat({
+          chatId: "c1",
+          provider: "codex",
+          content: "hi",
+          model: "sonnet",
+          planMode: false,
+          appendUserPrompt: true,
+        }),
+      ).rejects.toThrow(
+        "Runner cap-runner cannot run codex (installed: claude) — install it on the runner or pick another",
+      )
+      // NATS dispatch must NOT have happened.
+      expect(received).toHaveLength(0)
+    } finally {
+      dispose()
+    }
+  })
+
+  test("allows start_turn for provider IN capabilities", async () => {
+    // Runner has both providers; turn requests claude.
+    const { proxy, received, dispose } = await setupCapabilityTest(["claude", "codex"])
+
+    try {
+      await proxy.send({ type: "chat.send", chatId: "c1", content: "hi", model: "sonnet" })
+      expect(received).toHaveLength(1)
+      const msg = received[0] as { subject: string }
+      expect(msg.subject).toContain("start_turn")
+    } finally {
+      dispose()
+    }
+  })
+
+  test("allows start_turn when capabilities is null (pre-PR4 runner — fail open)", async () => {
+    // capabilities=null → skip the capability gate (backward compat).
+    server = await NatsServer.start({})
+    clientNc = await connect({ servers: server.url })
+    runnerNc = await connect({ servers: server.url })
+
+    const received: unknown[] = []
+    const sub = runnerNc.subscribe("runtime.runner.cmd.cap-runner.>")
+    void (async () => {
+      for await (const msg of sub) {
+        received.push({ subject: msg.subject, data: JSON.parse(decoder.decode(msg.data)) })
+        msg.respond(encoder.encode(JSON.stringify({ ok: true })))
+      }
+    })()
+    await runnerNc.flush()
+
+    const proxy = new RunnerProxy({
+      nc: clientNc,
+      store: makeMockStore(),
+      runnerId: "cap-runner",
+      getActiveStatuses: () => new Map<string, SessionStatus>(),
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1, capabilities: null }),
+    })
+
+    try {
+      await proxy.send({ type: "chat.send", chatId: "c1", content: "hi", model: "sonnet" })
+      expect(received).toHaveLength(1)
+    } finally {
+      sub.unsubscribe()
+    }
+  })
+
+  test("PR3 protocolVersion-incompatible cases still pass with capabilities present", async () => {
+    // Regression guard: incompatible flag wins over capability check.
+    const { proxy, received, dispose } = await setupCapabilityTest(["claude", "codex"])
+
+    // Override readiness to be incompatible (reuse the same runner sub but swap the proxy).
+    const proxy2 = new RunnerProxy({
+      nc: clientNc,
+      store: makeMockStore(),
+      runnerId: "cap-runner",
+      getActiveStatuses: () => new Map<string, SessionStatus>(),
+      getRunnerReadiness: () => ({
+        incompatible: true,
+        protocolVersion: SUPPORTED_RANGE.max + 1,
+        capabilities: { providers: ["claude" as const, "codex" as const] },
+      }),
+    })
+
+    try {
+      await expect(
+        proxy2.send({ type: "chat.send", chatId: "c1", content: "hi", model: "sonnet" }),
+      ).rejects.toThrow("incompatible")
+      expect(received).toHaveLength(0)
+    } finally {
+      dispose()
+    }
+    void proxy // suppress unused warning
   })
 })

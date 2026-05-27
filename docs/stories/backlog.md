@@ -12,5 +12,5 @@ the work is selected or when a product decision needs a durable place to land.
 | --- | --- | --- |
 | Workspace management | Rename/delete/pin/reorder independent workspaces (both surfaces) — `workspace-management/` | in_progress |
 | Preview touched files | Open/preview agent-created/edited files from chat (per-card + RightSidebar list; md/html/svg/mmd/d2/pug + code) — `preview-touched-files/` | planned |
-| Personal runners | Per-user `tinkaria-runner` over Tailscale; own Claude account/git identity/secrets; 8 epics PR1–PR8 — `personal-runners/change-request.md`. PR1 (transport+isolation) + PR2 (identity & pairing, ownerId deferred) implemented; PR3 (registration & liveness + versioning) in progress | in_progress |
+| Personal runners | Per-user `tinkaria-runner` over Tailscale; own Claude account/git identity/secrets; 8 epics PR1–PR8 — `personal-runners/change-request.md`. PR1+PR2+PR3 implemented + reconciled with port-claude (PRs #3/#4/#5 mergeable); PR4 (command profile split) in progress | in_progress |
 | TBD | Add candidate epics after spec intake | unsliced |

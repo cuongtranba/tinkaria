@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PR4 Command Profile Split — Implementation Notes</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 15px/1.65 -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 56rem; margin: 0 auto; padding: 2rem 1.5rem 5rem; background: #fafafa; color: #1a1a2e; }
+  h1 { font-size: 1.6rem; margin-bottom: .2rem; } .sub { color:#64748b; margin-bottom:1.5rem; }
+  h2 { font-size: 1.2rem; margin-top: 2.2rem; padding-bottom:.35rem; border-bottom:2px solid #e2e8f0; color:#0f172a; }
+  p { margin: .55rem 0; } code { background:#f1f5f9; padding:.1rem .35rem; border-radius:.25rem; font-size:.85em; color:#7c3aed; } strong{color:#0f172a;}
+  .card { background:#fff; border:1px solid #e2e8f0; border-left:3px solid #7c3aed; border-radius:.45rem; padding:.7rem 1rem; margin:.7rem 0; }
+  .open { border-left-color:#eab308; background:#fefce8; }
+  .done { border-left-color:#16a34a; background:#f0fdf4; }
+  .label { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:#7c3aed; } .open .label{color:#ca8a04;} .done .label{color:#15803d;}
+  .rec { font-size:.88rem; margin-top:.35rem; } .rec b { color:#15803d; }
+  .status { display:inline-block; padding:.1rem .5rem; border-radius:9999px; font-size:.72rem; font-weight:600; background:#dcfce7; color:#14532d; }
+  .muted { color:#94a3b8; font-size:.8rem; }
+  table { border-collapse: collapse; width: 100%; margin: .7rem 0; font-size: .88rem; }
+  th, td { border: 1px solid #e2e8f0; padding: .4rem .7rem; text-align: left; }
+  th { background: #f8fafc; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>PR4 — Command Profile Split</h1>
+<p class="sub">Working narrative · <span class="status">Stage 2 — implemented</span></p>
+<p>Contract: <code>execplan/overview/design/validation.md</code>; decision <code>0010</code>. Stacks on PR3 (reconciled with port-claude).</p>
+
+<h2>Stage 1 — completed (drop binaryPath + unify runner-side binary resolution)</h2>
+
+<div class="card done">
+  <span class="label">What changed</span>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>src/shared/runner-protocol.ts</code></td><td>Removed <code>binaryPath?</code> from <code>StartTurnCommand</code>; added doc comment on <code>extraEnv</code> — non-secret contract now in the type.</td></tr>
+    <tr><td><code>src/server/runner-proxy.ts</code></td><td><code>resolveProfileOverrides</code> return type narrowed to <code>{ extraEnv? }</code>; removed the <code>RuntimeRegistry.resolve()</code> → <code>binaryPath</code> branch. Returns env-only.</td></tr>
+    <tr><td><code>src/server/claude-harness.ts</code></td><td><code>createClaudeOptions</code> made async; calls <code>resolveClaudeBinary</code> (same adapter as PTY) to set <code>pathToClaudeCodeExecutable</code>. Removed <code>binaryPath</code> param. Added injectable <code>_resolveBinary</code> for tests.</td></tr>
+    <tr><td><code>src/runner/turn-factories.ts</code></td><td>Added <code>resolveCodexBinary()</code> (runner-side, uses <code>which codex</code> + fallback). <code>getCodexManager</code> calls it; <code>startCodexTurn</code> drops <code>binaryPath</code>.</td></tr>
+    <tr><td><code>src/runner/runner-agent.ts</code></td><td><code>TurnFactory</code> type: removed <code>binaryPath?</code>. <code>createTurn</code> call: removed <code>binaryPath: cmd.binaryPath</code>.</td></tr>
+    <tr><td><code>src/runner/runner.ts</code></td><td><code>createTurn</code> factory: removed <code>binaryPath: args.binaryPath</code> from both <code>startClaudeTurn</code> and <code>startCodexTurn</code> spreads.</td></tr>
+    <tr><td><code>src/shared/runner-protocol.test.ts</code></td><td>Added <code>StartTurnCommand PR4 shape audit</code> suite: 5 tests — wire shape has no <code>binaryPath</code>, profile overrides env-only, secret-pattern guard detects leaks.</td></tr>
+    <tr><td><code>src/server/claude-turn.test.ts</code></td><td>Existing tests: inject <code>_resolveBinary</code> fake (keeps tests isolated from real PATH). New test: asserts <code>pathToClaudeCodeExecutable</code> is set from the injected resolver.</td></tr>
+    <tr><td><code>src/runner/turn-factories.test.ts</code></td><td>New file: type-level + runtime tests — no <code>binaryPath</code> in <code>startCodexTurn</code>/<code>startClaudeTurn</code>; resolver injection round-trip.</td></tr>
+  </table>
+</div>
+
+<h2>Design decisions</h2>
+<div class="card">
+  <span class="label">Unify on port-claude's runner-side resolver</span>
+  <p>port-claude's PTY path already resolves the binary runner-side
+  (<code>resolve-binary.adapter</code>, no <code>binaryPath</code> param). PR4
+  drops <code>binaryPath</code> from <code>StartTurnCommand</code> and routes Codex
+  + Claude SDK through the SAME resolver — not a second one. For Codex, a thin
+  <code>resolveCodexBinary()</code> wraps <code>which codex</code> (no separate adapter
+  needed; Codex has no node_modules fallback path like the Claude SDK does).</p>
+</div>
+<div class="card">
+  <span class="label">Injectable resolver for testability</span>
+  <p><code>startClaudeTurn</code> accepts <code>_resolveBinary?</code> (underscore-prefixed
+  per convention for test seams). Production path uses the real adapter; tests inject a
+  synchronous fake to avoid real PATH/fs probes. The PTY path already owns a real
+  integration test (<code>resolve-binary.test.ts</code>).</p>
+</div>
+<div class="card">
+  <span class="label">Secrets never transit the server</span>
+  <p><code>extraEnv</code> = profile non-secret env only. Formalized as a type doc comment
+  + runtime audit guard (regex detects <code>API_KEY|TOKEN|SECRET|Bearer|sk-</code>
+  patterns in keys/values). Secrets stay runner-side (local env + OAuth pool).</p>
+</div>
+<div class="card">
+  <span class="label">Refuse, don't route (PR4 vs PR5)</span>
+  <p>PR4 scope: drop <code>binaryPath</code> + unify binary resolution. Capability probe +
+  gate (Stage 2) and multi-runner routing (PR5) are separate work items, not touched here.</p>
+</div>
+
+<h2>Open questions (with recommendations)</h2>
+<div class="card open">
+  <span class="label">Q1 — capability probe depth (Stage 2)</span>
+  <p>Probe just provider-binary existence, or also models (via
+  <code>RuntimeRegistry.probeCapabilities</code>)? <b>Recommendation:</b> providers
+  + models (reuse the existing probe); gate on provider for PR4, model-level gate
+  if cheap.</p>
+</div>
+
+<h2>Deviations from plan</h2>
+<div class="card">
+  <span class="label">createClaudeOptions made async</span>
+  <p>The function was sync before; making it async to call <code>resolveClaudeBinary</code>
+  is a natural consequence. <code>startClaudeTurn</code> was already async so callers are
+  unaffected. No behavioral change beyond the binary now being resolved inside the function
+  rather than passed in.</p>
+</div>
+
+<h2>Stage 2 — completed (capability probe + advertise + turn-start gate)</h2>
+
+<div class="card done">
+  <span class="label">What changed</span>
+  <table>
+    <tr><th>File</th><th>Change</th></tr>
+    <tr><td><code>src/runner/runner-nats.ts</code></td><td>Added <code>probeProviders()</code> — checks <code>resolveClaudeBinary</code> (throws → not installed) and <code>spawnSync("which","codex")</code>. Probe errors caught per-provider (never crash). <code>register()</code> calls probe; writes <code>capabilities</code> + <code>providers</code> from probed set instead of hardcoded <code>["claude","codex"]</code>. <code>RunnerNatsHandlerOptions</code> adds <code>_probeProviders</code> injectable for tests.</td></tr>
+    <tr><td><code>src/server/runner-manager.ts</code></td><td>Imports <code>RunnerCapabilities</code>; <code>RunnerReadiness</code> gains <code>capabilities: RunnerCapabilities | null</code>; <code>getReadiness()</code> threads <code>runnerRegistration?.capabilities ?? null</code> through.</td></tr>
+    <tr><td><code>src/server/runner-proxy.ts</code></td><td><code>getRunnerReadiness</code> type extended to carry <code>capabilities?: RunnerCapabilities | null</code>. <code>sendCommand("start_turn")</code> gate: after protocol check, if <code>capabilities</code> is non-null, refuse turns whose <code>provider</code> is not in <code>capabilities.providers</code> with the message <code>"Runner X cannot run Y (installed: Z) — install it on the runner or pick another"</code>. <code>capabilities=null</code> skips the gate (backward compat with pre-PR4 runners that haven't registered capabilities).</td></tr>
+    <tr><td><code>src/runner/runner-nats.test.ts</code></td><td>Added <code>probeProviders</code> unit tests (claude resolves, claude fails, probe throws→no crash). Added KV-integration tests for <code>RunnerNatsHandler</code> using <code>_probeProviders</code> injectable: providers=[claude], [claude,codex], probe-crash→empty.</td></tr>
+    <tr><td><code>src/server/runner-incompatible-gate.test.ts</code></td><td>Updated <code>setupGateTest</code> to accept optional <code>capabilities</code>. Updated "allows start_turn" to supply capabilities so capability gate passes. Added <code>RunnerProxy start_turn gate — capability check (PR4)</code> suite: refuse+no-dispatch, allow, null→fail-open, PR3 regression guard.</td></tr>
+    <tr><td><code>src/server/runner-proxy.test.ts</code></td><td>Updated both <code>getRunnerReadiness</code> stubs to include <code>capabilities: { providers: ["claude","codex"] }</code> so baseline happy-path tests continue to pass.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — model probing not wired (providers-only)</span>
+  <p><code>RuntimeRegistry.probeCapabilities</code> runs server-side and requires the registry
+  file. Wiring it runner-side would require either duplicating state or a cross-process call.
+  PR4 gates on provider presence only (which is the key personal-runners invariant); model-level
+  gating is deferred as a follow-up. Noted in open questions.</p>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — fail open for null capabilities (backward compat)</span>
+  <p>A runner registered without <code>capabilities</code> (pre-PR4 KV entry) returns
+  <code>capabilities=null</code> from <code>getReadiness()</code>. The proxy skips the
+  capability gate in that case rather than blocking all turns — any newly-registered runner
+  will carry the probed capabilities, so this only applies transiently during rolling upgrade.</p>
+</div>
+
+<div class="card">
+  <span class="label">Design decision — probe injected via _probeProviders in RunnerNatsHandlerOptions</span>
+  <p>The probe is async and calls real I/O (fs stat, execFile, spawnSync). Tests inject a
+  synchronous fake via <code>_probeProviders</code> to stay isolated. The production path
+  uses the real <code>probeProviders</code> exported from <code>runner-nats.ts</code>.</p>
+</div>
+
+<h2>Open questions (updated)</h2>
+<div class="card open">
+  <span class="label">Q1 — model-level capability gating</span>
+  <p>PR4 gates on provider only. Model-level gating (e.g. refuse claude-opus-4-7 if runner
+  doesn't have a capable claude version) is deferred. <b>Recommendation:</b> wire
+  model probing in a follow-up when multi-runner routing (PR5) lands — the gate seam is
+  already in place (<code>capabilities.models</code> field on <code>RunnerCapabilities</code>
+  if populated).</p>
+</div>
+
+<h2>Deferred</h2>
+<p class="muted">Stage 3: dual-signal E2E verify + security review. Multi-runner routing (PR5);
+model-level capability gate; general local secret vault; ownerId.</p>
+
+<h2>Verification log — Stage 1</h2>
+<div class="card done">
+  <span class="label">Typecheck</span>
+  <p><code>bunx @typescript/native-preview --noEmit -p tsconfig.json</code> — clean (0 errors).</p>
+</div>
+<div class="card done">
+  <span class="label">PR4 focused tests</span>
+  <p><code>bun test src/shared/runner-protocol.test.ts src/server/claude-turn.test.ts src/runner/turn-factories.test.ts</code> — 39 pass, 0 fail.</p>
+</div>
+<div class="card done">
+  <span class="label">NATS suite (PR1–3 regression)</span>
+  <p><code>bun test src/nats/</code> — 60 pass, 0 fail.</p>
+</div>
+<div class="card done">
+  <span class="label">Full server+shared+runner suite</span>
+  <p><code>bun test src/shared src/server src/runner</code> — 1070 pass, 3 skip, 27 fail.
+  The 27 failures are pre-existing (verified by stash comparison):
+  <code>RunnerProxy</code> gate tests missing <code>getRunnerReadiness</code> wiring (PR3 issue),
+  PTY smoke-gate, MCP tool tests, and browser integration SKIPs.
+  Zero new failures introduced by Stage 1.</p>
+</div>
+
+<h2>Verification log — Stage 2</h2>
+<div class="card done">
+  <span class="label">Typecheck</span>
+  <p><code>bunx @typescript/native-preview --noEmit -p tsconfig.json</code> — clean (exit 0).</p>
+</div>
+<div class="card done">
+  <span class="label">Targeted tests (gate + proxy + runner-nats)</span>
+  <p><code>bun test src/runner/runner-nats.test.ts src/server/runner-incompatible-gate.test.ts src/server/runner-proxy.test.ts</code> — 41 pass, 0 fail.</p>
+</div>
+<div class="card done">
+  <span class="label">Full suite (src/runner + gate + proxy + pr3-liveness + src/nats)</span>
+  <p><code>bun test src/runner src/server/runner-incompatible-gate.test.ts src/server/runner-proxy.test.ts src/server/pr3-liveness.test.ts src/nats/</code> — 144 pass, 0 fail. Real runner-pair tests show probe firing: <code>providers=[claude, codex]</code> on this dev machine.</p>
+</div>
+<div class="card done">
+  <span class="label">Capability refusal observed in test output</span>
+  <p><code>[RunnerProxy] capability gate: runner cap-runner cannot run provider="codex" (installed: claude)</code> — logged on the gate refusal path as expected.</p>
+</div>
+<div class="card done">
+  <span class="label">Commit hash</span>
+  <p><code>fa55f0b</code> — feat(runner): PR4 Stage 2 — probe + advertise capabilities + capability turn-start gate. Working tree clean post-commit.</p>
+</div>
+</body>
+</html>

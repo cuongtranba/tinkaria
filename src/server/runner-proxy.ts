@@ -4,7 +4,7 @@ import type { ProviderProfileRecord } from "../shared/profile-types"
 import { resolveProfile } from "../shared/profile-types"
 import type { AgentProvider, SessionStatus, PendingToolSnapshot } from "../shared/types"
 import { resolveClaudeApiModelId } from "../shared/types"
-import { runnerCmdSubject, SUPPORTED_RANGE, type StartTurnCommand } from "../shared/runner-protocol"
+import { runnerCmdSubject, SUPPORTED_RANGE, type RunnerCapabilities, type StartTurnCommand } from "../shared/runner-protocol"
 import type { EventStore } from "./event-store"
 import type { RuntimeRegistry } from "./runtime-registry"
 import {
@@ -27,8 +27,8 @@ export interface RunnerProxyOptions {
   getActiveStatuses: () => Map<string, SessionStatus>
   getPendingTool?: (chatId: string) => PendingToolSnapshot | null
   runtimeRegistry?: RuntimeRegistry | null
-  /** Optional: called before start_turn dispatch to enforce the protocol-version gate. */
-  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null }
+  /** Optional: called before start_turn dispatch to enforce the protocol-version + capability gate. */
+  getRunnerReadiness?: () => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }
 }
 
 export class RunnerProxy {
@@ -37,7 +37,7 @@ export class RunnerProxy {
   private readonly runnerId: string
   private readonly _getActiveStatuses: () => Map<string, SessionStatus>
   private readonly runtimeRegistry: RuntimeRegistry | null
-  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null }) | null
+  private readonly _getRunnerReadiness: (() => { incompatible: boolean; protocolVersion: number | null; capabilities?: RunnerCapabilities | null }) | null
   private readonly recentlyStartedChats = new Set<string>()
 
   /** Orchestration compatibility: check if a chat has an active turn */
@@ -55,8 +55,11 @@ export class RunnerProxy {
     }
   }
 
-  /** Resolve profile overrides for a workspace+provider into binaryPath and extraEnv */
-  private resolveProfileOverrides(workspaceId: string, provider: AgentProvider): { binaryPath?: string; extraEnv?: Record<string, string> } {
+  /**
+   * Resolve profile overrides for a workspace+provider into non-secret extraEnv.
+   * Binary resolution is done runner-side; the server no longer sets binaryPath.
+   */
+  private resolveProfileOverrides(workspaceId: string, provider: AgentProvider): { extraEnv?: Record<string, string> } {
     // Find all profiles for this provider
     const profiles = [...this.store.state.providerProfiles.values()]
       .filter((r: ProviderProfileRecord) => r.profile.provider === provider)
@@ -69,17 +72,19 @@ export class RunnerProxy {
     const override = wsOverrides?.get(record.id)
     const resolved = resolveProfile(record.profile, override?.overrides)
 
-    // Resolve binary path from runtime spec
-    let binaryPath: string | undefined
-    if (resolved.runtime !== "system" && this.runtimeRegistry) {
-      const entry = this.runtimeRegistry.resolve(provider, resolved.runtime.version)
-      if (entry) binaryPath = entry.binaryPath
+    // Runtime secret-boundary guard: extraEnv transits the server → the runner,
+    // so it must carry NO secrets. Drop (and warn on) any secret-shaped key/value
+    // before it leaves the server — secrets are resolved runner-side only.
+    const SECRET_PATTERN = /API_KEY|TOKEN|SECRET|Bearer|sk-/i
+    const safe: Record<string, string> = {}
+    for (const [k, v] of Object.entries(resolved.env ?? {})) {
+      if (SECRET_PATTERN.test(k) || SECRET_PATTERN.test(v)) {
+        console.warn(`[RunnerProxy] dropping secret-shaped env "${k}" from extraEnv — secrets must stay runner-side`)
+        continue
+      }
+      safe[k] = v
     }
-
-    return {
-      binaryPath,
-      extraEnv: resolved.env,
-    }
+    return { extraEnv: Object.keys(safe).length > 0 ? safe : undefined }
   }
 
   getActiveStatuses(): Map<string, SessionStatus> {
@@ -104,11 +109,28 @@ export class RunnerProxy {
           `RunnerProxy ${this.runnerId}: getRunnerReadiness not provided — refusing start_turn (cannot enforce the compatibility gate)`,
         )
       }
-      const { incompatible, protocolVersion } = this._getRunnerReadiness()
+      const { incompatible, protocolVersion, capabilities } = this._getRunnerReadiness()
       if (incompatible) {
         throw new Error(
           `Runner ${this.runnerId} is incompatible (protocol v${protocolVersion ?? "unknown"}, server supports v${SUPPORTED_RANGE.min}–${SUPPORTED_RANGE.max}) — run tinkaria-runner upgrade`,
         )
+      }
+      // Capability gate: if the runner advertised capabilities, verify the
+      // requested provider is installed. If capabilities is null/undefined (not
+      // yet probed — e.g. pre-PR4 runner), skip and allow (fail open for
+      // backward compat with runners that haven't registered capabilities yet).
+      if (capabilities) {
+        const turn = payload as { provider?: AgentProvider }
+        const requestedProvider = turn.provider
+        if (requestedProvider && !capabilities.providers.includes(requestedProvider)) {
+          const installed = capabilities.providers.join(", ") || "none"
+          console.warn(
+            `[RunnerProxy] capability gate: runner ${this.runnerId} cannot run provider="${requestedProvider}" (installed: ${installed})`,
+          )
+          throw new Error(
+            `Runner ${this.runnerId} cannot run ${requestedProvider} (installed: ${installed}) — install it on the runner or pick another`,
+          )
+        }
       }
     }
     const reply = await this.nc.request(

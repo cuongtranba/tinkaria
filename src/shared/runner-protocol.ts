@@ -81,9 +81,13 @@ export interface StartTurnCommand {
   chatTitle: string
   existingMessageCount: number
   workspaceId: string
-  /** Resolved binary path from profile/runtime registry */
-  binaryPath?: string
-  /** Extra env vars from profile */
+  /**
+   * Non-secret team env vars from the provider profile. The runner merges
+   * these with its own process.env (process.env wins on collision). Must
+   * NOT contain secrets (API keys, tokens, OAuth credentials) — secrets are
+   * resolved runner-side from local env and the OAuth pool and never transit
+   * the server↔runner boundary.
+   */
   extraEnv?: Record<string, string>
 }
 

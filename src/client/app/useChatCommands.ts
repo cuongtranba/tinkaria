@@ -25,6 +25,7 @@ import type { ChatSnapshot, LocalWorkspacesSnapshot, SidebarChatRow, SidebarData
 import type { LocalFilePreview } from "../components/messages/LocalFilePreviewDialog"
 import type { useAppDialog } from "../components/ui/app-dialog"
 import { deleteCachedChat } from "./chatCache"
+import { generateUUID } from "../lib/utils"
 import {
   clearPendingSessionBootstrapAfterAttempt,
   deriveForkSessionPreviewTitle,
@@ -57,6 +58,27 @@ import {
   queueSubmit as queueSubmitTransition,
 } from "./useAppState.machine"
 import { isProcessingStatus } from "./derived"
+
+// ── Runner pick types (PR5) ───────────────────────────────────────────────────
+
+/** Minimal runner descriptor shape the client needs for the picker. Mirrors server RunnerDescriptor. */
+export interface ClientRunnerDescriptor {
+  runnerId: string
+  state: "online" | "degraded" | "offline"
+  capabilities: { providers: string[] } | null
+  isShared: boolean
+}
+
+/** Pending runner pick request: user must choose before the send is retried. */
+export interface RunnerPickRequest {
+  chatId: string
+  candidates: ClientRunnerDescriptor[]
+  reason: "ambiguous" | "sticky_offline"
+  /** Retry the original send with the given runnerId after the user picks. */
+  retry: (runnerId: string) => Promise<void>
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const UI_UPDATE_RESTART_STORAGE_KEY = "tinkaria:ui-update-restart"
 
@@ -152,6 +174,9 @@ export interface ChatCommandsReturn {
   startingLocalPath: string | null
   pendingSessionBootstrap: PendingSessionBootstrap | null
   pendingMergeProjectId: string | null
+  /** Non-null when the server needs the user to pick a runner before the send is retried. */
+  needsPickRequest: RunnerPickRequest | null
+  clearNeedsPickRequest: () => void
   // Handlers
   handleCreateChat: (workspaceId: string) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
@@ -232,6 +257,8 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
   const [startingLocalPath, setStartingLocalPath] = useState<string | null>(null)
   const [pendingMergeProjectId, setPendingMergeProjectId] = useState<string | null>(null)
   const [pendingSessionBootstrap, setPendingSessionBootstrap] = useState<PendingSessionBootstrap | null>(null)
+  // PR5: runner pick request — non-null when server returns needsPick before a send
+  const [needsPickRequest, setNeedsPickRequest] = useState<RunnerPickRequest | null>(null)
   // --- Internal helpers ---
 
   function updateSubmitPipelineFromSnapshot(snapshot: ChatSnapshot) {
@@ -271,7 +298,7 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
 
   async function createChatForProject(workspaceId: string) {
     useChatPreferencesStore.getState().initializeComposerForNewChat()
-    const optimisticChatId = crypto.randomUUID()
+    const optimisticChatId = generateUUID()
     setProjectSelection((current) => transitionProjectSelection(current, {
       type: "project.explicitly_selected",
       workspaceId,
@@ -397,8 +424,15 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
 
       scrollFollowToBottom("auto")
 
-      const result = await socket.command<{ chatId?: string }>({
-        type: "chat.send",
+      // A claude-pty first turn triggers a one-time PTY spawn + smoke-probe on
+      // the runner that can take up to ~65s on a cold cache. Use a window
+      // slightly longer than the server→runner start_turn timeout (90s) so the
+      // server's real outcome (success or the actual error) wins the race
+      // instead of the client surfacing a premature generic "timeout".
+      const sendTimeoutMs = options?.provider === "claude-pty" ? 95_000 : undefined
+      const sendCommandOptions = sendTimeoutMs ? { timeoutMs: sendTimeoutMs } : undefined
+      const sendPayload = {
+        type: "chat.send" as const,
         chatId: activeChatId ?? undefined,
         workspaceId: activeChatId ? undefined : workspaceId ?? undefined,
         provider: options?.provider,
@@ -406,11 +440,48 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
         model: options?.model,
         modelOptions: options?.modelOptions,
         planMode: options?.planMode,
-      })
+      }
 
-      if (!activeChatId && result.chatId) {
-        setPendingChatId(result.chatId)
-        navigate(`/chat/${result.chatId}`)
+      type SendResult = { chatId?: string } | { needsPick: true; chatId: string; candidates: ClientRunnerDescriptor[]; reason: "ambiguous" | "sticky_offline" }
+      const result = await socket.command<SendResult>(sendPayload, sendCommandOptions)
+
+      if ("needsPick" in result && result.needsPick) {
+        // Server needs the user to pick a runner. Surface the picker; the retry
+        // callback will be called by the dialog after the user picks.
+        const doRetry = async (runnerId: string) => {
+          await socket.command({ type: "chat.selectRunner", chatId: result.chatId, runnerId })
+          // Retry the original send now that the runner is pinned
+          type RetryResult = { chatId?: string } | { needsPick: true; chatId: string; candidates: ClientRunnerDescriptor[]; reason: "ambiguous" | "sticky_offline" }
+          const retryResult = await socket.command<RetryResult>(sendPayload, sendCommandOptions)
+          if ("needsPick" in retryResult && retryResult.needsPick) {
+            // Picked runner became ineligible — re-open picker with new candidates
+            setNeedsPickRequest({
+              chatId: retryResult.chatId,
+              candidates: retryResult.candidates,
+              reason: retryResult.reason,
+              retry: doRetry,
+            })
+            return
+          }
+          const sendRetryResult = retryResult as { chatId?: string }
+          if (!activeChatId && sendRetryResult.chatId) {
+            setPendingChatId(sendRetryResult.chatId)
+            navigate(`/chat/${sendRetryResult.chatId}`)
+          }
+        }
+        setNeedsPickRequest({
+          chatId: result.chatId,
+          candidates: result.candidates,
+          reason: result.reason,
+          retry: doRetry,
+        })
+        return
+      }
+
+      const sendResult = result as { chatId?: string }
+      if (!activeChatId && sendResult.chatId) {
+        setPendingChatId(sendResult.chatId)
+        navigate(`/chat/${sendResult.chatId}`)
       }
 
       setCommandError(null)
@@ -431,6 +502,24 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
       return "sent" as const
     }
 
+    // Claude-PTY routing: if a live pty instance exists for this chat,
+    // bypass chat.send and forward keystrokes via pty.input. The PTY
+    // driver owns the turn lifecycle in that mode.
+    try {
+      const ptyStoreMod = await import("../stores/ptyInstancesStore")
+      const ptyClient = await import("../lib/pty-client")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storeFactory: any = (ptyStoreMod as any).usePtyInstancesStore ?? (ptyStoreMod as any).default
+      const snapshot: { instances?: Array<{ chatId: string }> } | undefined = storeFactory?.getState?.()
+      const live = snapshot?.instances?.some((i) => i.chatId === activeChatId) ?? false
+      if (live) {
+        await ptyClient.ptyInput(socket, activeChatId, content)
+        return "sent" as const
+      }
+    } catch {
+      // Store/helper not initialised or no live PTY — fall through.
+    }
+
     if (
       shouldQueueChatSubmit(isProcessing, activeQueuedText)
       || getSubmitPipelineMode(submitPipeline, activeChatId) === "flushing"
@@ -443,7 +532,8 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
       }))
       const queuedText = queuedState.queuedTextByChat[activeChatId] ?? content
       try {
-        const result = await socket.command<{ queued: boolean }>({
+        type QueueResult = { queued: boolean } | { needsPick: true; chatId: string; candidates: ClientRunnerDescriptor[]; reason: "ambiguous" | "sticky_offline" }
+        const result = await socket.command<QueueResult>({
           type: "chat.queue",
           chatId: activeChatId,
           provider: options?.provider,
@@ -452,7 +542,40 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
           modelOptions: options?.modelOptions,
           planMode: options?.planMode,
         })
-        if (!result.queued) {
+        if ("needsPick" in result && result.needsPick) {
+          const queuePayload = {
+            type: "chat.queue" as const,
+            chatId: activeChatId,
+            provider: options?.provider,
+            content: queuedText,
+            model: options?.model,
+            modelOptions: options?.modelOptions,
+            planMode: options?.planMode,
+          }
+          const doRetry = async (runnerId: string) => {
+            await socket.command({ type: "chat.selectRunner", chatId: result.chatId, runnerId })
+            type QueueRetryResult = { queued: boolean } | { needsPick: true; chatId: string; candidates: ClientRunnerDescriptor[]; reason: "ambiguous" | "sticky_offline" }
+            const retryResult = await socket.command<QueueRetryResult>(queuePayload)
+            if ("needsPick" in retryResult && retryResult.needsPick) {
+              // Picked runner became ineligible — re-open picker with new candidates
+              setNeedsPickRequest({
+                chatId: retryResult.chatId,
+                candidates: retryResult.candidates,
+                reason: retryResult.reason,
+                retry: doRetry,
+              })
+            }
+          }
+          setNeedsPickRequest({
+            chatId: result.chatId,
+            candidates: result.candidates,
+            reason: result.reason,
+            retry: doRetry,
+          })
+          return "queued" as const
+        }
+        const queueResult = result as { queued: boolean }
+        if (!queueResult.queued) {
           updateSubmitPipeline((current) => clearQueuedSubmit(current, activeChatId))
         }
       } catch (error) {
@@ -915,6 +1038,8 @@ export function useChatCommands(args: ChatCommandsArgs): ChatCommandsReturn {
     startingLocalPath,
     pendingSessionBootstrap,
     pendingMergeProjectId,
+    needsPickRequest,
+    clearNeedsPickRequest: () => setNeedsPickRequest(null),
     // Handlers
     handleCreateChat,
     handleOpenLocalProject,

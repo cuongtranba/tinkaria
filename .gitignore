@@ -58,6 +58,9 @@ tasks/
 tmp/
 .gitnexus
 
+# git worktrees
+.worktrees/
+
 # Harness durable layer
 harness.db
 harness.db-wal

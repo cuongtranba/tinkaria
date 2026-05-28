@@ -12,6 +12,8 @@ import {
 import { cn } from "../../lib/utils"
 import type { AgentProvider, CurrentRepoStatusSnapshot, DiscoveredSessionRuntime, SessionStatus } from "../../../shared/types"
 import { PROVIDER_ICONS, getProviderFromModel } from "../icons/ProviderIcons"
+import { PtyInstancesIndicator } from "./PtyInstancesIndicator"
+import type { AppTransport } from "../../app/socket-interface"
 
 interface Props {
   sidebarCollapsed: boolean
@@ -27,6 +29,8 @@ interface Props {
   chatStatus?: SessionStatus
   runtimeModel?: string | null
   runtimeProvider?: AgentProvider | null
+  socket?: AppTransport
+  onOpenPtyChat?: (chatId: string) => void
 }
 
 function getPathLabel(localPath: string | undefined, repoStatus: CurrentRepoStatusSnapshot | null | undefined): string | null {
@@ -230,6 +234,8 @@ export function ChatNavbar({
   chatStatus,
   runtimeModel,
   runtimeProvider,
+  socket,
+  onOpenPtyChat,
 }: Props) {
   const pathLabel = getPathLabel(localPath, currentRepoStatus)
   const compactRepoLabel = getCompactRepoLabel(pathLabel, currentRepoStatus)
@@ -238,16 +244,19 @@ export function ChatNavbar({
   const provider = modelName ? getProviderFromModel(modelName) : (runtimeProvider ?? null)
   const ProviderIcon = provider ? PROVIDER_ICONS[provider] : null
 
+  const hasRightContent = Boolean(compactRepoLabel || contextPercent !== undefined)
+
   return (
     <div
       {...getUiIdentityAttributeProps(CHAT_NAVBAR_UI_DESCRIPTORS.root)}
-      className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border/40 bg-background flex-shrink-0"
+      className="flex flex-col px-2 py-1.5 border-b border-border/40 bg-background flex-shrink-0"
     >
+      {/* Main bar row */}
       <div
         {...getUiIdentityAttributeProps(CHAT_NAVBAR_UI_DESCRIPTORS.area)}
         className="flex items-center gap-1.5 w-full min-w-0"
       >
-        {/* Sidebar toggle */}
+        {/* Sidebar toggle — mobile opens sidebar, desktop collapses/expands */}
         <Button
           variant="ghost"
           size="icon"
@@ -267,12 +276,24 @@ export function ChatNavbar({
           <PanelLeft className="size-4" />
         </Button>
 
-        {/* Fork / Merge */}
+        {/* Mobile expand toggle — visible only on mobile, separate from the sidebar open button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden size-7"
+          onClick={onExpandSidebar}
+          data-testid="mobile-navbar-toggle"
+          title="Expand sidebar"
+        >
+          <PanelLeft className="size-4" />
+        </Button>
+
+        {/* Fork / Merge — hidden on mobile */}
         <Button
           {...getUiIdentityAttributeProps(CHAT_NAVBAR_UI_DESCRIPTORS.forkSessionAction)}
           variant="ghost"
           size="icon"
-          className="size-7"
+          className="hidden md:inline-flex size-7"
           onClick={onForkSession}
           title="Fork session"
         >
@@ -282,7 +303,7 @@ export function ChatNavbar({
           {...getUiIdentityAttributeProps(CHAT_NAVBAR_UI_DESCRIPTORS.mergeSessionAction)}
           variant="ghost"
           size="icon"
-          className="size-7"
+          className="hidden md:inline-flex size-7"
           onClick={onMergeSession}
           title="Merge sessions"
         >
@@ -303,6 +324,9 @@ export function ChatNavbar({
           </Tooltip>
         ) : null}
 
+        {/* PTY instances indicator */}
+        <PtyInstancesIndicator socket={socket} onOpenChat={onOpenPtyChat} />
+
         {/* Separator */}
         {chatTitle ? <div className="w-px h-3.5 bg-border/60 shrink-0" /> : null}
 
@@ -313,7 +337,7 @@ export function ChatNavbar({
             data-testid="session-summary"
             data-status={chatStatus ?? "idle"}
           >
-            <span className={cn("size-1.5 shrink-0 rounded-full", getStatusDotClass(chatStatus))} />
+            <span className={cn("size-2 shrink-0 rounded-full", getStatusDotClass(chatStatus))} />
             <span
               className="truncate text-xs leading-none text-muted-foreground"
               title={chatTitle}
@@ -323,19 +347,66 @@ export function ChatNavbar({
           </div>
         ) : <div className="flex-1" />}
 
-        {/* Repo label + context bar */}
-        {compactRepoLabel ? (
-          <RepoDetailPopover
-            localPath={localPath}
-            repoStatus={currentRepoStatus}
-            compactLabel={compactRepoLabel}
-          />
-        ) : null}
+        {/* Repo label + context bar — hidden on mobile (shown in mobile strip below) */}
+        <div className="hidden md:flex items-center gap-1.5">
+          {compactRepoLabel ? (
+            <RepoDetailPopover
+              localPath={localPath}
+              repoStatus={currentRepoStatus}
+              compactLabel={compactRepoLabel}
+            />
+          ) : null}
 
-        {contextPercent !== undefined ? (
-          <ContextBar percent={contextPercent} testId="context-bar" />
-        ) : null}
+          {contextPercent !== undefined ? (
+            <ContextBar percent={contextPercent} testId="context-bar" />
+          ) : null}
+        </div>
       </div>
+
+      {/* Mobile combined strip: provider + title + repo + context — hidden on desktop */}
+      {(chatTitle || hasRightContent) ? (
+        <div
+          className={cn(
+            "md:hidden flex items-center gap-2 w-full min-w-0 px-1 py-0.5 mt-0.5 rounded-full",
+            "transition-all duration-200",
+            "bg-transparent",
+            "active:bg-background",
+            "border border-transparent"
+          )}
+          data-testid="mobile-info-strip"
+        >
+          {ProviderIcon && modelName ? (
+            <div className="shrink-0 text-muted-foreground" data-testid="mobile-provider-icon">
+              <ProviderIcon className="size-3.5" />
+            </div>
+          ) : null}
+
+          {chatTitle ? (
+            <div
+              className="flex items-center gap-1.5 min-w-0 flex-1"
+              data-testid="mobile-title-row"
+            >
+              <span className={cn("size-2 shrink-0 rounded-full", getStatusDotClass(chatStatus))} />
+              <span
+                className="truncate text-xs leading-none text-muted-foreground"
+                title={chatTitle}
+              >
+                {chatTitle}
+              </span>
+            </div>
+          ) : <div className="flex-1" />}
+
+          {compactRepoLabel ? (
+            <span className="shrink-0 truncate text-xs leading-none text-muted-foreground" data-testid="mobile-repo-label">
+              {compactRepoLabel}
+            </span>
+          ) : null}
+
+          {contextPercent !== undefined ? (
+            <ContextBar percent={contextPercent} />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

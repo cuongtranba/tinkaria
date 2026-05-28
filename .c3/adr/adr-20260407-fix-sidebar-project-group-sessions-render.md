@@ -1,6 +1,6 @@
 ---
 id: adr-20260407-fix-sidebar-project-group-sessions-render
-c3-seal: acca28d5d6cf34d8566d38889dcd0d4501ca29eabbceee6a2f93d26acdf5d430
+c3-seal: ac9197ffc4e00744f69d754313186ef9cda0b86574b2710f1135dbb828c3bbd8
 title: fix-sidebar-project-group-sessions-render
 type: adr
 goal: Document fix-sidebar-project-group-sessions-render architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-07"
 ---
 
 # fix-sidebar-project-group-sessions-render
+
 ## Goal
 
 Document fix-sidebar-project-group-sessions-render architecture decisions and responsibilities.

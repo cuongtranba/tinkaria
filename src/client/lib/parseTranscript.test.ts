@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { processTranscriptMessages, createIncrementalHydrator } from "./parseTranscript"
 import { getLatestToolIds } from "../app/derived"
-import type { TranscriptEntry } from "../../shared/types"
+import type { TranscriptEntry, TranscriptRenderUnit } from "../../shared/types"
 
 let entryCounter = 0
 function entry(partial: Omit<TranscriptEntry, "_id" | "createdAt">): TranscriptEntry {
@@ -287,7 +287,7 @@ describe("processTranscriptMessages", () => {
 
 describe("getLatestToolIds", () => {
   test("returns the latest unresolved special tool ids", () => {
-    const messages = processTranscriptMessages([
+    const hydratedMessages = processTranscriptMessages([
       entry({
         kind: "tool_call",
         tool: {
@@ -314,10 +314,22 @@ describe("getLatestToolIds", () => {
       }),
     ])
 
-    expect(getLatestToolIds(messages)).toEqual({
-      AskUserQuestion: messages[0]?.kind === "tool" ? messages[0].id : null,
+    const askMsg = hydratedMessages[0]
+    const todoMsg = hydratedMessages[1]
+
+    const renderUnits: TranscriptRenderUnit[] = hydratedMessages
+      .filter((m) => m.kind === "tool")
+      .map((m) => ({
+        kind: "standalone_tool" as const,
+        id: m.id,
+        sourceEntryIds: [m.id],
+        tool: m as Extract<typeof m, { kind: "tool" }>,
+      }))
+
+    expect(getLatestToolIds(renderUnits)).toEqual({
+      AskUserQuestion: askMsg?.kind === "tool" ? askMsg.id : null,
       ExitPlanMode: null,
-      TodoWrite: messages[1]?.kind === "tool" ? messages[1].id : null,
+      TodoWrite: todoMsg?.kind === "tool" ? todoMsg.id : null,
     })
   })
 

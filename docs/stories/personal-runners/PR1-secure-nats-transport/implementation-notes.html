@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PR1 Secure NATS Transport &amp; Isolation — Implementation Notes</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 15px/1.65 -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 56rem; margin: 0 auto; padding: 2rem 1.5rem 5rem; background: #fafafa; color: #1a1a2e; }
+  h1 { font-size: 1.6rem; margin-bottom: .2rem; }
+  .sub { color: #64748b; margin-bottom: 1.5rem; }
+  h2 { font-size: 1.2rem; margin-top: 2.2rem; padding-bottom: .35rem; border-bottom: 2px solid #e2e8f0; color: #0f172a; }
+  p { margin: .55rem 0; }
+  ul { margin: .4rem 0 .4rem 1.3rem; } li { margin: .25rem 0; }
+  code { background: #f1f5f9; padding: .1rem .35rem; border-radius: .25rem; font-size: .85em; color: #7c3aed; }
+  strong { color: #0f172a; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-left:3px solid #7c3aed; border-radius:.45rem; padding:.7rem 1rem; margin:.7rem 0; }
+  .open { border-left-color:#eab308; background:#fefce8; }
+  .label { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; color:#7c3aed; }
+  .open .label { color:#ca8a04; }
+  .rec { font-size:.88rem; margin-top:.35rem; } .rec b { color:#15803d; }
+  .status { display:inline-block; padding:.1rem .5rem; border-radius:9999px; font-size:.72rem; font-weight:600; background:#fef3c7; color:#92400e; }
+  .muted { color:#94a3b8; font-size:.8rem; }
+</style>
+</head>
+<body>
+
+<h1>PR1 — Secure NATS Transport &amp; Isolation</h1>
+<p class="sub">Working narrative for the high-risk story packet ·
+<span class="status">Phase-1 spike done — Path A confirmed</span></p>
+
+<p>This is the paper trail for <em>how</em> PR1 gets built. The contract lives in
+<code>execplan.md</code> / <code>overview.md</code> / <code>design.md</code> /
+<code>validation.md</code>; decision <code>0007</code> records the architecture
+choice. Updated as work proceeds.</p>
+
+<h2>Current stage</h2>
+<p><strong>Stage C complete.</strong> Tailnet bind guard implemented and verified.
+Wide bind (non-loopback) in callout mode works end-to-end. Guard refuses non-loopback
++ token at startup with a clear error message. Loopback + token regression confirmed
+healthy. 66/66 tests pass. Typecheck clean. Stage D (full dual-signal + security review) is next.</p>
+
+<h2>Spike result — Phase 1 (2026-05-26)</h2>
+<div class="card">
+  <span class="label">Verdict — Path A feasible &amp; preferred</span>
+  <p>The <code>@lagz0ne/nats-embedded</code> wrapper bundles the <strong>official
+  <code>nats-server</code> v2.12.5</strong> (past the 2.10 auth-callout floor) and
+  exposes <code>config:</code>/<code>args:</code> escape hatches. Running the
+  bundled binary directly with an <code>auth_callout</code> config:
+  a normal client got <strong><code>Authorization Violation</code></strong>
+  (callout fires, no responder → denied = server enforces it); the
+  <code>auth_users</code> service account connected (documented bypass). So
+  isolation is enforceable on the embedded path — <strong>no external
+  <code>nats-server</code> needed</strong>, the ops-change gate is moot.</p>
+</div>
+<div class="card open">
+  <span class="label">Caveat — wrapper include bug (drive the binary directly)</span>
+  <p>The wrapper's <code>websocket:true</code> + <code>config:</code> combo emits
+  <code>include '&lt;abs-path&gt;'</code> into a temp file that nats-server
+  mis-resolves against the temp dir (<code>/tmp/&hellip;/Volumes/&hellip;</code> →
+  not found). And <code>wsPort</code> discovery only waits when the wrapper's own
+  <code>websocket</code> option is set. <b>Plan:</b> generate our own callout
+  config and spawn the bundled binary (<code>resolveBinary()</code>) directly,
+  discovering ports via stderr / ports-file — the shape
+  <code>nats-daemon.ts</code> already uses.</p>
+</div>
+<div class="card">
+  <span class="label">Resolved — <code>@nats-io/jwt</code> installed and wired</span>
+  <p><code>@nats-io/jwt@0.0.10-5</code> added. The responder decodes the callout
+  request with <code>decode()</code> (it arrives as a JWT, not plain JSON —
+  this was the first integration bug discovered), mints a scoped user JWT via
+  <code>encodeUser()</code>, and wraps it in a signed
+  <code>encodeAuthorizationResponse()</code>. Works end-to-end.</p>
+</div>
+
+<h2>Design decisions (where the concept was ambiguous)</h2>
+
+<div class="card">
+  <span class="label">PR1/PR2 seam</span>
+  <p>The concept sequences "isolation" (PR1) before "identity" (PR2), but
+  per-<code>runnerId</code> scoping seems to need identity. Resolved by scoping
+  only the <strong>server-spawned</strong> runner in PR1 (the server knows its
+  <code>runnerId</code> at spawn, so it mints the scoped creds), and deferring
+  <em>paired per-user</em> creds to PR2. The subject policy is identical across
+  both, so PR2 reuses it without rework.</p>
+</div>
+
+<div class="card">
+  <span class="label">Bind + callout land together</span>
+  <p>Binding NATS to the tailnet without the callout would expose a
+  shared-token bus to every tailnet peer — strictly worse than today. So the
+  tailnet bind is gated behind the callout in the same change; no "temporarily
+  insecure" intermediate state (an explicit stop condition).</p>
+</div>
+
+<div class="card">
+  <span class="label">WireGuard for confidentiality, keep <code>no_tls</code></span>
+  <p>The concept's decision #1 says "we build no TLS" — WireGuard already
+  encrypts. PR1 keeps WS <code>no_tls: true</code> <em>within the tailnet</em>
+  and documents it as a trust assumption rather than adding a TLS layer. Flagged
+  as a stop condition if reviewers want TLS anyway.</p>
+</div>
+
+<h2>Tradeoffs</h2>
+<ul>
+  <li><strong>Callout vs static NATS users.</strong> Static accounts are simpler
+  but can't scope dynamically-created <code>runnerId</code>s and don't extend to
+  PR2's paired creds. Chose callout as the one seam that serves both; static
+  users kept only as a fallback if the spike kills callout on both paths.</li>
+  <li><strong>Callout on the connect path.</strong> Adds one round-trip at
+  connect and makes the responder critical infrastructure (hence added to
+  <code>/health</code>). Accepted: it's connect-time only, steady-state pub/sub
+  is unaffected.</li>
+</ul>
+
+<h2>Open questions (each with a recommendation)</h2>
+
+<div class="card">
+  <span class="label">Q1 — Embedded auth-callout support? ✓ RESOLVED (Path A)</span>
+  <p>Answered by the Phase-1 spike: yes. The bundled binary is official
+  <code>nats-server</code> v2.12.5 and enforces <code>auth_callout</code> via a
+  config file. Deliver config by driving the binary directly (not the wrapper's
+  <code>websocket+config</code> combo). See "Spike result" above.</p>
+</div>
+
+<div class="card open">
+  <span class="label">Q2 — Browser identity for <code>ui-client</code> scope</span>
+  <p><code>/auth/token</code> is unauthenticated today and there is no per-user
+  browser auth. PR1 wants a <code>ui-client</code> credential, not the admin
+  token.</p>
+  <p class="rec"><b>Recommendation:</b> issue a single broad <code>ui-client</code>
+  class credential in PR1 (no per-user scoping). Per-<code>TinkariaUser</code>
+  browser scoping is out of PR1 scope; revisit if/when browser auth exists.</p>
+</div>
+
+<div class="card open">
+  <span class="label">Q3 — Callout signing-key lifecycle</span>
+  <p>The responder needs a signing key (new server-held secret).</p>
+  <p class="rec"><b>Recommendation:</b> store alongside <code>nats.token</code> in
+  <code>NATS_DATA_DIR</code> (same trust boundary, gitignored); treat rotation as
+  a documented follow-up, not PR1 scope.</p>
+</div>
+
+<h2>Design decisions (Stage A)</h2>
+
+<div class="card">
+  <span class="label">Callout request body is a JWT, not plain JSON</span>
+  <p>The NATS server encodes the <code>AuthorizationRequest</code> as a JWT
+  and sends it on <code>$SYS.REQ.USER.AUTH</code>. The responder must call
+  <code>decode()</code> from <code>@nats-io/jwt</code> to extract the
+  <code>nats</code> claim containing <code>user_nkey</code>,
+  <code>server_id</code>, and <code>connect_opts</code>.</p>
+</div>
+
+<div class="card">
+  <span class="label">User JWT audience must be the account name</span>
+  <p>The <code>aud</code> field of the issued user JWT must equal the account
+  name from the nats-server config (<code>CALLOUT_ACCOUNT</code>), not the
+  default <code>"NATS"</code>. NATS uses this to know which account to place
+  the connection in. Error: <em>"No valid account NATS for auth callout
+  response on account CALLOUT_ACCOUNT: account missing"</em>.</p>
+</div>
+
+<div class="card">
+  <span class="label">Allow-only policy (no deny lists)</span>
+  <p>NATS evaluates allow/deny such that deny always wins over allow (if a
+  subject matches both, it is denied). Using a wildcard deny for runner scope
+  exclusion would also deny the runner's own commands. Solution: use allow-only
+  lists (subjects not in allow are denied by default). This is simpler, correct,
+  and matches NATS's natural model. The integration test confirms isolation.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage A credential registry — in-memory token map</span>
+  <p>Stage A uses a simple <code>Map&lt;token, identity&gt;</code> in the
+  responder. The test registers tokens directly. Stage B wires this into the
+  server's credential-issuance path (minting per-class tokens at startup and
+  per-runnerId tokens at runner spawn).</p>
+</div>
+
+<h2>Deviations from plan</h2>
+<div class="card">
+  <span class="label">Suggested module layout mostly followed</span>
+  <p>One addition: <code>nats-daemon-callout.ts</code> is a sibling to
+  <code>nats-daemon.ts</code> (not a sub-module). The original plan said
+  "extend <code>nats-daemon.ts</code> … in callout mode" but keeping them as
+  separate entry points is cleaner for the <code>NATS_AUTH_MODE</code> dispatch
+  in <code>NatsDaemonManager</code> (Stage B).</p>
+</div>
+
+<h2>Design decisions (Stage B)</h2>
+
+<div class="card">
+  <span class="label">Stateless signed tokens — no shared in-memory state</span>
+  <p>The server process (token issuer) and the daemon child (token verifier) share
+  only a 32-byte secret stored on disk at <code>NATS_DATA_DIR/nats.callout-token.secret</code>.
+  Token format: <code>base64url(payload_json) + "." + base64url(HMAC-SHA256(secret, payload_json))</code>.
+  No registration call needed; the responder calls <code>verifyCredentialToken</code>
+  instead of doing a map lookup. This eliminates the Stage A IPC design requirement.</p>
+</div>
+
+<div class="card">
+  <span class="label">mintToken callback on RunnerManager</span>
+  <p>Rather than passing the token secret into RunnerManager (which would couple
+  it to the auth-callout module), a <code>mintToken: (runnerId) =&gt; Promise&lt;string&gt;</code>
+  callback is added to <code>RunnerManagerOptions</code>. In callout mode the
+  server closes over <code>keys.tokenSecret</code>; in token mode the callback is
+  undefined and <code>authToken</code> is used unchanged. Zero token-mode
+  regression risk.</p>
+</div>
+
+<div class="card">
+  <span class="label">uiClientToken — one token minted at startup for /auth/token</span>
+  <p>Q2 ("browser identity") is resolved as planned: a single <code>ui-client</code>
+  class token is minted at startup and held in <code>uiClientToken</code>.
+  <code>/auth/token</code> returns this token (not the server-admin token).
+  In token mode <code>uiClientToken === authToken</code> — unchanged behaviour.</p>
+</div>
+
+<div class="card">
+  <span class="label">NATS_DATA_DIR fallback to store.dataDir in callout mode</span>
+  <p>The server process needs <code>NATS_DATA_DIR</code> to call
+  <code>ensureCalloutKeys</code>. If the env var is absent, we fall back to
+  <code>store.dataDir</code> (the app's own data directory). This avoids a hard
+  startup failure for users who haven't set the env var explicitly.</p>
+</div>
+
+<div class="card">
+  <span class="label">scope-policy.ts dead code cleanup</span>
+  <p>The <code>runnerForeignKvSubject()</code> helper was left unused in Stage A
+  (the deny-list approach it was designed for was abandoned in favour of allow-only
+  lists — see Stage A notes). It was not flagged by the Stage A typecheck run but
+  surfaced as TS6133 in Stage B. Removed to keep the typecheck gate clean.
+  Recorded as Stage A friction.</p>
+</div>
+
+<h2>Scope widening (Stage B fix)</h2>
+<div class="card open">
+  <span class="label">PILOT: runner pub allow includes $JS.API.&gt; — narrow in Stage D</span>
+  <p>Root cause: the runner's pub allow-list was missing <code>$JS.API.&gt;</code>.
+  <code>kvm.open(RUNNER_REGISTRY_BUCKET)</code> publishes to <code>$JS.API.STREAM.INFO.KV_*</code>
+  and possibly consumer-create subjects. With only the KV data key in pub allow, nats.js
+  reported "jetstream is not enabled" and the runner never registered, causing
+  <code>waitForRegistration</code> to time out after 15s and crash the server.</p>
+  <p>Fix — two parts:</p>
+  <ol>
+    <li><strong>Server pre-creates the KV bucket</strong> (<code>ensureRunnerRegistryBucket</code>
+    in <code>nats-streams.ts</code>, called from the startup stream-setup block alongside the
+    existing KANNA_* streams). This removes the runner's need for <code>STREAM.CREATE</code>.</li>
+    <li><strong><code>$JS.API.&gt;</code> added to runner pub allow</strong> as a pilot allowance.
+    A runner can publish to any JetStream API subject — including those for other streams.
+    Cross-runner isolation on runtime subjects (cmd, KV key) is unaffected.
+    <strong>Stage D must narrow this</strong> to the specific subjects required for
+    <code>kvm.open</code> + <code>kvStore.put</code>, confirmed via <code>nats-server -DV</code>
+    trace.</li>
+  </ol>
+  <p>Integration test re-run after widening: 47/47 pass. runner-A still denied on
+  <code>runtime.runner.cmd.runner-B.*</code> and <code>$KV.runtime_runner_registry.runner-B</code>.
+  The JS API widening does not open a cross-runner hole on the runtime subject plane.</p>
+</div>
+
+<h2>Deviations from Stage B plan</h2>
+<div class="card">
+  <span class="label">Scope widening required (runner $JS.API.> pub)</span>
+  <p>The architecture spec said "widen minimally — note what you added and why." The runner's
+  initial pub allow was too narrow: KV <code>open</code> publishes to JetStream API subjects
+  not covered. Added <code>$JS.API.&gt;</code> as the pilot allowance. Also added
+  <code>ensureRunnerRegistryBucket</code> at server startup (not in the original spec, but
+  required to let the runner avoid STREAM.CREATE). Both are flagged for Stage D narrowing.</p>
+</div>
+
+<h2>Verification log</h2>
+<div class="card">
+  <span class="label">Stage A integration test — 2026-05-26</span>
+  <p>Run: <code>bun test src/nats/auth-callout/callout.integration.test.ts</code></p>
+  <p>8/8 pass. Decisive evidence:</p>
+  <ul>
+    <li><strong>runner-A denied on runner-B cmd:</strong> <em>connection closed by NATS: connection closed</em> (NATS enforced permissions violation on publish)</li>
+    <li><strong>runner-A denied on runner-B KV:</strong> <em>$KV.runtime_runner_registry.runner-B denied</em></li>
+    <li><strong>ui-client denied on runner cmd</strong></li>
+    <li>All audit lines emitted: <code>decision=grant/deny class=… runnerId=…</code></li>
+  </ul>
+  <p>Token-mode regression: 9 pre-existing nats-daemon + nats-token tests — all green.</p>
+  <p>Total: 47 pass / 0 fail across 5 files. Typecheck: clean.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage B integration test (after scope fix) — 2026-05-26</span>
+  <p>Run: <code>bun test src/nats/</code></p>
+  <p>47/47 pass — isolation re-proven with stateless tokens after adding $JS.API.> pub. Decisive evidence:</p>
+  <ul>
+    <li><strong>runner-A denied on runner-B cmd:</strong> <em>connection closed by NATS: connection closed</em></li>
+    <li><strong>runner-A denied on runner-B KV:</strong> <em>$KV.runtime_runner_registry.runner-B denied</em></li>
+    <li><strong>ui-client denied on runner cmd</strong></li>
+    <li><strong>unknown token refused at connect:</strong> <em>Authorization Violation</em></li>
+    <li>All audit lines show <code>decision=grant/deny class=… detail=ok</code> or <code>unknown or invalid credential</code></li>
+  </ul>
+  <p>Typecheck: clean (0 errors). <code>git diff --check</code>: clean.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage B live boot verification — port 3299 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1-verify bun run src/server/cli.ts --no-open --port 3299 --strict-port</code></p>
+  <p>Process alive after 22s: YES. All three signals healthy:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3299,"natsWsPort":52537,"natsDaemon":{"url":"nats://127.0.0.1:52538","wsUrl":"ws://127.0.0.1:52537","wsPort":52537,"pid":12283,"ok":true},"natsConnection":{"ok":true,"natsUrl":"nats://127.0.0.1:52538","natsWsUrl":"ws://127.0.0.1:52537","natsWsPort":52537},"runner":{"ok":true,"runnerId":"runner-1779794562186-12227","pid":12311,"registered":true,"heartbeatFresh":true,"lastHeartbeatAt":1779794582288}}</pre>
+  <p><code>/auth/token</code> returns stateless ui-client token (2-part base64url.base64url):</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"token":"eyJjIjoidWktY2xpZW50IiwiaWF0IjoxNzc5Nzk0NTYyfQ.QTqSvrIAD949fUVacngah27PRKKB9vRStKbSHwCop6U"}</pre>
+  <p>Payload decoded: <code>{"c":"ui-client","iat":1779794562}</code> — NOT a 43-char shared token.</p>
+  <p>Callout audit log confirmed:</p>
+  <ul>
+    <li><code>decision=grant class=server-admin</code> — server's own NATS connection</li>
+    <li><code>Runner registry KV bucket 'runtime_runner_registry' ready</code> — pre-created by server</li>
+    <li><code>decision=grant class=runner:runner-1779794562186-12227</code> — runner's scoped connection</li>
+    <li><code>Runner runner-1779794562186-12227 ready (pid: 12311)</code> — clean registration, no KV failure</li>
+  </ul>
+</div>
+
+<h2>Design decisions (Stage C)</h2>
+
+<div class="card">
+  <span class="label">Bind path was already correct — no data-flow fix needed</span>
+  <p><code>hostname</code> flows from <code>startServer(options.host)</code>
+  (driven by <code>--remote</code>/<code>--host</code> CLI flags or the <code>NATS_HOST</code> env)
+  → <code>ensureDaemon({ host: hostname })</code> → <code>NATS_HOST</code> env on the daemon child
+  → <code>buildCalloutConfig({ host })</code> → both the TCP <code>host:</code> line
+  and the <code>websocket { host }</code> block. Both listeners bind to whatever the caller passes.
+  Stage C is purely additive: guard + docs.</p>
+</div>
+
+<div class="card">
+  <span class="label">Guard wired as a startup throw, not a flag</span>
+  <p><code>requiresCalloutForBind(hostname, authMode)</code> is called immediately
+  after <code>authMode</code> is resolved, before the daemon is started. If disallowed,
+  <code>startServer</code> throws — the process exits with a clear error before any
+  NATS process is spawned. This is the earliest possible gate: no partial state left behind.</p>
+</div>
+
+<div class="card">
+  <span class="label">NATS_ADVERTISED_HOST was already wired in /auth/token</span>
+  <p><code>/auth/token</code> already reads <code>NATS_ADVERTISED_HOST</code> and returns
+  <code>ws://&lt;advertisedHost&gt;:&lt;wsPort&gt;</code> in the response when set.
+  PR1 Stage C only needed to verify this and document the env vars. Off-box runner
+  connect URL (via env) is PR2; PR1 runners are server-spawned and local.</p>
+</div>
+
+<h2>Verification log (Stage C)</h2>
+
+<div class="card">
+  <span class="label">Guard unit tests — 10/10 pass — 2026-05-26</span>
+  <p>Run: <code>bun test src/server/nats-bind-guard.test.ts</code></p>
+  <p>Tests cover: loopback × {token, callout} → ok; wide × callout → ok; wide × token → refused;
+  reason string contains host + NATS_AUTH_MODE=callout hint.</p>
+</div>
+
+<div class="card">
+  <span class="label">Wide bind + callout — port 3296 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-stage-c2 NATS_AUTH_MODE=callout bun run src/server/cli.ts --no-open --port 3296 --strict-port --remote</code></p>
+  <p>Server log: <em>Binding NATS to 0.0.0.0 in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet</em></p>
+  <p>All three signals healthy. NATS TCP + WS both bound to 0.0.0.0:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3296,"natsWsPort":53119,"natsDaemon":{"url":"nats://0.0.0.0:53120","wsUrl":"ws://0.0.0.0:53119","wsPort":53119,"pid":28785,"ok":true},"natsConnection":{"ok":true},"runner":{"ok":true,...}}</pre>
+</div>
+
+<div class="card">
+  <span class="label">Guard fires — non-loopback + token — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-guard NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3298 --strict-port --remote</code></p>
+  <p>Exit 1. Error message:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">error: Refusing to bind NATS to 0.0.0.0 in token mode — a shared-token bus must not be exposed beyond loopback; set NATS_AUTH_MODE=callout</pre>
+</div>
+
+<div class="card">
+  <span class="label">Loopback + token regression — port 3297 — 2026-05-26</span>
+  <p>Command: <code>NATS_DATA_DIR=/tmp/pr1c-stage-c NATS_AUTH_MODE=token bun run src/server/cli.ts --no-open --port 3297 --strict-port</code></p>
+  <p>All three signals healthy. Guard not triggered. Default dev path unchanged.</p>
+</div>
+
+
+<h2>Stage D review fixes (2026-05-26)</h2>
+
+<div class="card">
+  <span class="label">Fix 1 — token.ts: ArrayBuffer byteOffset bug (correctness/security)</span>
+  <p>WebCrypto <code>importKey</code> / <code>sign</code> / <code>verify</code> were passed
+  <code>secret.buffer</code> / <code>sig.buffer</code> directly. A <code>Uint8Array</code>
+  from <code>Buffer.from(...)</code> can be a sub-array of a pooled buffer with a non-zero
+  <code>byteOffset</code>, causing HMAC to operate on the wrong bytes.
+  Added <code>exactBuffer(view)</code> helper that slices out exactly the view's bytes:
+  <code>view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer</code>.
+  Applied to all three WebCrypto call sites (importKey ×2, verify). New unit tests:
+  mint-with-sub-view/verify-with-sub-view both pass, confirming the fix.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 2 — token.ts: add exp (expiry) + verify it</span>
+  <p>Tokens previously had no expiry, making them valid forever.
+  Added <code>exp: iat + ttlSeconds</code> to the payload (inside the HMAC'd JSON).
+  Default TTL is 30 days (2592000 s) — generous for the pilot; per-class TTLs + token
+  refresh deferred to PR2. <code>verifyCredentialToken</code> now rejects: expired tokens
+  (<code>now &gt; exp</code>), tokens without <code>exp</code> (no-legacy-format defensive),
+  and tampered <code>exp</code> (HMAC covers the full payload). <code>mintCredentialToken</code>
+  accepts an optional <code>ttlSeconds</code> param (test-only shortening, default unchanged).
+  Tests added: valid, expired-rejected, tampered-exp-rejected, no-exp-rejected.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 3 — responder.ts: listenLoop unhandled rejection</span>
+  <p><code>void this.listenLoop()</code> silently swallowed any throw from the async iterator,
+  causing the responder to die without logging. Changed to
+  <code>void this.listenLoop().catch((err) =&gt; { console.error("[nats-callout] listenLoop fatal:", err) })</code>
+  so any fatal error is logged loudly. No behavior change under normal operation.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 4 — nats-daemon-callout.ts: stderr listener leak</span>
+  <p>The <code>child.stderr.on("data", ...)</code> handler was kept alive for the daemon's
+  entire lifetime after port discovery resolved. Captured the handler as <code>onStderr</code>
+  and called <code>child.stderr.removeListener("data", onStderr)</code> in the resolve branch
+  alongside the existing <code>removeAllListeners("exit")</code>. The listener now fires only
+  until ports are known, then is removed.</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 5 — keys.ts: chmod 600 on secrets</span>
+  <p>nkey seeds and token secret were written without explicit permissions, leaving them
+  world-readable under a permissive umask. Added <code>chmodSync(path, 0o600)</code> after
+  the atomic rename in both <code>readOrCreateSeed</code> and <code>readOrCreateTokenSecret</code>.
+  Boot verification confirms all three files show <code>-rw-------</code> (600).</p>
+</div>
+
+<div class="card">
+  <span class="label">Fix 6 — nats-bind-guard.ts: case-insensitive loopback match</span>
+  <p><code>NATS_HOST=LOCALHOST</code> was not matched as loopback because the Set lookup
+  is case-sensitive. Changed the lookup to <code>LOOPBACK_HOSTS.has(host.trim().toLowerCase())</code>.
+  Tests added: LOCALHOST, Localhost, and "  localhost  " (whitespace) all match as loopback
+  in token mode.</p>
+</div>
+
+<div class="card">
+  <span class="label">Stage D fixes — verification — 2026-05-26</span>
+  <p>Typecheck: <code>bunx @typescript/native-preview --noEmit -p tsconfig.json</code> — clean (0 errors).</p>
+  <p>Tests: <code>bun test src/nats/ src/server/nats-bind-guard.test.ts</code> — <strong>73 pass / 0 fail</strong> across 7 files (includes new token.test.ts with 17 cases + bind-guard 3 new cases + callout integration test).</p>
+  <p>Boot verification — port 3289 — all three components healthy:</p>
+  <pre style="background:#f1f5f9;padding:.6rem .8rem;border-radius:.3rem;font-size:.8rem;overflow-x:auto;">{"ok":true,"status":"ok","port":3289,"natsWsPort":54760,"natsDaemon":{"url":"nats://127.0.0.1:54761","wsUrl":"ws://127.0.0.1:54760","wsPort":54760,"pid":78572,"ok":true},"natsConnection":{"ok":true,"natsUrl":"nats://127.0.0.1:54761","natsWsUrl":"ws://127.0.0.1:54760","natsWsPort":54760},"runner":{"ok":true,"runnerId":"runner-1779796337631-78491","pid":78574,"registered":true,"heartbeatFresh":true,"lastHeartbeatAt":1779796357722}}</pre>
+  <p>File permissions: all three secret files confirm <code>-rw-------</code> (600) via <code>stat</code>.</p>
+</div>
+
+</body>
+</html>

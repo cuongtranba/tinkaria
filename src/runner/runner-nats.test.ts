@@ -6,8 +6,9 @@ import { NatsServer } from "@lagz0ne/nats-embedded"
 import { connect, type NatsConnection } from "@nats-io/transport-node"
 import { jetstreamManager, RetentionPolicy, StorageType } from "@nats-io/jetstream"
 import { Kvm } from "@nats-io/kv"
-import { RunnerNatsHandler, connectRunner, shutdownConnection } from "./runner-nats"
+import { RunnerNatsHandler, connectRunner, shutdownConnection, probeProviders } from "./runner-nats"
 import { RunnerAgent, type TurnFactory } from "./runner-agent"
+import type { ResolveClaudeBinaryResult } from "../server/claude-pty/resolve-binary.adapter"
 import {
   runnerCmdSubject,
   runnerHeartbeatSubject,
@@ -296,6 +297,7 @@ describe("runner NATS reconnect resilience", () => {
   })
 
   test("publishHeartbeat swallows and logs publish errors", async () => {
+
     const fakeNc = {
       publish: mock(() => { throw new Error("nats closed") }),
       flush: mock(async () => {}),
@@ -324,6 +326,168 @@ describe("runner NATS reconnect resilience", () => {
         line.includes("heartbeat publish failed")
       )
       expect(mentionsHeartbeatFailure).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+// ── PR4 Stage 2: probeProviders + capability-advertise ────────────────
+
+describe("probeProviders", () => {
+  test("includes claude when resolver succeeds", async () => {
+    const fakeResolver = async (): Promise<ResolveClaudeBinaryResult> =>
+      ({ path: "/usr/local/bin/claude", source: "PATH", triedPaths: [] })
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const caps = await probeProviders(fakeResolver)
+      expect(caps.providers).toContain("claude")
+      // claude-pty rides on the same claude binary, so it must be advertised
+      // alongside claude — otherwise the server capability gate refuses it.
+      expect(caps.providers).toContain("claude-pty")
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  test("excludes claude and claude-pty when resolver throws", async () => {
+    const failingResolver = async (): Promise<ResolveClaudeBinaryResult> => {
+      throw new Error("claude not found")
+    }
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const caps = await probeProviders(failingResolver)
+      expect(caps.providers).not.toContain("claude")
+      expect(caps.providers).not.toContain("claude-pty")
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  test("probe error does not crash — returns partial providers list", async () => {
+    // Simulate a resolver that always throws — probeProviders must return gracefully.
+    const failingResolver = async (): Promise<ResolveClaudeBinaryResult> => {
+      throw new Error("unexpected probe failure")
+    }
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const caps = await probeProviders(failingResolver)
+      expect(Array.isArray(caps.providers)).toBe(true)
+      // May or may not include codex depending on the test env; no throw is the key assertion.
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+describe("RunnerNatsHandler — capability probe advertised in KV registration", () => {
+  let server: NatsServer
+  let nc: NatsConnection
+  let handlerNc: NatsConnection
+  let tmpDir: string | null = null
+
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "runner-probe-test-"))
+    server = await NatsServer.start({ jetstream: true, storeDir: tmpDir })
+    nc = await connect({ servers: server.url })
+    handlerNc = await connect({ servers: server.url })
+    const jsm = await jetstreamManager(nc)
+    await jsm.streams.add({
+      name: RUNNER_EVENTS_STREAM,
+      subjects: [ALL_RUNNER_EVENTS],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 5 * 60 * 1_000_000_000,
+      max_msgs: 10_000,
+      max_bytes: 64 * 1024 * 1024,
+    })
+  })
+
+  afterEach(async () => {
+    await nc?.drain()
+    await handlerNc?.drain()
+    await server?.stop()
+    if (tmpDir) {
+      rmSync(tmpDir, { recursive: true, force: true })
+      tmpDir = null
+    }
+  })
+
+  test("claude resolves, codex does not → providers=[claude] in KV registration", async () => {
+    // Mock resolver: claude resolves, codex absent (spawnSync("which","codex") returns non-zero
+    // when run in the probe; we control only the claude resolver here, and codex is probed
+    // via the real spawnSync — but we override the full _probeProviders to isolate the test).
+    const fakeProbeFn = async () => ({ providers: ["claude" as const] })
+
+    const agent = new RunnerAgent({ nc: handlerNc, createTurn: async () => createMockTurn([]) })
+    const handler = new RunnerNatsHandler({
+      nc: handlerNc,
+      agent,
+      runnerId: "r-probe",
+      _probeProviders: fakeProbeFn,
+    })
+    await handler.start()
+
+    const kvm = new Kvm(nc)
+    const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
+    const entry = await kvStore.get("r-probe")
+    expect(entry).toBeDefined()
+    const registration = JSON.parse(decoder.decode(entry!.value)) as RunnerRegistration
+    expect(registration.capabilities?.providers).toEqual(["claude"])
+    expect(registration.providers).toEqual(["claude"])
+
+    handler.dispose()
+  })
+
+  test("both providers installed → providers=[claude, codex] in KV registration", async () => {
+    const fakeProbeFn = async () => ({ providers: ["claude" as const, "codex" as const] })
+
+    const agent = new RunnerAgent({ nc: handlerNc, createTurn: async () => createMockTurn([]) })
+    const handler = new RunnerNatsHandler({
+      nc: handlerNc,
+      agent,
+      runnerId: "r-both",
+      _probeProviders: fakeProbeFn,
+    })
+    await handler.start()
+
+    const kvm = new Kvm(nc)
+    const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
+    const entry = await kvStore.get("r-both")
+    const registration = JSON.parse(decoder.decode(entry!.value)) as RunnerRegistration
+    expect(registration.capabilities?.providers).toEqual(["claude", "codex"])
+
+    handler.dispose()
+  })
+
+  test("probe throws → registration proceeds with empty providers", async () => {
+    const failProbeFn = async (): Promise<{ providers: ("claude" | "codex")[] }> => {
+      throw new Error("probe catastrophically failed")
+    }
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const agent = new RunnerAgent({ nc: handlerNc, createTurn: async () => createMockTurn([]) })
+      const handler = new RunnerNatsHandler({
+        nc: handlerNc,
+        agent,
+        runnerId: "r-probe-fail",
+        _probeProviders: failProbeFn,
+      })
+      await handler.start()
+
+      const kvm = new Kvm(nc)
+      const kvStore = await kvm.open(RUNNER_REGISTRY_BUCKET)
+      const entry = await kvStore.get("r-probe-fail")
+      expect(entry).toBeDefined()
+      const registration = JSON.parse(decoder.decode(entry!.value)) as RunnerRegistration
+      // Empty list — probe failed but registration didn't crash.
+      expect(registration.capabilities?.providers).toEqual([])
+
+      handler.dispose()
     } finally {
       warnSpy.mockRestore()
     }

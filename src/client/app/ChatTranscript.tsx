@@ -21,6 +21,7 @@ const UserMessage = lazy(() => import("../components/messages/UserMessage").then
 const ExitPlanModeMessage = lazy(() => import("../components/messages/ExitPlanModeMessage").then(m => ({ default: m.ExitPlanModeMessage })))
 const CompactSummaryMessage = lazy(() => import("../components/messages/CompactSummaryMessage").then(m => ({ default: m.CompactSummaryMessage })))
 import { StatusMessage } from "../components/messages/StatusMessage"
+import { RateLimitMessage } from "../components/messages/RateLimitMessage"
 import { CollapsedToolGroup } from "../components/messages/CollapsedToolGroup"
 import { WipBlock } from "../components/messages/WipBlock"
 import { OpenLocalLinkProvider } from "../components/messages/shared"
@@ -148,6 +149,8 @@ export function ChatTranscript({
         return <CompactSummaryMessage key={message.id} message={message} />
       case "status":
         return <StatusMessage key={message.id} message={message} />
+      case "rate_limit":
+        return <RateLimitMessage key={message.id} message={message} />
     }
   }
 
@@ -172,6 +175,7 @@ export function ChatTranscript({
       case "context_cleared":
       case "interrupted":
       case "unknown":
+      case "rate_limit":
         return renderMessage(item.message)
       default: {
         const _exhaustive: never = item

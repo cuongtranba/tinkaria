@@ -1,6 +1,6 @@
 ---
 id: ref-ref-tailwind-theming
-c3-seal: 4cd656f924829a91efe0c7e2f01306992c00304db210d65063e6a8145fc38aae
+c3-seal: 7b7fea56f4ff0add2c7062172129dfea46e174d7a21f64f8fbbfbd9be9eb2140
 title: tailwind-theming
 type: ref
 goal: Support light and dark themes with consistent design tokens that can switch at runtime without requiring a rebuild or page reload.
@@ -21,6 +21,7 @@ CSS custom properties (--color-*) define the color palette, consumed by Tailwind
 - Tailwind CSS 4 native @theme directive integrates cleanly with CSS variables
 - Easy to extend with additional themes beyond light/dark
 - No JavaScript runtime cost for theming — pure CSS cascade
+
 ## How
 
 Theme through CSS variables and semantic Tailwind utilities, not hard-coded palette values in feature code.

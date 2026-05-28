@@ -1,6 +1,6 @@
 ---
 id: ref-ref-jetstream-streaming
-c3-seal: b35217af115eb07c646f88df8376659cc225011ae6e5c44ca5d887dfee6b38e0
+c3-seal: 00d2ff3664df06770b10852356d392931a8ca8606afcd4202f2d8ad2c796e1e0
 title: JetStream streaming architecture
 type: ref
 goal: Provide durable, gap-free, replayable message delivery for all real-time event streams in Tinkaria using NATS JetStream ordered consumers, eliminating silent message loss on disconnects and expensive full re-fetches on reconnect.
@@ -20,9 +20,11 @@ Use memory-backed JetStream streams with ordered pull consumers for live runtime
 | KANNA_CHAT_MESSAGE_EVENTS | runtime.evt.chat.> | 30 min / 50K msgs | Chat transcript entries |
 | KANNA_KIT_TURN_EVENTS | runtime.kit.evt.turn.> | 5 min / 20K msgs | Kit daemon turn events |
 | Operational choices: |  |  |  |
+
 - Publishing uses `js.publish(subject, payload)` with logged failure handling.
 - Consuming uses ordered consumers with `DeliverPolicy.New` for live sessions and subject filters such as `runtime.evt.chat.<chatId>`.
 - Clients fall back to plain `nc.subscribe()` when JetStream is unavailable, such as before stream creation.
+
 ## Why
 
 Plain `nc.publish()`/`nc.subscribe()` is fire-and-forget — messages sent during a client disconnect are permanently lost. This causes:
@@ -31,6 +33,7 @@ Plain `nc.publish()`/`nc.subscribe()` is fire-and-forget — messages sent durin
 - Missing chat transcript entries requiring full re-fetch on every reconnect
 - No replay capability for late-joining clients
 JetStream ordered consumers provide gap-free delivery with automatic sequence tracking. The consumer handles reconnection internally, replaying any messages missed during the gap.
+
 ## How
 
 **Server — publishing to JetStream:**
@@ -41,6 +44,7 @@ void js.publish(subject, payload).catch((error) => {
   console.warn(LOG_PREFIX, `JetStream publish failed: ${errorMessage(error)}`)
 })
 ```
+
 **Server — consuming with ordered consumer:**
 
 ```ts
@@ -55,6 +59,7 @@ for await (const msg of messages) {
 }
 await messages.close()
 ```
+
 **Client — JetStream over WebSocket with fallback:**
 
 ```ts
@@ -69,4 +74,5 @@ try {
   entry.eventSubscription = nc.subscribe(evtSubject)
 }
 ```
+
 **Stream name sharing:** Stream names are constants in `src/shared/nats-subjects.ts` (for example `CHAT_MESSAGE_EVENTS_STREAM_NAME`) and are importable by both server and client without cross-boundary dependencies.

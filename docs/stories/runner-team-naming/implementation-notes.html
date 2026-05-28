@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>US-RTN — Runner naming + team management: implementation notes</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.6 -apple-system, system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.5rem; } h2 { margin-top: 2rem; border-bottom: 1px solid #8884; padding-bottom: .25rem; }
+  code { background: #8882; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  .tag { display:inline-block; font-size:.7rem; padding:.1em .5em; border-radius:99px; border:1px solid #8886; vertical-align:middle; }
+  .ok { color:#16a34a; } .blk { color:#dc2626; } .warn { color:#d97706; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+  th, td { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; font-size: .9em; }
+  .muted { color: #8888; }
+</style>
+</head>
+<body>
+<h1>US-RTN — Runner naming + team management &amp; assignment</h1>
+<p class="muted">Decision: <code>.c3/adr/adr-20260528-runner-naming-and-team-assignment.md</code> · Lane: normal · Intake #23</p>
+
+<h2>What &amp; why</h2>
+<p>Operator can (1) name each runner inline on the Runners tab, (2) manage a flat list of
+"members" (labels only — no auth) in a new Team tab, and (3) assign a member to a runner.
+<strong>Display/grouping only — runner routing/eligibility is untouched.</strong> Confirmed with the
+user up front: members are labels (no accounts), assignment is cosmetic, persistence "my call".</p>
+
+<h2>Design decisions</h2>
+<table>
+  <tr><th>Decision</th><th>Why</th></tr>
+  <tr><td>Persist via <strong>EventStore</strong> (<code>runner-teams.jsonl</code> + state maps + NATS <code>runner-teams</code> snapshot + <code>team.member.*</code>/<code>runner.label.*</code> commands), not a new KV bucket.</td>
+      <td>Mirrors the sibling <em>Provider Profiles</em> settings surface exactly. The runner-owned <code>runtime_runner_registry</code> KV is rewritten on every heartbeat (<code>updateLastSeenAt</code> spreads <code>this.registration</code>) → it would clobber any server-set field. Operator config is a different ownership domain. EventStore gives durable replay + live snapshot plumbing for free.</td></tr>
+  <tr><td>Pure join helpers (<code>resolveRunnerName</code>, <code>resolveRunnerMember</code>) live in <code>src/shared/runner-team-types.ts</code>.</td>
+      <td>Both display consumers (RunnersTab via <code>/health</code>, RunnerPickerDialog via the pick request) key off <code>runnerId</code>; the join is client-side against the snapshot. Shared + pure = unit-testable, reusable.</td></tr>
+  <tr><td><code>runner_label_set</code> is an upsert keyed by <code>runnerId</code> (name + memberId together).</td>
+      <td>One record per runner. Naming (Runners tab) and assignment (Team tab) both write the same record, each preserving the other's field.</td></tr>
+  <tr><td><code>team_member_removed</code> cascades: unassign runners pointing at it (<code>memberId → null</code>, name preserved).</td>
+      <td>Mirrors how <code>provider_profile_removed</code> cascades into overrides. Avoids dangling memberId references.</td></tr>
+  <tr><td>Snapshot persistence: added <code>teamMembers</code>/<code>runnerLabels</code> to <code>SnapshotFile</code> + save/load/reset.</td>
+      <td>Compaction truncates the jsonl logs; without snapshot persistence a compaction would silently drop the data (the data-loss trap that profiles already guard against).</td></tr>
+</table>
+
+<h2>Deviations from the original ADR</h2>
+<ul>
+  <li>Naming UX moved to <strong>inline on the Runners tab</strong> (user choice); the Team tab owns members + the per-runner assignment dropdown only. ADR L8/L9 updated to match before coding.</li>
+  <li>RunnerPickerDialog gained an optional <code>socket</code> prop so it can subscribe to <code>runner-teams</code> itself (keeps ChatPage change to one line; dialog is self-sufficient).</li>
+  <li><code>RunnersTab</code> now takes a <code>state</code> prop (was prop-less) for socket access; <code>useLiveRunners</code> exported so the Team tab reuses the <code>/health</code> poll instead of duplicating it.</li>
+</ul>
+
+<h2 class="blk">A5 blocker — browser E2E not completed</h2>
+<p>The CLAUDE.md dual-signal rule wants a running-app proof. I could not complete it:</p>
+<ul>
+  <li>The live prod instance occupies <code>:3210</code>. Per the boot-isolation memory I booted the worktree on the <strong>dev</strong> profile (separate data dir + NATS).</li>
+  <li>The dev server fails at <code>ensureDaemon</code>: <em>"NATS daemon produced no output"</em> → <code>nats-server exited with code 1 before ready</code>.</li>
+  <li>Diagnosis: an isolated async-spawn repro (same callout config, same binary, same dev env) boots nats-server <strong>successfully</strong> (jetstream restores streams, stays up). So nats-server + the generated config are fine in this environment — the failure is in the <code>dev.ts</code>/<code>nats-daemon-manager</code> spawn path when a second instance co-runs with the live one. Cause not fully pinned (would require instrumenting <code>src/nats/nats-daemon-callout.ts</code>, which I avoided as out-of-scope and risky next to the live instance).</li>
+  <li><span class="warn">Incident:</span> during diagnosis a <code>pkill -f "nats-daemon"</code> matched and killed the <em>prod</em> callout daemon, taking <code>:3210</code> to 503. The user restarted prod (new PID, healthy 200). Dev profile data was backed up and restored to its original state.</li>
+</ul>
+<p><strong>Why confidence is still high without A5:</strong> A2 exercises the exact 5 WS commands the UI calls, over a <em>real embedded NATS server + real EventStore</em>, asserting state mutation, the mutating-command broadcast trigger, and the member-removal cascade. A1 covers reducer + replay + compaction round-trip. A4 covers the client join logic. The only unproven slice is React render/event wiring, which is type-checked and thin.</p>
+
+<h2 class="warn">Unrelated security note (not touched)</h2>
+<p>Spotted while diagnosing the boot: <code>.env</code> at the repo root contains a live <code>OPENAI_API_KEY</code>. It appears gitignored (not in <code>git status</code>), but a real key sitting in a plaintext dotfile is worth rotating/relocating. Flagged, not modified.</p>
+
+<h2>Open questions / recommendations</h2>
+<ul>
+  <li>Recommend wiring an <code>NATS_STORE_DIR</code> default per runtime profile so two instances never share <code>$TMPDIR/nats/jetstream</code> (observed the default temp store is shared). Logged to HARNESS_BACKLOG.</li>
+  <li>When the dev stack can boot cleanly, run the A5 click-through: create member → name runner inline → assign → verify Runners list + picker show name/member → reload for durability.</li>
+</ul>
+</body>
+</html>

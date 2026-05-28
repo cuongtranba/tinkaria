@@ -1,6 +1,6 @@
 ---
 id: ref-ref-websocket-protocol
-c3-seal: 13eb3e7c75431fa4a26b58ba7c9316853fa30a329dba069865188a309065560f
+c3-seal: 0384e8b41f9ccced1a817ac5cb1ec57a5f00d2535afed774497ee8776b4a1391
 title: websocket-protocol
 type: ref
 goal: 'Document the NATS WebSocket protocol for Tinkaria: /nats-ws routing, typed live subscriptions, reconnect/backfill behavior, and single-connection client/server streaming.'
@@ -22,6 +22,7 @@ Single NATS WebSocket connection routed through the Bun HTTP server at `/nats-ws
 - Typed message protocol provides compile-time safety on both client and server
 - Subscriptions allow clients to opt into only the data streams they need
 - Efficient for high-frequency updates (terminal output, chat streaming)
+
 ## How
 
 Use the shared socket/NATS protocol boundary for every live client/server stream and command.

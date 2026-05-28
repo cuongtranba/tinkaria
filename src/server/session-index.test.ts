@@ -23,7 +23,7 @@ function createState(chats: ChatRecord[]): StoreState {
   for (const chat of chats) {
     chatsById.set(chat.id, chat)
   }
-  return { workspacesById, workspaceIdsByPath, independentWorkspacesById: new Map(), chatsById, queuedTurnsByChat: new Map(), coordinationByWorkspace: new Map(), agentConfigsByWorkspace: new Map(), reposById: new Map(), reposByPath: new Map(), workflowRunsByWorkspace: new Map(), sandboxByWorkspace: new Map(), providerProfiles: new Map(), workspaceProfileOverrides: new Map(), extensionPreferences: new Map() }
+  return { workspacesById, workspaceIdsByPath, independentWorkspacesById: new Map(), chatsById, queuedTurnsByChat: new Map(), coordinationByWorkspace: new Map(), agentConfigsByWorkspace: new Map(), reposById: new Map(), reposByPath: new Map(), workflowRunsByWorkspace: new Map(), sandboxByWorkspace: new Map(), providerProfiles: new Map(), workspaceProfileOverrides: new Map(), extensionPreferences: new Map(), teamMembers: new Map(), runnerLabels: new Map() }
 }
 
 function makeChat(id: string, workspaceId = "p1", provider: "claude" | "codex" | null = "claude"): ChatRecord {

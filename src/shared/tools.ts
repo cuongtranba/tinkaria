@@ -1,3 +1,5 @@
+export const KANNA_MCP_SERVER_NAME = "tinkaria-mcp"
+
 import type {
   AskUserQuestionItem,
   AskUserQuestionAnswerMap,

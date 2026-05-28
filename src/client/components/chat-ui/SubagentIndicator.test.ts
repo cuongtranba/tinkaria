@@ -133,7 +133,12 @@ describe("SubagentInspectorTranscript", () => {
     const html = renderToStaticMarkup(createElement(SubagentInspectorTranscript, {
       session: {
         snapshot: null,
-        messages: [{ kind: "assistant_text", text: "hello", id: "msg-1", timestamp: "2026-04-13T00:00:00Z" }],
+        messages: [{
+          kind: "assistant_response",
+          id: "unit-1",
+          sourceEntryIds: ["msg-1"],
+          message: { kind: "assistant_text", text: "hello", id: "msg-1", timestamp: "2026-04-13T00:00:00Z" },
+        }],
         isLoading: false,
         error: null,
       },

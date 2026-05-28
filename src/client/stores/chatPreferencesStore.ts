@@ -2,12 +2,14 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
+  DEFAULT_CLAUDE_PTY_MODEL_OPTIONS,
   DEFAULT_CODEX_MODEL_OPTIONS,
   normalizeClaudeContextWindow,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
   type AgentProvider,
   type ClaudeModelOptions,
+  type ClaudePtyModelOptions,
   type CodexModelOptions,
   type ProviderModelOptionsByProvider,
 } from "../../shared/types"
@@ -23,6 +25,7 @@ export type DefaultProviderPreference = "last_used" | AgentProvider
 export type ChatProviderPreferences = {
   claude: ProviderPreference<ClaudeModelOptions>
   codex: ProviderPreference<CodexModelOptions>
+  "claude-pty": ProviderPreference<ClaudePtyModelOptions>
 }
 
 export type ComposerState =
@@ -36,6 +39,12 @@ export type ComposerState =
     provider: "codex"
     model: string
     modelOptions: CodexModelOptions
+    planMode: boolean
+  }
+  | {
+    provider: "claude-pty"
+    model: string
+    modelOptions: ClaudePtyModelOptions
     planMode: boolean
   }
 
@@ -52,7 +61,7 @@ function normalizeCodexModel(model?: string) {
 }
 
 function normalizeDefaultProvider(value?: string): DefaultProviderPreference {
-  if (value === "claude" || value === "codex") return value
+  if (value === "claude" || value === "codex" || value === "claude-pty") return value
   return "last_used"
 }
 
@@ -104,6 +113,31 @@ function normalizeCodexPreference(value?: {
   }
 }
 
+function normalizeClaudePtyPreference(value?: {
+  model?: string
+  effort?: string
+  modelOptions?: Partial<ClaudePtyModelOptions>
+  planMode?: boolean
+}): ProviderPreference<ClaudePtyModelOptions> {
+  const reasoningEffort = value?.modelOptions?.reasoningEffort
+  const normalizedEffort = isClaudeReasoningEffort(reasoningEffort)
+    ? reasoningEffort
+    : isClaudeReasoningEffort(value?.effort)
+      ? value.effort
+      : DEFAULT_CLAUDE_PTY_MODEL_OPTIONS.reasoningEffort
+  const model = value?.model ?? "opus"
+  const contextWindow = normalizeClaudeContextWindow(model, value?.modelOptions?.contextWindow)
+
+  return {
+    model,
+    modelOptions: {
+      reasoningEffort: model !== "opus" && normalizedEffort === "max" ? "high" : normalizedEffort,
+      contextWindow,
+    },
+    planMode: Boolean(value?.planMode),
+  }
+}
+
 function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
     claude: {
@@ -114,6 +148,11 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
     codex: {
       model: "gpt-5.4",
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
+      planMode: false,
+    },
+    "claude-pty": {
+      model: "opus",
+      modelOptions: { ...DEFAULT_CLAUDE_PTY_MODEL_OPTIONS },
       planMode: false,
     },
   }
@@ -132,10 +171,17 @@ function normalizeProviderDefaults(value?: {
     modelOptions?: Partial<CodexModelOptions>
     planMode?: boolean
   }
+  "claude-pty"?: {
+    model?: string
+    effort?: string
+    modelOptions?: Partial<ClaudePtyModelOptions>
+    planMode?: boolean
+  }
 }): ChatProviderPreferences {
   return {
     claude: normalizeClaudePreference(value?.claude),
     codex: normalizeCodexPreference(value?.codex),
+    "claude-pty": normalizeClaudePtyPreference(value?.["claude-pty"]),
   }
 }
 
@@ -156,6 +202,16 @@ function composerFromProviderDefaults(
     const preference = providerDefaults.claude
     return {
       provider: "claude",
+      model: preference.model,
+      modelOptions: { ...preference.modelOptions },
+      planMode: preference.planMode,
+    }
+  }
+
+  if (provider === "claude-pty") {
+    const preference = providerDefaults["claude-pty"]
+    return {
+      provider: "claude-pty",
       model: preference.model,
       modelOptions: { ...preference.modelOptions },
       planMode: preference.planMode,
@@ -191,6 +247,16 @@ function normalizeComposerState(
     const preference = normalizeCodexPreference(value)
     return {
       provider: "codex",
+      model: preference.model,
+      modelOptions: preference.modelOptions,
+      planMode: preference.planMode,
+    }
+  }
+
+  if (value?.provider === "claude-pty") {
+    const preference = normalizeClaudePtyPreference(value)
+    return {
+      provider: "claude-pty",
       model: preference.model,
       modelOptions: preference.modelOptions,
       planMode: preference.planMode,
@@ -322,35 +388,40 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
           } as ComposerState,
         })),
       setComposerModel: (model) =>
-        set((state) => (
-          state.composerState.provider === "claude"
-            ? {
+        set((state) => {
+          if (state.composerState.provider === "claude") {
+            return {
               composerState: {
                 provider: "claude",
                 model,
-                modelOptions: normalizeClaudePreference({
-                  ...state.composerState,
-                  model,
-                }).modelOptions,
+                modelOptions: normalizeClaudePreference({ ...state.composerState, model }).modelOptions,
                 planMode: state.composerState.planMode,
               } as ComposerState,
             }
-            : {
+          }
+          if (state.composerState.provider === "claude-pty") {
+            return {
               composerState: {
-                provider: "codex",
+                provider: "claude-pty",
                 model,
-                modelOptions: normalizeCodexPreference({
-                  ...state.composerState,
-                  model,
-                }).modelOptions,
+                modelOptions: normalizeClaudePtyPreference({ ...state.composerState, model }).modelOptions,
                 planMode: state.composerState.planMode,
               } as ComposerState,
             }
-        )),
+          }
+          return {
+            composerState: {
+              provider: "codex",
+              model,
+              modelOptions: normalizeCodexPreference({ ...state.composerState, model }).modelOptions,
+              planMode: state.composerState.planMode,
+            } as ComposerState,
+          }
+        }),
       setComposerModelOptions: (modelOptions) =>
-        set((state) => (
-          state.composerState.provider === "claude"
-            ? {
+        set((state) => {
+          if (state.composerState.provider === "claude") {
+            return {
               composerState: {
                 provider: "claude",
                 model: state.composerState.model,
@@ -364,21 +435,38 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 planMode: state.composerState.planMode,
               } as ComposerState,
             }
-            : {
+          }
+          if (state.composerState.provider === "claude-pty") {
+            return {
               composerState: {
-                provider: "codex",
+                provider: "claude-pty",
                 model: state.composerState.model,
-                modelOptions: normalizeCodexPreference({
+                modelOptions: normalizeClaudePtyPreference({
                   ...state.composerState,
                   modelOptions: {
                     ...state.composerState.modelOptions,
-                    ...modelOptions as Partial<CodexModelOptions>,
+                    ...modelOptions as Partial<ClaudePtyModelOptions>,
                   },
                 }).modelOptions,
                 planMode: state.composerState.planMode,
               } as ComposerState,
             }
-        )),
+          }
+          return {
+            composerState: {
+              provider: "codex",
+              model: state.composerState.model,
+              modelOptions: normalizeCodexPreference({
+                ...state.composerState,
+                modelOptions: {
+                  ...state.composerState.modelOptions,
+                  ...modelOptions as Partial<CodexModelOptions>,
+                },
+              }).modelOptions,
+              planMode: state.composerState.planMode,
+            } as ComposerState,
+          }
+        }),
       setComposerPlanMode: (planMode) =>
         set((state) => ({
           composerState: {
@@ -415,7 +503,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     }),
     {
       name: "chat-preferences",
-      version: 3,
+      version: 4,
       migrate: (persistedState) => migrateChatPreferencesState(persistedState as Partial<PersistedChatPreferencesState> | undefined),
     }
   )

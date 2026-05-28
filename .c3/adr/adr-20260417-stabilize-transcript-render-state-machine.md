@@ -1,6 +1,6 @@
 ---
 id: adr-20260417-stabilize-transcript-render-state-machine
-c3-seal: de06a5a126c23e0340025f3f70974becff9337e93e772b158773c89086ce3f18
+c3-seal: 2997ca8a7423ae9042a7a4625d8afda97b9dd50dfc1fe1d589e04b72392c22f6
 title: stabilize-transcript-render-state-machine
 type: adr
 goal: Define and accept the transcript render state-machine plan before implementation so live rendering has one visual writer, an exact projection freshness key, stable render-unit identity, and RED-GREEN-TDD gates for the flashing regression.
@@ -23,6 +23,7 @@ Decision:
 - `ChatTranscript` is a render-unit renderer only. It must not own transcript grouping, assistant answer detection, tool-boundary folding, hydration fetches, or visibility decisions.
 - Live fade loops are forbidden: `.animate-narration-guard` or successor animation must not re-hide already-visible assistant content on each projection.
 Implementation plan:
+
 1. RED: add projection shape-stability tests for pure assistant text, tool-assisted turns, dedicated tools, status/result boundaries, and loading-to-idle transitions.
 2. RED: add projection-key tests for append-only entryCount, same-count/same-hash replay, same-count/different-hash rejection, and non-render metadata updates not changing projection keys.
 3. RED: add delivery reducer tests for raw-event no-op visibility, refresh coalescing, stale snapshot/reply ignore, same-hash ignore, same-count/different-hash live rejection, projection failure retaining visible units, and chat-switch isolation.
@@ -33,6 +34,7 @@ Implementation plan:
 8. GREEN: remove or constrain `.animate-narration-guard` so live projections cannot replay fade-in on stable units.
 9. Verify: focused Bun tests, `bunx @typescript/native-preview --noEmit -p tsconfig.json`, C3 check, `git diff --check`, and agent-browser smoke that proves a live turn has no repeated remount/fade flash and no console/page errors.
 Parent Delta:
+
 - c3-1 updated so transcript lifecycle owns projection delivery state and transcript renderer owns units-only rendering.
 - c3-2 updated so shared types carry projection-key shape, read models derive it, NATS preserves it, and transcript runtime owns append-only render facts.
 - c3-118 reconciled so raw transcript events are projection-stale signals, not visible hydration.

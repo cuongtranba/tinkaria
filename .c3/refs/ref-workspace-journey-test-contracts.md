@@ -1,6 +1,6 @@
 ---
 id: ref-workspace-journey-test-contracts
-c3-seal: e9ee2aaa58ea2713032ce605805114c3686d33189289cd3e34534138f20d8121
+c3-seal: 1ab206d0eebd61eb549302eebfad75ad3b5efcf79c12b54ab220d73905e7b857
 title: workspace-journey-test-contracts
 type: ref
 goal: Define the contract between journey recipes and their corresponding test files, ensuring every journey stage has a testable assertion.
@@ -24,6 +24,7 @@ Each journey recipe defines stages. Each stage maps to:
 
 1. **Integration test** (Bun test) — tests the subscription snapshot state machine. Command → snapshot change → assertion. These run without a browser.
 2. **E2E test** (agent-browser) — tests the screen flow end-to-end against a live runtime. Navigation → interaction → visual assertion.
+
 ### Integration Test Mapping
 
 | Journey | Test File | What It Tests |
@@ -32,6 +33,7 @@ Each journey recipe defines stages. Each stage maps to:
 | File Ownership | src/server/workspace-file-ownership.test.ts | Claim lifecycle, worktree lifecycle, repo CRUD via commands |
 | Isolated Dev | src/server/sandbox-manager.test.ts (existing) + sandbox-journey.test.ts | Sandbox state machine: create→running→stop→start→destroy |
 | Automation | src/server/workflow-engine.test.ts (existing) + agent-config.test.ts | Workflow run observation, agent config CRUD |
+
 ### E2E Test Mapping
 
 | Journey | Script | Stages Covered |
@@ -40,6 +42,7 @@ Each journey recipe defines stages. Each stage maps to:
 | File Ownership | scripts/verify-workspace-ownership-journey.ts | Navigate → create claim → release → create worktree → assign → remove → add repo → remove |
 | Isolated Dev | scripts/verify-workspace-sandbox-journey.ts | Navigate → create sandbox → observe status → stop → start → destroy |
 | Automation | scripts/verify-workspace-automation-journey.ts | Navigate → observe runs → cancel → add agent → edit → remove |
+
 ### Stage Assertion Pattern
 
 Every stage assertion follows:
@@ -59,6 +62,7 @@ async function verifyStageN(browser: AgentBrowser) {
   // Screenshot + assert DOM state
 }
 ```
+
 ### Coverage Rule
 
 A journey recipe stage is "covered" when:

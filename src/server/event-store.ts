@@ -4,6 +4,7 @@ import path from "node:path"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import type { AgentConfig, AgentConfigRecord } from "../shared/agent-config-types"
 import type { ProviderProfile, WorkspaceProfileOverride } from "../shared/profile-types"
+import type { TeamMember } from "../shared/runner-team-types"
 import type { AgentProvider, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION, compareIndependentWorkspaces } from "../shared/types"
 import {
@@ -14,6 +15,7 @@ import {
   type WorkspaceEvent,
   type ProviderProfileEvent,
   type ExtensionPreferenceEvent,
+  type RunnerTeamEvent,
   type SandboxEvent,
   type WorkflowEvent,
   type SnapshotFile,
@@ -62,6 +64,11 @@ export class EventStore {
   private readonly sandboxLogPath: string
   private readonly profilesLogPath: string
   private readonly extensionPrefsLogPath: string
+  private readonly runnerTeamsLogPath: string
+  private readonly ptySubagentLogPath: string
+  private readonly ptyToolRequestsLogPath: string
+  private readonly ptySessionTokensLogPath: string
+  private readonly _ptySessionTokensByChatId = new Map<string, Map<string, string>>()
 
   constructor(dataDir = getDataDir(homedir())) {
     this.dataDir = dataDir
@@ -78,6 +85,10 @@ export class EventStore {
     this.sandboxLogPath = path.join(this.dataDir, "sandbox.jsonl")
     this.profilesLogPath = path.join(this.dataDir, "profiles.jsonl")
     this.extensionPrefsLogPath = path.join(this.dataDir, "extension-prefs.jsonl")
+    this.runnerTeamsLogPath = path.join(this.dataDir, "runner-teams.jsonl")
+    this.ptySubagentLogPath = path.join(this.dataDir, "pty-subagent.jsonl")
+    this.ptyToolRequestsLogPath = path.join(this.dataDir, "pty-tool-requests.jsonl")
+    this.ptySessionTokensLogPath = path.join(this.dataDir, "pty-session-tokens.jsonl")
   }
 
   async initialize() {
@@ -94,6 +105,11 @@ export class EventStore {
     await this.ensureFile(this.sandboxLogPath)
     await this.ensureFile(this.profilesLogPath)
     await this.ensureFile(this.extensionPrefsLogPath)
+    await this.ensureFile(this.runnerTeamsLogPath)
+    await this.ensureFile(this.ptySubagentLogPath)
+    await this.ensureFile(this.ptyToolRequestsLogPath)
+    await this.ensureFile(this.ptySessionTokensLogPath)
+    await this.replayPtyLogs()
     await this.loadSnapshot()
     await this.replayLogs()
     if (!(await this.hasLegacyTranscriptData()) && await this.shouldCompact()) {
@@ -126,6 +142,7 @@ export class EventStore {
       Bun.write(this.sandboxLogPath, ""),
       Bun.write(this.profilesLogPath, ""),
       Bun.write(this.extensionPrefsLogPath, ""),
+      Bun.write(this.runnerTeamsLogPath, ""),
     ])
   }
 
@@ -211,6 +228,16 @@ export class EventStore {
           this.state.extensionPreferences.set(pref.extensionId, { ...pref })
         }
       }
+      if (parsed.teamMembers?.length) {
+        for (const member of parsed.teamMembers) {
+          this.state.teamMembers.set(member.id, { ...member })
+        }
+      }
+      if (parsed.runnerLabels?.length) {
+        for (const label of parsed.runnerLabels) {
+          this.state.runnerLabels.set(label.runnerId, { ...label })
+        }
+      }
       if (parsed.messages?.length) {
         this.snapshotHasLegacyMessages = true
         for (const messageSet of parsed.messages) {
@@ -237,6 +264,8 @@ export class EventStore {
     this.state.providerProfiles.clear()
     this.state.workspaceProfileOverrides.clear()
     this.state.extensionPreferences.clear()
+    this.state.teamMembers.clear()
+    this.state.runnerLabels.clear()
     this.transcriptCache.clear()
   }
 
@@ -268,6 +297,8 @@ export class EventStore {
     await this.replayLog<ProviderProfileEvent>(this.profilesLogPath)
     if (this.storageReset) return
     await this.replayLog<ExtensionPreferenceEvent>(this.extensionPrefsLogPath)
+    if (this.storageReset) return
+    await this.replayLog<RunnerTeamEvent>(this.runnerTeamsLogPath)
   }
 
   private async replayLog<TEvent extends StoreEvent>(filePath: string) {
@@ -428,6 +459,13 @@ export class EventStore {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
         chat.unread = event.unread
+        chat.updatedAt = event.timestamp
+        break
+      }
+      case "chat_runner_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.runnerId = event.runnerId
         chat.updatedAt = event.timestamp
         break
       }
@@ -860,6 +898,35 @@ export class EventStore {
         }
         break
       }
+      case "team_member_saved": {
+        this.state.teamMembers.set(event.memberId, event.member)
+        break
+      }
+      case "team_member_removed": {
+        this.state.teamMembers.delete(event.memberId)
+        // Cascade: unassign any runner that pointed at the removed member.
+        for (const [runnerId, label] of this.state.runnerLabels) {
+          if (label.memberId === event.memberId) {
+            this.state.runnerLabels.set(runnerId, { ...label, memberId: null, updatedAt: event.timestamp })
+          }
+        }
+        break
+      }
+      case "runner_label_set": {
+        // Upsert by runnerId. A label with neither a name nor a member is still
+        // a valid record (the reducer never prunes — removal is explicit).
+        this.state.runnerLabels.set(event.runnerId, {
+          runnerId: event.runnerId,
+          name: event.name,
+          memberId: event.memberId,
+          updatedAt: event.timestamp,
+        })
+        break
+      }
+      case "runner_label_removed": {
+        this.state.runnerLabels.delete(event.runnerId)
+        break
+      }
       case "workspace_profile_override_set": {
         const wsOverrides = this.state.workspaceProfileOverrides.get(event.workspaceId) ?? new Map<string, WorkspaceProfileOverride>()
         wsOverrides.set(event.profileId, {
@@ -1133,6 +1200,19 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
       provider,
+    }
+    await this.append(this.chatsLogPath, event)
+  }
+
+  async setChatRunner(chatId: string, runnerId: string | null) {
+    const chat = this.requireChat(chatId)
+    if ((chat.runnerId ?? null) === runnerId) return
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_runner_set",
+      timestamp: Date.now(),
+      chatId,
+      runnerId,
     }
     await this.append(this.chatsLogPath, event)
   }
@@ -1444,6 +1524,28 @@ export class EventStore {
     await this.append<ExtensionPreferenceEvent>(this.extensionPrefsLogPath, event)
   }
 
+  // --- Runner team mutation methods (US-RTN) ---
+
+  async saveTeamMember(member: TeamMember) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "team_member_saved", timestamp: Date.now(), memberId: member.id, member }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async removeTeamMember(memberId: string) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "team_member_removed", timestamp: Date.now(), memberId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async setRunnerLabel(runnerId: string, name: string | null, memberId: string | null) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "runner_label_set", timestamp: Date.now(), runnerId, name, memberId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async removeRunnerLabel(runnerId: string) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "runner_label_removed", timestamp: Date.now(), runnerId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
   // --- Repo mutation methods ---
 
   async addRepo(id: string, workspaceId: string, localPath: string, origin: string | null, label: string | null, branch: string | null) {
@@ -1692,6 +1794,12 @@ export class EventStore {
       ...(this.state.extensionPreferences.size > 0 ? {
         extensionPreferences: [...this.state.extensionPreferences.values()],
       } : {}),
+      ...(this.state.teamMembers.size > 0 ? {
+        teamMembers: [...this.state.teamMembers.values()],
+      } : {}),
+      ...(this.state.runnerLabels.size > 0 ? {
+        runnerLabels: [...this.state.runnerLabels.values()],
+      } : {}),
     }
   }
 
@@ -1710,6 +1818,7 @@ export class EventStore {
       Bun.write(this.sandboxLogPath, ""),
       Bun.write(this.profilesLogPath, ""),
       Bun.write(this.extensionPrefsLogPath, ""),
+      Bun.write(this.runnerTeamsLogPath, ""),
     ])
   }
 
@@ -1757,7 +1866,343 @@ export class EventStore {
       Bun.file(this.sandboxLogPath).size,
       Bun.file(this.profilesLogPath).size,
       Bun.file(this.extensionPrefsLogPath).size,
+      Bun.file(this.runnerTeamsLogPath).size,
     ])
     return sizes.reduce((total, size) => total + size, 0) >= COMPACTION_THRESHOLD_BYTES
   }
+
+  // ===== claude-pty additions (in-memory only — PORT-TODO durable persistence) =====
+
+  private readonly _ptySubagentRuns = new Map<string, Map<string, PtySubagentRunSnapshot>>()
+  private readonly _ptyToolRequests = new Map<string, PtyToolRequest>()
+
+  private async replayPtyLogs(): Promise<void> {
+    // Subagent log replay
+    const subagentFile = Bun.file(this.ptySubagentLogPath)
+    if (await subagentFile.exists()) {
+      const text = await subagentFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const event = JSON.parse(line) as PtySubagentRunEvent
+          this.applyPtySubagentEvent(event)
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+    // Session token replay
+    const tokenFile = Bun.file(this.ptySessionTokensLogPath)
+    if (await tokenFile.exists()) {
+      const text = await tokenFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const rec = JSON.parse(line) as { chatId: string; providerId: string; sessionToken: string | null }
+          let map = this._ptySessionTokensByChatId.get(rec.chatId)
+          if (!map) {
+            map = new Map<string, string>()
+            this._ptySessionTokensByChatId.set(rec.chatId, map)
+          }
+          if (rec.sessionToken === null) {
+            map.delete(rec.providerId)
+          } else {
+            map.set(rec.providerId, rec.sessionToken)
+          }
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+    // Tool request log replay
+    const toolFile = Bun.file(this.ptyToolRequestsLogPath)
+    if (await toolFile.exists()) {
+      const text = await toolFile.text()
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue
+        try {
+          const rec = JSON.parse(line) as { type: "put" | "resolved"; request?: PtyToolRequest; id?: string; status?: import("../shared/permission-policy").ToolRequestStatus; decision?: import("../shared/permission-policy").ToolRequestDecision; resolvedAt?: number; mismatchReason?: string }
+          if (rec.type === "put" && rec.request) {
+            this._ptyToolRequests.set(rec.request.id, { ...rec.request })
+          } else if (rec.type === "resolved" && rec.id) {
+            const existing = this._ptyToolRequests.get(rec.id)
+            if (existing) {
+              this._ptyToolRequests.set(rec.id, {
+                ...existing,
+                status: rec.status ?? existing.status,
+                decision: rec.decision ?? existing.decision,
+                resolvedAt: rec.resolvedAt ?? existing.resolvedAt,
+                mismatchReason: rec.mismatchReason,
+              })
+            }
+          }
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+  }
+
+  private applyPtySubagentEvent(event: PtySubagentRunEvent): void {
+    const chatMap = this._ptySubagentRuns.get(event.chatId) ?? new Map<string, PtySubagentRunSnapshot>()
+    this._ptySubagentRuns.set(event.chatId, chatMap)
+    const existing = chatMap.get(event.runId)
+    switch (event.type) {
+      case "subagent_run_started":
+        chatMap.set(event.runId, {
+          runId: event.runId,
+          chatId: event.chatId,
+          subagentId: event.subagentId,
+          subagentName: event.subagentName,
+          provider: event.provider,
+          model: event.model,
+          status: "running",
+          parentUserMessageId: event.parentUserMessageId,
+          parentRunId: event.parentRunId,
+          depth: event.depth,
+          startedAt: event.timestamp,
+          finishedAt: null,
+          finalText: null,
+          error: null,
+          usage: null,
+          entries: [],
+          pendingTool: null,
+        })
+        return
+      case "subagent_message_delta":
+        if (existing) existing.finalText = (existing.finalText ?? "") + event.content
+        return
+      case "subagent_entry_appended":
+        if (existing) existing.entries.push(event.entry)
+        return
+      case "subagent_run_completed":
+        if (existing) {
+          existing.status = "completed"
+          existing.finishedAt = event.timestamp
+          existing.finalText = event.finalContent
+          existing.usage = event.usage ?? null
+        }
+        return
+      case "subagent_run_failed":
+        if (existing) {
+          existing.status = "failed"
+          existing.finishedAt = event.timestamp
+          existing.error = event.error
+        }
+        return
+      case "subagent_run_cancelled":
+        if (existing) {
+          existing.status = "cancelled"
+          existing.finishedAt = event.timestamp
+        }
+        return
+      case "subagent_tool_pending":
+        if (existing) existing.pendingTool = event.pendingTool
+        return
+      case "subagent_tool_resolved":
+        if (existing) existing.pendingTool = null
+        return
+    }
+  }
+
+  async appendSubagentEvent(event: PtySubagentRunEvent): Promise<void> {
+    this.applyPtySubagentEvent(event)
+    const payload = `${JSON.stringify(event)}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptySubagentLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getSubagentRuns(chatId: string): Record<string, PtySubagentRunSnapshot> {
+    const map = this._ptySubagentRuns.get(chatId)
+    if (!map) return {}
+    return Object.fromEntries(map.entries())
+  }
+
+  *runningSubagentRuns(): Iterable<PtySubagentRunSnapshot> {
+    for (const map of this._ptySubagentRuns.values()) {
+      for (const run of map.values()) {
+        if (run.status === "running") yield run
+      }
+    }
+  }
+
+  async putToolRequest(req: PtyToolRequest): Promise<void> {
+    this._ptyToolRequests.set(req.id, { ...req })
+    const payload = `${JSON.stringify({ type: "put", request: req })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptyToolRequestsLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getToolRequest(id: string): PtyToolRequest | null {
+    const req = this._ptyToolRequests.get(id)
+    return req ? { ...req } : null
+  }
+
+  listPendingToolRequests(chatId: string): PtyToolRequest[] {
+    const out: PtyToolRequest[] = []
+    for (const req of this._ptyToolRequests.values()) {
+      if (req.chatId !== chatId) continue
+      if (req.status !== "pending") continue
+      out.push({ ...req })
+    }
+    return out
+  }
+
+  async resolveToolRequest(
+    id: string,
+    args: {
+      status: import("../shared/permission-policy").ToolRequestStatus
+      decision?: import("../shared/permission-policy").ToolRequestDecision
+      resolvedAt: number
+      mismatchReason?: string
+    },
+  ): Promise<void> {
+    const existing = this._ptyToolRequests.get(id)
+    if (!existing) throw new Error(`resolveToolRequest: unknown id ${id}`)
+    this._ptyToolRequests.set(id, {
+      ...existing,
+      status: args.status,
+      decision: args.decision ?? existing.decision,
+      resolvedAt: args.resolvedAt,
+      mismatchReason: args.mismatchReason,
+    })
+    const payload = `${JSON.stringify({ type: "resolved", id, status: args.status, decision: args.decision, resolvedAt: args.resolvedAt, mismatchReason: args.mismatchReason })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptyToolRequestsLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  scanAllToolRequests(): PtyToolRequest[] {
+    return [...this._ptyToolRequests.values()].map((req) => ({ ...req }))
+  }
+
+  /**
+   * Generic per-provider session-token setter for claude-pty (and future
+   * non-AgentProvider-union backends). `providerId` is a string so PTY can
+   * use "claude-pty" without forcing the canonical AgentProvider union to
+   * widen.
+   */
+  async setPtySessionToken(chatId: string, providerId: string, sessionToken: string | null): Promise<void> {
+    let map = this._ptySessionTokensByChatId.get(chatId)
+    if (!map) {
+      map = new Map<string, string>()
+      this._ptySessionTokensByChatId.set(chatId, map)
+    }
+    if (sessionToken === null) {
+      map.delete(providerId)
+    } else {
+      map.set(providerId, sessionToken)
+    }
+    const payload = `${JSON.stringify({ chatId, providerId, sessionToken, timestamp: Date.now() })}\n`
+    this.writeChain = this.writeChain.then(() => appendFile(this.ptySessionTokensLogPath, payload, "utf8"))
+    await this.writeChain
+  }
+
+  getPtySessionToken(chatId: string, providerId: string): string | null {
+    return this._ptySessionTokensByChatId.get(chatId)?.get(providerId) ?? null
+  }
+
+  getPtySessionTokensForChat(chatId: string): Record<string, string> {
+    const map = this._ptySessionTokensByChatId.get(chatId)
+    if (!map) return {}
+    return Object.fromEntries(map.entries())
+  }
 }
+
+// ===== claude-pty shared shapes =====
+
+export interface PtySubagentRunSnapshot {
+  runId: string
+  chatId: string
+  subagentId: string | null
+  subagentName: string
+  provider: import("../shared/types").AgentProvider
+  model: string
+  status: "running" | "completed" | "failed" | "cancelled"
+  parentUserMessageId: string
+  parentRunId: string | null
+  depth: number
+  startedAt: number
+  finishedAt: number | null
+  finalText: string | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  error: { code: any; message: string } | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  usage: any | null
+  entries: import("../shared/types").TranscriptEntry[]
+  pendingTool: import("../shared/types").PendingToolSnapshot | null
+}
+
+export type PtySubagentRunEvent =
+  | {
+      v: 3
+      type: "subagent_run_started"
+      timestamp: number
+      chatId: string
+      runId: string
+      subagentId: string | null
+      subagentName: string
+      provider: import("../shared/types").AgentProvider
+      model: string
+      parentUserMessageId: string
+      parentRunId: string | null
+      depth: number
+    }
+  | {
+      v: 3
+      type: "subagent_message_delta"
+      timestamp: number
+      chatId: string
+      runId: string
+      content: string
+    }
+  | {
+      v: 3
+      type: "subagent_run_completed"
+      timestamp: number
+      chatId: string
+      runId: string
+      finalContent: string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      usage?: any
+    }
+  | {
+      v: 3
+      type: "subagent_run_failed"
+      timestamp: number
+      chatId: string
+      runId: string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      error: { code: any; message: string }
+    }
+  | {
+      v: 3
+      type: "subagent_run_cancelled"
+      timestamp: number
+      chatId: string
+      runId: string
+    }
+  | {
+      v: 3
+      type: "subagent_entry_appended"
+      timestamp: number
+      chatId: string
+      runId: string
+      entry: import("../shared/types").TranscriptEntry
+    }
+  | {
+      v: 3
+      type: "subagent_tool_pending"
+      timestamp: number
+      chatId: string
+      runId: string
+      pendingTool: import("../shared/types").PendingToolSnapshot
+    }
+  | {
+      v: 3
+      type: "subagent_tool_resolved"
+      timestamp: number
+      chatId: string
+      runId: string
+    }
+
+export type PtyToolRequest = import("../shared/permission-policy").ToolRequest

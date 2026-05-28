@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>US-NATSPORT — Pin embedded NATS port</title>
+<style>
+ :root{color-scheme:light dark}
+ body{font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1.2rem}
+ h1{font-size:1.45rem}h2{font-size:1.1rem;margin-top:1.6rem;border-bottom:1px solid #8884;padding-bottom:.2rem}
+ code,pre{font-family:ui-monospace,Menlo,monospace}pre{background:#8881;padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:13px}
+ code{background:#8881;padding:.08rem .3rem;border-radius:3px}.tag{display:inline-block;background:#2563eb;color:#fff;font-size:11px;padding:.1rem .5rem;border-radius:999px;vertical-align:middle}
+ .ok{color:#16a34a}.q{background:#f59e0b22;border-left:3px solid #f59e0b;padding:.5rem .8rem;border-radius:0 6px 6px 0}
+</style></head><body>
+<h1>US-NATSPORT — Pin embedded NATS port <span class="tag">normal lane</span></h1>
+
+<h2>Why</h2>
+<p>Every server restart picked a new random NATS TCP port (observed <code>54355 → 55410</code>).
+A paired runner bakes <code>nats://host:port</code> into its credential, so each restart
+silently invalidated the runner — forcing a re-pair, and (when not re-paired) leaving the
+runner on a dead port → turn timeouts. This is what turned the whole debugging session into a
+moving target.</p>
+
+<h2>Root cause</h2>
+<p><code>nats-daemon-manager.ts</code> destructured <code>NATS_PORT</code> out of the environment
+(<code>NATS_PORT: _natsPort</code>) and never re-added it to the spawned daemon child's env. So
+even <code>NATS_PORT=4222</code> was silently dropped, and the daemon
+(<code>nats-daemon-callout.ts:26</code>, <code>NATS_PORT ? Number : -1</code>) always fell back to
+an ephemeral port.</p>
+
+<h2>Fix</h2>
+<pre>// nats-daemon-manager.ts
+NATS_PORT: natsPort,          // was: _natsPort (discarded)
+...
+env: {
+  ...spawnEnv,
+  ...(natsPort ? { NATS_PORT: natsPort } : {}),   // pass through when set
+}</pre>
+<p>Opt-in, same pattern as <code>NATS_DATA_DIR</code>. Other NATS env vars stay stripped
+(intentional isolation). Default (unset) is unchanged → ephemeral.</p>
+
+<h2>Verification <span class="ok">(live, dev profile)</span></h2>
+<pre>NATS_PORT=14222 boot  → nats://127.0.0.1:14222
+restart (same)        → nats://127.0.0.1:14222   ✓ survived
+NATS_PORT unset       → nats://127.0.0.1:59244    ✓ ephemeral (default unchanged)
+typecheck: exit 0</pre>
+
+<h2>Operator note</h2>
+<p>Add <code>NATS_PORT=4222</code> (any free port) to the start command. The port must be
+reachable by remote runners over the tailnet. Pick once and keep it.</p>
+
+<h2>Open</h2>
+<div class="q"><p>This stops the restart→re-pair churn. It does <b>not</b> address "connected but
+can't use" (the runner heartbeats but a turn times out) — that's the separate
+credential/clear-error work, which is held pending one clean turn capture (the code already throws
+a clear error on the no-token path, so the current timeout is a different path that needs
+identifying before fixing).</p></div>
+</body></html>

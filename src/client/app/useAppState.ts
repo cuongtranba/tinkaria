@@ -27,6 +27,7 @@ import {
 import { useSubmitPipeline } from "./useSubmitPipeline"
 import { NatsSocket } from "./nats-socket"
 import type { AppTransport, SocketStatus } from "./socket-interface"
+import { usePtyInstancesSubscription } from "./usePtyInstancesSubscription"
 import {
   filterPendingDeletedChats,
   getActiveChatSnapshot,
@@ -39,7 +40,7 @@ import {
 import { usePwaResume } from "./usePwaResume"
 import { useScrollSync } from "./useScrollSync"
 import { useTranscriptLifecycle } from "./useTranscriptLifecycle"
-import { useChatCommands, getUiUpdateRestartPhase, setUiUpdateRestartPhase, clearUiUpdateRestartPhase } from "./useChatCommands"
+import { useChatCommands, getUiUpdateRestartPhase, setUiUpdateRestartPhase, clearUiUpdateRestartPhase, type RunnerPickRequest } from "./useChatCommands"
 
 function useAppSocket(): AppTransport {
   const socketRef = useRef<AppTransport | null>(null)
@@ -156,6 +157,9 @@ export interface AppState {
     message?: string
   ) => Promise<void>
   clearCommandError: () => void
+  /** Non-null when the server needs the user to pick a runner (PR5). */
+  needsPickRequest: RunnerPickRequest | null
+  clearNeedsPickRequest: () => void
 }
 
 export function shouldMarkActiveChatRead(args: {
@@ -219,6 +223,8 @@ export function useAppState(activeChatId: string | null): AppState {
       clearChatCache()
     }
   }), [socket])
+
+  usePtyInstancesSubscription(socket, connectionStatus === "connected")
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
@@ -563,5 +569,7 @@ export function useAppState(activeChatId: string | null): AppState {
     handleAskUserQuestion: commands.handleAskUserQuestion,
     handleExitPlanMode: commands.handleExitPlanMode,
     clearCommandError: useCallback(() => setCommandError(null), []),
+    needsPickRequest: commands.needsPickRequest,
+    clearNeedsPickRequest: commands.clearNeedsPickRequest,
   }
 }

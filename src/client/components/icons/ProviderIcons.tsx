@@ -35,6 +35,7 @@ export function OpenAIIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 export const PROVIDER_ICONS: Record<AgentProvider, IconComponent> = {
   claude: AnthropicIcon,
   codex: OpenAIIcon,
+  "claude-pty": AnthropicIcon,
 }
 
 export function getProviderFromModel(model: string): AgentProvider | null {

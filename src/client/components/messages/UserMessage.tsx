@@ -70,7 +70,7 @@ export const UserMessage = memo(function UserMessage({ content }: Props) {
           >
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           </Button>
-          <div className="max-w-full overflow-hidden rounded-[20px] py-1.5 px-3.5 bg-muted text-primary border border-border prose prose-sm prose-invert break-normal [overflow-wrap:break-word] [&_p]:whitespace-pre-line [&_p]:break-normal [&_p]:[overflow-wrap:break-word]">
+          <div className="max-w-full overflow-hidden rounded-[20px] py-1.5 px-3.5 bg-logo/[0.10] dark:bg-logo/[0.16] text-foreground border border-logo/25 dark:border-logo/30 shadow-sm prose prose-sm dark:prose-invert break-normal [overflow-wrap:break-word] [&_p]:whitespace-pre-line [&_p]:break-normal [&_p]:[overflow-wrap:break-word]">
             <Markdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>{parsed.content}</Markdown>
           </div>
         </div>

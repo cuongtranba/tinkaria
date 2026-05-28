@@ -1,15 +1,40 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { PROVIDERS } from "../../../shared/types"
+import { DEFAULT_CLAUDE_MODEL_OPTIONS, PROVIDERS } from "../../../shared/types"
+
+// Pin the desktop layout. ChatPreferenceControls.test.tsx installs a persistent
+// `mock.module` on useIsMobile and leaves its last value at `true` (mobile),
+// which would otherwise collapse the model indicator into the input pill and
+// reorder the DOM, breaking the desktop layout assertions below.
+mock.module("../../hooks/useIsMobile", () => ({
+  useIsMobile: () => false,
+  getIsMobile: () => false,
+  MOBILE_BREAKPOINT_QUERY: "(max-width: 767px)",
+}))
+
 import {
   CHAT_COMPOSER_PLACEHOLDER_POOL,
   getAwaitingChatComposerPlaceholderText,
   getChatComposerPlaceholderText,
 } from "../../lib/quirkyCopy"
+import { useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { useSkillCompositionStore } from "../../stores/skillCompositionStore"
 import { areChatInputPropsEqual, ChatInput, shouldInvokeCancelAction } from "./ChatInput"
 
 describe("ChatInput", () => {
+  beforeEach(() => {
+    // Pin the composer to a known claude/opus state so the rendered model label
+    // is deterministic regardless of cross-file test ordering.
+    useChatPreferencesStore.setState({
+      composerState: {
+        provider: "claude",
+        model: "opus",
+        modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
+        planMode: false,
+      },
+    })
+  })
+
   afterEach(() => {
     useSkillCompositionStore.setState({
       usageCounts: {},

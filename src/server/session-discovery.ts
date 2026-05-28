@@ -289,6 +289,15 @@ export async function findSessionFile(
 
   if (provider === "codex") {
     const sessionsDir = join(homedir(), ".codex", "sessions")
+    // Fast path: codex commonly stores a session flat as <sessionId>.jsonl.
+    // Hitting it avoids scanning the whole tree (O(n files)).
+    const directPath = join(sessionsDir, `${sessionId}.jsonl`)
+    try {
+      await stat(directPath)
+      return directPath
+    } catch (_error: unknown) {
+      // Not at the flat path — fall back to a recursive scan for nested layouts.
+    }
     const files = await collectJsonlFiles(sessionsDir)
     for (const filePath of files) {
       const headLines = await readHead(filePath, 1)

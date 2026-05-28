@@ -1,6 +1,6 @@
 ---
 id: adr-20260412-pwa-push-notifications
-c3-seal: 0f06c08ca632819f76adc2aa0dab104fa4b5e627ab9277a701fc1e302ba1b564
+c3-seal: 09f2e0a80837c28dc1427be20613194e3104f2d3123d35d5cda2f97e626ffe66
 title: pwa-push-notifications
 type: adr
 goal: Add Web Push Notifications to Tinkaria so users receive native OS notifications when important events occur — even when the browser tab is backgrounded or the PWA is closed. This extends the existing `ref-pwa` service worker (currently no-op) with push event handling, and adds server-side VAPID-based push delivery.
@@ -19,6 +19,7 @@ Tinkaria manages long-running agent sessions. Users often switch away from the t
 - **Agent task completion** — session finished or errored
 - **Tool approval needed** — `AskUserQuestion` awaiting user input
 - **Background agent results** — forked/background work completed
+
 ### Decision
 
 **Web Push API + VAPID + `web-push` npm package.** No third-party push services (OneSignal, Firebase). Reasons:
@@ -27,6 +28,7 @@ Tinkaria manages long-running agent sessions. Users often switch away from the t
 2. VAPID is the standard — works across Chrome, Firefox, Safari, Edge
 3. `web-push` is a lightweight Node/Bun-compatible library (~50KB)
 4. No vendor dependency or external account required
+
 ### Architecture
 
 ```
@@ -41,6 +43,7 @@ Tinkaria manages long-running agent sessions. Users often switch away from the t
                                               │ (push event) │
                                               └─────────────┘
 ```
+
 ### Components Affected
 
 | Component | Change |
@@ -49,6 +52,7 @@ Tinkaria manages long-running agent sessions. Users often switch away from the t
 | c3-102 stores | New Zustand store for push subscription state + notification preferences |
 | c3-205 nats-transport | Publish push-worthy events on NATS subjects; server push sender subscribes |
 | c3-214 read-models | Track push subscriptions per client (endpoint + keys + preferences) |
+
 ### New Server Module
 
 `src/server/push-notifications.ts`:
@@ -57,6 +61,7 @@ Tinkaria manages long-running agent sessions. Users often switch away from the t
 - Subscription CRUD (store in event-sourced model or simple JSON)
 - Push sender: listens to NATS events, sends via `web-push`
 - HTTP endpoints: `POST /api/push/subscribe`, `DELETE /api/push/unsubscribe`, `GET /api/push/vapid-key`
+
 ### New Client Module
 
 `src/client/hooks/usePushNotifications.ts`:
@@ -189,6 +194,7 @@ Visual permission state indicator
 Visual permission state indicator
 Visual permission state indicator
 Visual permission state indicator
+
 ### Service Worker Changes (public/sw.js)
 
 ```js
@@ -225,11 +231,13 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 ```
+
 ### Platform Constraints
 
 - **iOS Safari**: Push only works after "Add to Home Screen" (iOS 16.4+). Tinkaria already supports standalone mode via `ref-pwa`.
 - **Permission UX**: Must request after user gesture (button click), never on page load.
 - **HTTPS required**: Already satisfied (Cloudflare tunnel).
+
 ### Implementation Plan
 
 1. Generate VAPID keys, add to env config

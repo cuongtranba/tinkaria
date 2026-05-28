@@ -1,0 +1,31 @@
+# VictoriaLogs — local log store for tinkaria observability (decision 0012).
+#
+# SECURITY: bound to 127.0.0.1 ONLY. It must never be exposed on the tailnet or
+# via `tailscale serve`, because it stores raw backend + frontend logs which can
+# contain chat content and tokens. The browser does NOT talk to it directly —
+# the Bun server forwards client logs via /api/logs.
+#
+# Usage:
+#   docker compose -f ops/victorialogs/docker-compose.yml up -d
+#   open http://127.0.0.1:9428/select/vmui   # built-in query UI
+#   docker compose -f ops/victorialogs/docker-compose.yml down
+#
+# Then start tinkaria with VICTORIALOGS_URL=http://127.0.0.1:9428 to enable shipping.
+
+services:
+  victoria-logs:
+    image: victoriametrics/victoria-logs:v1.0.0-victorialogs
+    container_name: tinkaria-victoria-logs
+    restart: unless-stopped
+    # 127.0.0.1 prefix is the security boundary — do not change to 0.0.0.0.
+    ports:
+      - "127.0.0.1:9428:9428"
+    command:
+      - "-storageDataPath=/victoria-logs-data"
+      - "-retentionPeriod=7d"
+      - "-httpListenAddr=:9428"
+    volumes:
+      - victoria-logs-data:/victoria-logs-data
+
+volumes:
+  victoria-logs-data:

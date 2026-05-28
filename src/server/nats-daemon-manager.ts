@@ -57,13 +57,19 @@ export class NatsDaemonManager {
       }
     }
 
-    const daemonScript = new URL("../nats/nats-daemon.ts", import.meta.url).pathname
+    const authMode = process.env.NATS_AUTH_MODE ?? "callout"
+    const isCallout = authMode === "callout"
+
+    const daemonScript = isCallout
+      ? new URL("../nats/nats-daemon-callout.ts", import.meta.url).pathname
+      : new URL("../nats/nats-daemon.ts", import.meta.url).pathname
+
     const {
-      NATS_DATA_DIR: _natsDataDir,
+      NATS_DATA_DIR: natsDataDir,
       NATS_URL: _natsUrl,
       NATS_MODE: _natsMode,
       NATS_WS_PORT: _natsWsPort,
-      NATS_PORT: _natsPort,
+      NATS_PORT: natsPort,
       NATS_STORE_DIR: _natsStoreDir,
       NATS_HTTP_PORT: _natsHttpPort,
       ...spawnEnv
@@ -72,10 +78,21 @@ export class NatsDaemonManager {
     const child = Bun.spawn(["bun", "run", daemonScript], {
       env: {
         ...spawnEnv,
+        // In callout mode the daemon reads the token secret from disk; NATS_TOKEN
+        // is unused by the callout child but harmless to pass. In token mode it
+        // is the shared auth token.
         NATS_TOKEN: options.token,
         ...(options.host ? { NATS_HOST: options.host } : {}),
+        // Callout mode: pass NATS_DATA_DIR so the child can load keys + secret.
+        // Token mode: strip it (was previous behaviour, preserve for compat).
+        ...(isCallout && natsDataDir ? { NATS_DATA_DIR: natsDataDir } : {}),
+        // Pin the NATS TCP port when NATS_PORT is set, so a paired runner's stored
+        // credential (nats://host:port) survives server restarts instead of being
+        // invalidated by a new ephemeral port each boot. Unset => daemon picks an
+        // ephemeral port as before. (decision: docs/stories/nats-port-pin)
+        ...(natsPort ? { NATS_PORT: natsPort } : {}),
       },
-      stdio: ["ignore", "pipe", "inherit"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
 
     // Read JSON info from stdout
@@ -98,6 +115,27 @@ export class NatsDaemonManager {
 
     this.daemonProcess = child
     this.info = info
+
+    // Observability (decision 0012): forward the daemon child's stderr (which now
+    // carries the nats-server runtime logs) to this process's console, so it
+    // reaches VictoriaLogs via the console tee. Previously inherited to the
+    // terminal only, leaving the NATS layer invisible in the log store.
+    void (async () => {
+      try {
+        const decoder = new TextDecoder()
+        let buf = ""
+        for await (const chunk of child.stderr as unknown as AsyncIterable<Uint8Array>) {
+          buf += decoder.decode(chunk)
+          const lines = buf.split("\n")
+          buf = lines.pop() ?? ""
+          for (const line of lines) {
+            if (line.trim()) console.warn("[nats-daemon]", line)
+          }
+        }
+      } catch {
+        // daemon exited or stderr closed — nothing to forward
+      }
+    })()
 
     console.warn(LOG_PREFIX, `NATS daemon started — pid: ${info.pid}, url: ${info.url}`)
 

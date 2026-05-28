@@ -1,6 +1,6 @@
 ---
 id: adr-20260403-tauri-single-port-bootstrap-and-desktop-settings
-c3-seal: 077e7c11593777e9f8aa296c4dc17215869af83c3e131bae58aa467cecdf2712
+c3-seal: 45229924a3894cd2583f01e65415c5845144084d37701afaf32acefd887b7c02
 title: tauri-single-port-bootstrap-and-desktop-settings
 type: adr
 goal: Document tauri-single-port-bootstrap-and-desktop-settings architecture decisions and responsibilities.
@@ -9,6 +9,7 @@ date: "2026-04-03"
 ---
 
 # tauri-single-port-bootstrap-and-desktop-settings
+
 ## Goal
 
 Document tauri-single-port-bootstrap-and-desktop-settings architecture decisions and responsibilities.

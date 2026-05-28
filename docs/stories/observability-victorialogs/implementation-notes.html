@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Observability — VictoriaLogs (decision 0012)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.2rem; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.8rem; border-bottom: 1px solid #8884; padding-bottom: .2rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #8881; padding: .7rem .9rem; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  code { background: #8881; padding: .08rem .3rem; border-radius: 3px; }
+  .tag { display:inline-block; background:#dc2626; color:#fff; font-size:11px; padding:.1rem .5rem; border-radius:999px; vertical-align:middle; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  .q { background:#f59e0b22; border-left:3px solid #f59e0b; padding:.5rem .8rem; border-radius:0 6px 6px 0; }
+  .ok { color:#16a34a; }
+</style>
+</head>
+<body>
+<h1>VictoriaLogs observability <span class="tag">high-risk</span></h1>
+<p>Working narrative. Contract: <code>overview/execplan/design/validation.md</code> + decision 0012.</p>
+
+<h2>Why</h2>
+<p>The runner turn-dispatch timeout couldn't be diagnosed: server + runner log to
+terminals, browser console isn't captured. Goal: collect backend + frontend logs
+into one queryable store.</p>
+
+<h2>Architecture</h2>
+<pre>browser console/errors ──POST /api/logs──▶ Bun server ──┐
+                                                         ├──▶ VictoriaLogs 127.0.0.1:9428
+backend console.* (server + local runner) ──jsonline────┘</pre>
+<ul>
+  <li><b>VictoriaLogs in Docker</b>, bound <code>127.0.0.1:9428</code> only (it holds chat content + tokens → never on the tailnet).</li>
+  <li><b>Backend</b>: <code>installConsoleTee()</code> in <code>cli.ts</code> + <code>runner.ts</code> tees console to VL jsonline. Opt-in via <code>VICTORIALOGS_URL</code>; no-op otherwise.</li>
+  <li><b>Frontend</b>: <code>installClientLogShipper()</code> in <code>main.tsx</code> → <code>POST /api/logs</code> → <code>forwardClientLogs()</code> → VL. Browser never touches VL (no CORS, VL stays private).</li>
+</ul>
+
+<h2>Design decisions</h2>
+<ul>
+  <li><b>Fire-and-forget everywhere.</b> Every shipping path swallows errors and never blocks. A down/slow VL must not back-pressure or crash the server, runner, or browser. This is the #1 rule for an observability shim.</li>
+  <li><b>Opt-in via <code>VICTORIALOGS_URL</code>.</b> Unset ⇒ byte-identical to before. Lets us ship the code without forcing the dependency.</li>
+  <li><b>Server-side forward for the browser.</b> Keeps VL localhost-only and avoids CORS. <code>/api/logs</code> always returns 204 — logging must never surface an error to the user.</li>
+  <li><b>Console monkeypatch</b> (vs a custom logger everywhere). The codebase already uses <code>console.*</code> + LOG_PREFIX heavily; patching captures all of it with zero call-site changes, and is reversible (guarded, returns an uninstaller).</li>
+  <li><b>Input hardening</b> on <code>/api/logs</code>: cap 1000 records, truncate msg 8KB, validate level/ts — a misbehaving client can't flood VL.</li>
+</ul>
+
+<h2>Tradeoffs</h2>
+<table>
+  <tr><th>Choice</th><th>Alternative</th><th>Why</th></tr>
+  <tr><td>Docker VL</td><td>Native binary / brew</td><td>Cleanest, reversible, no system pollution; Docker was available. (Daemon had to be started — <code>open -a Docker</code>.)</td></tr>
+  <tr><td>In-process console tee</td><td>stdout→file + vector/fluent-bit collector</td><td>Fewer moving parts, adds structured fields (source/component); collector would still miss the browser.</td></tr>
+  <tr><td>localhost-only VL</td><td>Expose on tailnet</td><td>Logs contain chat/tokens; localhost + server-forward contains the blast radius.</td></tr>
+</table>
+
+<h2>Verification <span class="ok">(all green)</span></h2>
+<pre>typecheck: exit 0
+unit: 23 pass / 0 fail (log-sink, log-shipper, client-log-forwarder)
+live VL: ingest + LogsQL query round-trip for source=backend(server), backend(runner), frontend(browser)
+browser-harness: real console.warn auto-captured → VL</pre>
+<p>The runner lines that landed in VL (<code>connected to NATS</code>, <code>Probed capabilities</code>,
+<code>Permissions Violation for Subscription to runtime.evt.oauth.&gt;</code>, <code>ready</code>) are exactly the
+signal needed to chase the turn-dispatch timeout next.</p>
+
+<h2>Deviations / open items</h2>
+<div class="q"><p><b>Live instance restart handed to the operator.</b> The execplan's stop-condition fired: the live
+server process was already down when it came time to restart, so its exact launch flags couldn't be read
+from the running process. Per discipline I did not guess-launch the production instance; the precise restart
+command (with <code>VICTORIALOGS_URL</code> + <code>NATS_ADVERTISED_HOST</code>) is handed to the user.</p></div>
+<div class="q"><p><b>Remote-runner logs not captured (V1).</b> VL is localhost-only, so a runner on another
+machine can't reach it. Follow-up: ship remote-runner logs over the existing NATS connection to a server
+subject that forwards to VL. Logged to backlog.</p></div>
+<div class="q"><p><b>No secret redaction yet.</b> Logs may contain tokens/chat content. Mitigated by
+localhost-only + 7d retention; redaction is a follow-up before any wider exposure.</p></div>
+<div class="q"><p><b>GitNexus impact</b> not run (index read-only this session). Changes are additive
+(new modules + entrypoint installs + one endpoint); blast radius traced by reading the code.</p></div>
+</body>
+</html>

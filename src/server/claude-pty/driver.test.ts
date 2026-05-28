@@ -184,7 +184,7 @@ describe("startClaudeSessionPTY smoke-test gate", () => {
       oauthToken: "test-token", sessionToken: null,
       onToolRequest: async () => null,
       smokeTestGate: failingGate,
-      env: { HOME: "/tmp", CLAUDE_CODE_OAUTH_TOKEN: "test-token" },
+      env: { HOME: "/tmp", CLAUDE_CODE_OAUTH_TOKEN: "test-token", CLAUDE_EXECUTABLE: "/bin/sh" },
     })).rejects.toThrow(/smoke-test refused/i)
   })
 })

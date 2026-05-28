@@ -1,15 +1,29 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { PROVIDERS } from "../../../shared/types"
+import { DEFAULT_CLAUDE_MODEL_OPTIONS, PROVIDERS } from "../../../shared/types"
 import {
   CHAT_COMPOSER_PLACEHOLDER_POOL,
   getAwaitingChatComposerPlaceholderText,
   getChatComposerPlaceholderText,
 } from "../../lib/quirkyCopy"
+import { useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { useSkillCompositionStore } from "../../stores/skillCompositionStore"
 import { areChatInputPropsEqual, ChatInput, shouldInvokeCancelAction } from "./ChatInput"
 
 describe("ChatInput", () => {
+  beforeEach(() => {
+    // Pin the composer to a known claude/opus state so the rendered model label
+    // is deterministic regardless of cross-file test ordering.
+    useChatPreferencesStore.setState({
+      composerState: {
+        provider: "claude",
+        model: "opus",
+        modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
+        planMode: false,
+      },
+    })
+  })
+
   afterEach(() => {
     useSkillCompositionStore.setState({
       usageCounts: {},

@@ -9,16 +9,23 @@ import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { NatsDaemonManager, type NatsDaemonReadiness } from "./nats-daemon-manager"
 import { NatsConnector } from "./nats-connector"
 import { generateAuthToken } from "./nats-auth"
+import { requiresCalloutForBind } from "./nats-bind-guard"
 import { readToken } from "../nats/nats-token"
+import { ensureCalloutKeys } from "../nats/auth-callout/keys"
+import { mintCredentialToken } from "../nats/auth-callout/token"
 import { createNatsPublisher } from "./nats-publisher"
 import { registerCommandResponders } from "./nats-responders"
 import { registerPtyResponders } from "./pty-responders"
 import { OAuthSettingsStore } from "./oauth-pool/oauth-settings-store"
 import { OAuthTokenPool } from "./oauth-pool/oauth-token-pool"
 import { registerOAuthResponders } from "./oauth-pool/oauth-responders"
-import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream } from "./nats-streams"
+import { ensureTerminalEventsStream, ensureChatMessageStream, ensureRunnerEventsStream, ensureWorkspaceCoordinationStream, ensureSandboxEventsStream, ensureRunnerRegistryBucket } from "./nats-streams"
 import { RunnerManager, type RunnerReadiness } from "./runner-manager"
+import { PairingStore } from "./pairing-store"
+import { resolveRunnerPairingUrls } from "./runner-pairing-urls"
+import { forwardClientLogs } from "./client-log-forwarder"
 import { RunnerProxy } from "./runner-proxy"
+import { RunnerRouter } from "./runner-router"
 import { TranscriptConsumer } from "./transcript-consumer"
 import type { AgentProvider, TranscriptEntry, SessionStatus } from "../shared/types"
 import type { ClientCommand } from "../shared/protocol"
@@ -336,6 +343,8 @@ export interface ServerHealthcheck {
   natsDaemon: NatsDaemonReadiness | null
   natsConnection: ReturnType<NatsConnector["getReadiness"]>
   runner: RunnerReadiness
+  /** PR5: all registered runners from the KV fleet. Only present in /health responses. Empty array when NATS is not ready. */
+  runners?: import("./runner-router").RunnerDescriptor[]
 }
 
 /** Session coordinator interface — satisfied by RunnerProxy which delegates turn execution to the runner process. */
@@ -384,11 +393,34 @@ export async function startServer(options: StartServerOptions = {}) {
     : null
 
   const natsMode = process.env.NATS_MODE ?? "embedded"
+  const authMode = process.env.NATS_AUTH_MODE ?? "callout"
   const runnerMode = process.env.RUNNER_MODE ?? "spawn"
+
+  // Guard: a non-loopback bind is only safe in callout mode (decision 0007).
+  // Token mode must stay loopback-only — a shared-token bus must not be exposed
+  // beyond the local machine. Callout mode provides per-connection scoped creds,
+  // so WireGuard on the tailnet is sufficient for confidentiality (no TLS needed).
+  const bindGuard = requiresCalloutForBind(hostname, authMode as "callout" | "token")
+  if (!bindGuard.ok) {
+    throw new Error(bindGuard.reason!)
+  }
+  if (hostname !== "127.0.0.1" && hostname !== "localhost" && hostname !== "::1" && authMode === "callout") {
+    console.warn(LOG_PREFIX, `Binding NATS to ${hostname} in callout mode — confidentiality via WireGuard, WS no_tls within the tailnet`)
+  }
 
   let authToken: string
   let daemonManager: NatsDaemonManager
   let daemonInfo: { url: string; wsUrl: string; wsPort: number }
+
+  // Callout mode: stateless signed tokens per connection class.
+  // Token mode (NATS_AUTH_MODE=token): shared static token — legacy escape hatch.
+  let uiClientToken: string   // returned by /auth/token for browser WS connections
+  let mintRunnerToken: ((runnerId: string) => Promise<string>) | undefined
+  // Durable runner credential mint for pairing (callout mode only).
+  // RUNNER_PAIR_TTL: long-lived token TTL in seconds (default 90 days).
+  // Paired runners persist this token and present it at every NATS connect.
+  const runnerPairTtl = Number(process.env.RUNNER_PAIR_TTL ?? 7_776_000)
+  let mintPairedRunnerToken: ((runnerId: string) => Promise<string>) | undefined
 
   if (natsMode === "external") {
     const natsUrl = process.env.NATS_URL
@@ -398,16 +430,44 @@ export async function startServer(options: StartServerOptions = {}) {
       throw new Error("NATS_MODE=external requires NATS_URL, NATS_WS_PORT, and NATS_DATA_DIR")
     }
     authToken = await readToken(natsDataDir)
+    uiClientToken = authToken
     daemonManager = NatsDaemonManager.fromExternal({ natsUrl, wsPort: natsWsPort })
     const url = new URL(natsUrl)
     daemonInfo = { url: natsUrl, wsUrl: `ws://${url.hostname}:${natsWsPort}`, wsPort: natsWsPort }
     console.warn(LOG_PREFIX, `NATS_MODE=external — connecting to ${natsUrl}`)
+  } else if (authMode === "callout") {
+    // Callout mode: load (or generate) signing keys + shared token secret.
+    const natsDataDir = process.env.NATS_DATA_DIR ?? store.dataDir
+    // The callout daemon child (spawned by ensureDaemon) loads its keys + token
+    // secret from NATS_DATA_DIR and refuses to start without it. ensureDaemon
+    // reads it from the environment, so default the env to the resolved dir here
+    // — otherwise a normal `tinkaria` run (no NATS_DATA_DIR set) fails to boot.
+    process.env.NATS_DATA_DIR ??= natsDataDir
+    const keys = await ensureCalloutKeys(natsDataDir)
+
+    authToken = await mintCredentialToken({ class: "server-admin" }, keys.tokenSecret)
+    uiClientToken = await mintCredentialToken({ class: "ui-client" }, keys.tokenSecret)
+    mintRunnerToken = (runnerId: string) =>
+      mintCredentialToken({ class: "runner", runnerId }, keys.tokenSecret)
+    // Paired runners get a long-lived token (RUNNER_PAIR_TTL, default 90d).
+    mintPairedRunnerToken = (runnerId: string) =>
+      mintCredentialToken({ class: "runner", runnerId }, keys.tokenSecret, runnerPairTtl)
+
+    daemonManager = NatsDaemonManager.embedded()
+    const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
+    daemonInfo = info
+    console.warn(LOG_PREFIX, `NATS_AUTH_MODE=callout — scoped credentials active`)
   } else {
+    // Token mode (legacy escape hatch): shared static token, token-mode daemon.
     authToken = generateAuthToken()
+    uiClientToken = authToken
     daemonManager = NatsDaemonManager.embedded()
     const info = await daemonManager.ensureDaemon({ token: authToken, host: hostname })
     daemonInfo = info
   }
+
+  // Pairing code store (callout mode only — see POST /api/pairing/code).
+  const pairingStore = new PairingStore()
 
   // Push notifications
   initVapid()
@@ -427,6 +487,9 @@ export async function startServer(options: StartServerOptions = {}) {
     ensureRunnerEventsStream(natsConnector.nc),
     ensureWorkspaceCoordinationStream(natsConnector.nc),
     ensureSandboxEventsStream(natsConnector.nc),
+    // Pre-create the runner registry KV bucket so spawned runners (whose
+    // callout scope excludes STREAM.CREATE) can open it immediately.
+    ensureRunnerRegistryBucket(natsConnector.nc),
   ])
 
   const getHealthcheck = (): ServerHealthcheck => {
@@ -498,6 +561,7 @@ export async function startServer(options: StartServerOptions = {}) {
     nc: natsConnector.nc,
     natsUrl: daemonInfo.url,
     authToken,
+    mintToken: mintRunnerToken,
     mode: runnerMode as "spawn" | "discover",
   })
   const runnerId = await runnerManager.ensureRunner()
@@ -602,12 +666,39 @@ export async function startServer(options: StartServerOptions = {}) {
   })
   await runtimeRegistry.initialize()
 
+  const runnerRouter = new RunnerRouter({
+    nc: natsConnector.nc,
+    sharedRunnerId: () => {
+      try { return runnerManager.getRunnerId() } catch { return null }
+    },
+  })
+
   const coordinator: SessionCoordinator = new RunnerProxy({
     nc: natsConnector.nc,
     store,
     runnerId,
     getActiveStatuses: () => transcriptConsumer.getActiveStatuses(),
     runtimeRegistry,
+    router: runnerRouter,
+    sharedRunnerId: () => runnerManager.getRunnerId(),
+    getRunnerReadiness: (targetRunnerId: string) => {
+      // For the shared/local runner, use the authoritative RunnerManager readiness.
+      // For personal runners, we keep the gate synchronous by failing closed when
+      // the descriptor has not been pre-fetched.  resolveRunnerForChat already
+      // called router.select (which calls router.list), but that descriptor is not
+      // cached here.  To avoid making getRunnerReadiness async (which would ripple
+      // into sendCommand and every call-site), we apply a conservative policy:
+      // the shared runner uses its live readiness; a selected personal runner
+      // passes the gate (fail-open for the readiness check — the eligibleFor()
+      // filter in selectFrom already enforced liveness + compat before selection,
+      // so a selected runner is already known-compatible at the time of dispatch).
+      if (targetRunnerId === runnerId) {
+        return runnerManager.getReadiness()
+      }
+      // Personal runner: trust that router.select already enforced
+      // liveness + protocol compat via eligibleFor().  Return compatible.
+      return { incompatible: false, protocolVersion: null, capabilities: null }
+    },
   })
 
   console.warn(LOG_PREFIX, "Runner process handles turn execution")
@@ -830,7 +921,10 @@ export async function startServer(options: StartServerOptions = {}) {
 
           if (url.pathname === "/health") {
             const healthcheck = getHealthcheck()
-            return Response.json(healthcheck, {
+            // runners is async (KV list); fetch in parallel with the sync healthcheck.
+            // Failures return [] so the existing ok/status logic is never blocked.
+            const runners = await runnerRouter.list().catch(() => [])
+            return Response.json({ ...healthcheck, runners }, {
               status: healthcheck.ok ? 200 : 503,
             })
           }
@@ -840,10 +934,85 @@ export async function startServer(options: StartServerOptions = {}) {
             const natsWsUrl = advertisedHost
               ? `ws://${advertisedHost}:${natsConnector.natsWsPort}`
               : undefined
+            // In callout mode: return the ui-client scoped token (not the server-admin token).
+            // In token mode: uiClientToken === authToken — same behaviour as before.
             return Response.json({
-              token: authToken,
+              token: uiClientToken,
               ...(natsWsUrl ? { natsWsUrl } : {}),
             })
+          }
+
+          // ── Pairing endpoints (PR2) ─────────────────────────────────────────
+          //
+          // Both routes are public (no user auth), matching /auth/token's posture.
+          // The code itself is the bearer secret — short TTL, single-use, unguessable.
+          // Gating on user-auth is the documented pre-multi-tenant follow-up.
+          //
+          if (url.pathname === "/api/pairing/code" && req.method === "POST") {
+            // Only available in callout mode — the minted token is a callout credential.
+            if (!mintPairedRunnerToken) {
+              return Response.json(
+                { error: "pairing requires NATS_AUTH_MODE=callout" },
+                { status: 409 }
+              )
+            }
+            // Allocate a runnerId (same format as runner-manager's spawned runners).
+            const newRunnerId = `runner-${Date.now()}-${process.pid}`
+            const token = await mintPairedRunnerToken(newRunnerId)
+            const { code, expiresAt } = pairingStore.issue({ runnerId: newRunnerId, token })
+            console.warn(LOG_PREFIX, `Pairing code issued for runner ${newRunnerId}, expires ${new Date(expiresAt).toISOString()}`)
+            return Response.json({ code, expiresAt })
+          }
+
+          if (url.pathname === "/api/pairing/exchange" && req.method === "POST") {
+            let body: { code?: unknown }
+            try {
+              body = await req.json() as { code?: unknown }
+            } catch {
+              return Response.json({ error: "invalid JSON body" }, { status: 400 })
+            }
+            const code = body?.code
+            if (typeof code !== "string" || !code.trim()) {
+              return Response.json({ error: "missing or invalid code" }, { status: 400 })
+            }
+            const result = pairingStore.exchange(code)
+            if (!result.ok) {
+              const isGone = result.error === "expired" || result.error === "consumed"
+              console.warn(LOG_PREFIX, `Pairing exchange rejected: ${result.error}`)
+              return Response.json({ error: result.error }, { status: isGone ? 410 : 400 })
+            }
+            // A paired runner may be on another machine, so the credential's
+            // NATS URL host must be routable from there — never the wildcard
+            // bind host (0.0.0.0 / ::), which would resolve to the runner's own
+            // loopback and yield ECONNREFUSED. Honor NATS_ADVERTISED_HOST (same
+            // as /auth/token); refuse to hand out an unroutable URL otherwise.
+            const pairingUrls = resolveRunnerPairingUrls(daemonInfo)
+            if (!pairingUrls.ok) {
+              console.warn(LOG_PREFIX, `Pairing exchange blocked for runner ${result.runnerId}: ${pairingUrls.error}`)
+              return Response.json({ error: pairingUrls.error }, { status: 409 })
+            }
+            console.warn(LOG_PREFIX, `Pairing exchange succeeded for runner ${result.runnerId}`)
+            return Response.json({
+              runnerId: result.runnerId,
+              token: result.token,
+              natsUrl: pairingUrls.natsUrl,
+              natsWsUrl: pairingUrls.natsWsUrl,
+            })
+          }
+
+          // ── Client log ingest (decision 0012) ──────────────────────────────
+          // Browser ships console logs + errors here; we forward to VictoriaLogs
+          // (localhost-only) so the browser never touches VL directly. Always
+          // 204 — logging must never error for the client, even if VL is down.
+          if (url.pathname === "/api/logs" && req.method === "POST") {
+            let body: unknown
+            try {
+              body = await req.json()
+            } catch {
+              return new Response(null, { status: 204 })
+            }
+            void forwardClientLogs(body)
+            return new Response(null, { status: 204 })
           }
 
           if (url.pathname.startsWith("/api/workspace/")) {

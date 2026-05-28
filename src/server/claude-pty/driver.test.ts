@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { startClaudeSessionPTY, buildPtyEnv, buildPtyCliArgs, OutputRing, PTY_STDERR_RING_BYTES, PTY_DISALLOWED_NATIVE_TOOLS, deriveAccountInfoFromOauth, PLAN_MODE_EXIT_UNSUPPORTED, SHIFT_TAB_KEY } from "./driver"
+import { startClaudeSessionPTY, buildPtyEnv, buildPtyCliArgs, OutputRing, PTY_STDERR_RING_BYTES, PTY_DISALLOWED_NATIVE_TOOLS, deriveAccountInfoFromOauth, PLAN_MODE_EXIT_UNSUPPORTED, SHIFT_TAB_KEY, type PtyUsageSample } from "./driver"
+import type { ProcessTreeSample } from "./pty-memory-sampler.adapter"
 import type { TranscriptStream } from "./tui-source.adapter"
 import type { PtyProcess, SpawnPtyProcessArgs } from "./pty-process.adapter"
 import { KANNA_SYSTEM_PROMPT_APPEND } from "../../shared/tinkaria-system-prompt"
@@ -833,6 +834,69 @@ describe("session close escalation (graceful → SIGTERM → SIGKILL)", () => {
       expect(killSignal).toBe("SIGKILL")
     } finally {
       await rm(tmp, { recursive: true, force: true })
+    }
+  }, 10_000)
+})
+
+describe("startClaudeSessionPTY memory sampler → onUsageSample", () => {
+  test("emits mapped rss/cpu with monotonic peaks", async () => {
+    if (process.platform === "win32") return
+    const homeDir = await mkdtemp(path.join(tmpdir(), "kanna-usage-"))
+    let exitResolve!: (code: number) => void
+    const exited = new Promise<number>((r) => { exitResolve = r })
+    const fakePty: PtyProcess = {
+      pid: 99997,
+      async sendInput() {},
+      resize() {},
+      exited,
+      close() { exitResolve(0) },
+      kill() { exitResolve(137) },
+    }
+    const fakeSpawn = async (s: SpawnPtyProcessArgs): Promise<PtyProcess> => {
+      s.onOutput?.("❯ ")
+      return fakePty
+    }
+    const neverStream: TranscriptStream = {
+      lines: { [Symbol.asyncIterator]() { return { next() { return new Promise<IteratorResult<string, undefined>>(() => {}) } } } },
+      filePath: new Promise<string>(() => {}),
+      close() {},
+    }
+    // rss drops then cpu rises: peak rss must stay at the high-water mark,
+    // peak cpu must climb. Later ticks repeat the last sample.
+    const samples: ProcessTreeSample[] = [
+      { rssBytes: 100, cpuPercent: 10 },
+      { rssBytes: 50, cpuPercent: 40 },
+    ]
+    let i = 0
+    const received: PtyUsageSample[] = []
+    const handle = await startClaudeSessionPTY({
+      chatId: "usage", projectId: "usage", localPath: homeDir,
+      model: "claude-haiku-4-5-20251001",
+      planMode: false, forkSession: false,
+      oauthToken: "test-token", sessionToken: null,
+      onToolRequest: async () => null,
+      homeDir,
+      env: { HOME: homeDir, CLAUDE_CODE_OAUTH_TOKEN: "test-token", KANNA_PTY_TRUST_DISMISS: "disabled", CLAUDE_EXECUTABLE: "/bin/sh" },
+      spawnPtyProcess: fakeSpawn,
+      startKannaMcpHttpServer: async () => ({ url: "http://127.0.0.1:0/mcp", bearerToken: "test", close: async () => {} }),
+      startTranscriptStreamFn: async () => neverStream,
+      smokeTestGate: { async canSpawn() { return { ok: true } } },
+      sampleProcessTreeUsage: async () => samples[Math.min(i++, samples.length - 1)] ?? null,
+      memorySamplerIntervalMs: 10,
+      onUsageSample: (u) => { received.push(u) },
+    })
+    try {
+      const deadline = Date.now() + 2000
+      while (received.length < 2 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10))
+      }
+      expect(received.length).toBeGreaterThanOrEqual(2)
+      expect(received[0]).toEqual({ rssBytes: 100, rssPeakBytes: 100, cpuPercent: 10, cpuPeakPercent: 10 })
+      expect(received[1]).toEqual({ rssBytes: 50, rssPeakBytes: 100, cpuPercent: 40, cpuPeakPercent: 40 })
+    } finally {
+      exitResolve(0)
+      handle.close()
+      await rm(homeDir, { recursive: true, force: true })
     }
   }, 10_000)
 })

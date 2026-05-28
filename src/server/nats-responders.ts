@@ -24,6 +24,7 @@ import type { RepoManager } from "./repo-manager"
 import type { GitClonePolicy } from "./git-clone-policy"
 import type { RuntimeRegistry } from "./runtime-registry"
 import { resolveProfile } from "../shared/profile-types"
+import { RunnerPickRequired } from "./runner-proxy"
 
 /** Session coordinator interface — RunnerProxy delegates turn execution to the runner process */
 interface Coordinator {
@@ -96,6 +97,7 @@ const NON_MUTATING: ReadonlySet<ClientCommand["type"]> = new Set([
   "profile.list",
   "profile.resolve",
   "extension.preference.list",
+  "team.member.list",
 ])
 
 /** Commands handled by the Bun backend. */
@@ -180,6 +182,12 @@ const SERVER_COMMANDS: readonly ClientCommand["type"][] = [
   "workspace.profile.override.remove",
   "extension.preference.set",
   "extension.preference.list",
+  "team.member.list",
+  "team.member.save",
+  "team.member.remove",
+  "runner.label.set",
+  "runner.label.remove",
+  "chat.selectRunner",
 ]
 
 const DETECT_OPTIONS: Record<string, { binaryName: string; packageName: string; versionParser: (stdout: string) => string }> = {
@@ -360,11 +368,32 @@ export function registerCommandResponders(args: RegisterRespondersArgs): { dispo
         return undefined
       }
 
-      case "chat.send":
-        return agent.send(command)
+      case "chat.send": {
+        try {
+          return await agent.send(command)
+        } catch (e) {
+          if (e instanceof RunnerPickRequired) {
+            return { needsPick: true, chatId: e.chatId, candidates: e.candidates, reason: e.reason }
+          }
+          throw e
+        }
+      }
 
-      case "chat.queue":
-        return agent.queue(command)
+      case "chat.queue": {
+        try {
+          return await agent.queue(command)
+        } catch (e) {
+          if (e instanceof RunnerPickRequired) {
+            return { needsPick: true, chatId: e.chatId, candidates: e.candidates, reason: e.reason }
+          }
+          throw e
+        }
+      }
+
+      case "chat.selectRunner": {
+        await store.setChatRunner(command.chatId, command.runnerId)
+        return { ok: true }
+      }
 
       case "chat.cancel": {
         await agent.cancel(command.chatId)
@@ -811,6 +840,34 @@ export function registerCommandResponders(args: RegisterRespondersArgs): { dispo
 
       case "extension.preference.set": {
         await store.setExtensionPreference(command.extensionId, command.enabled)
+        return { ok: true }
+      }
+
+      // --- Runner team (US-RTN) ---
+
+      case "team.member.list": {
+        return {
+          members: [...store.state.teamMembers.values()],
+        }
+      }
+
+      case "team.member.save": {
+        await store.saveTeamMember(command.member)
+        return { ok: true }
+      }
+
+      case "team.member.remove": {
+        await store.removeTeamMember(command.memberId)
+        return { ok: true }
+      }
+
+      case "runner.label.set": {
+        await store.setRunnerLabel(command.runnerId, command.name, command.memberId)
+        return { ok: true }
+      }
+
+      case "runner.label.remove": {
+        await store.removeRunnerLabel(command.runnerId)
         return { ok: true }
       }
 

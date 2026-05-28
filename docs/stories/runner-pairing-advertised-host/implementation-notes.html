@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>US-RPAH — Pairing exchange advertises a routable NATS host</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 -apple-system, system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1.2rem; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.8rem; border-bottom: 1px solid #8884; padding-bottom: .2rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #8881; padding: .7rem .9rem; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  code { background: #8881; padding: .08rem .3rem; border-radius: 3px; }
+  .tag { display: inline-block; background: #2563eb; color: #fff; font-size: 11px; padding: .1rem .5rem; border-radius: 999px; vertical-align: middle; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border: 1px solid #8884; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  .q { background: #f59e0b22; border-left: 3px solid #f59e0b; padding: .5rem .8rem; border-radius: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+<h1>US-RPAH — Pairing exchange advertises a routable NATS host <span class="tag">normal lane</span></h1>
+<p>Working narrative for the fix. The contract lives in
+<code>story.md</code> beside this file.</p>
+
+<h2>Symptom &rarr; root cause</h2>
+<p>A runner paired from a second machine crashed at startup with
+<code>ConnectionError: connect ECONNREFUSED 0.0.0.0:50640</code>.</p>
+<p>The pairing exchange returned the embedded NATS daemon URL verbatim. When the
+server is started with <code>--remote</code> / <code>--host 0.0.0.0</code>, that
+URL is <code>nats://0.0.0.0:&lt;port&gt;</code>. <code>0.0.0.0</code> is a bind-all
+wildcard, never a valid client destination. A remote runner dials it, the OS
+routes it to the runner's <em>own</em> loopback, nothing listens there, and the
+connection is refused. Same-machine pairing accidentally "works" because
+<code>0.0.0.0</code> loops back to where the daemon actually is.</p>
+<p>Trace: <code>cli-runtime.ts:130</code> (bind 0.0.0.0) &rarr;
+<code>server.ts</code> <code>hostname</code> &rarr; <code>NATS_HOST</code>
+(<code>nats-daemon-manager.ts:85</code>) &rarr;
+<code>nats-daemon-callout.ts:119</code> builds <code>nats://${host}:${port}</code>
+&rarr; <code>daemonInfo.url</code> &rarr; pairing exchange returns it
+(<code>server.ts:986</code>).</p>
+
+<h2>Design decisions</h2>
+<ul>
+  <li><b>Reuse the existing advertised-host concept.</b> <code>/auth/token</code>
+  already honors <code>NATS_ADVERTISED_HOST</code> (<code>server.ts:931</code>) and
+  <code>NatsBridge</code> already has a <code>0.0.0.0 &rarr; 127.0.0.1</code>
+  normalize. The pairing exchange was the one path that ignored both. The fix
+  brings it in line rather than inventing a new mechanism.</li>
+  <li><b>Refuse, don't guess.</b> When bound to a wildcard host and no
+  <code>NATS_ADVERTISED_HOST</code> is set, we cannot know the routable address.
+  Returning <code>127.0.0.1</code> would be wrong for a remote runner (it means
+  "this runner's machine"). So the exchange returns <b>HTTP 409 with an
+  actionable message</b> instead of shipping a broken credential. Loud failure at
+  pairing time beats a silent <code>ECONNREFUSED</code> at runner startup.</li>
+  <li><b>New self-contained module</b>
+  <code>src/server/runner-pairing-urls.ts</code> with a pure
+  <code>resolveRunnerPairingUrls()</code> returning a discriminated
+  <code>{ ok } | { ok:false, error }</code>. Pure &rarr; unit-testable in ~10ms
+  with no server boot.</li>
+</ul>
+
+<h2>Tradeoffs</h2>
+<table>
+  <tr><th>Choice</th><th>Alternative</th><th>Why</th></tr>
+  <tr>
+    <td>Local <code>rewriteUrlHost</code> in the new module</td>
+    <td>Import/export it from <code>nats-bridge.ts</code></td>
+    <td><code>nats-bridge.ts</code> pulls in the native
+    <code>@lagz0ne/nats-embedded</code> dep. Keeping the helper standalone makes
+    its unit test fast and dependency-free. ~6 lines duplicated, acceptable.</td>
+  </tr>
+  <tr>
+    <td>409 on wildcard + no advertised host</td>
+    <td>Fall back to <code>127.0.0.1</code></td>
+    <td>127.0.0.1 is correct only for same-machine pairing and silently wrong for
+    the remote case this story exists to fix.</td>
+  </tr>
+</table>
+
+<h2>Deviations</h2>
+<p>None from the agreed approach. Scope held to the host bug.</p>
+
+<h2>Open questions</h2>
+<div class="q">
+  <p><b>Ephemeral NATS port (out of scope, logged to backlog).</b> The embedded
+  daemon binds an ephemeral port (<code>NATS_PORT</code> default <code>-1</code>,
+  <code>nats-daemon-callout.ts:26</code>). The paired credential is long-lived
+  (90 days) but the port inside it only survives until the next server restart,
+  after which every paired runner's stored URL is stale. <b>Recommendation:</b>
+  default the embedded NATS port to a stable value (or persist + reuse it) so
+  durable pairing is actually durable. Tracked in
+  <code>docs/HARNESS_BACKLOG.md</code>.</p>
+</div>
+<div class="q">
+  <p><b>GitNexus impact not run.</b> The index was in a read-only/stale state this
+  session (<code>startServer</code> unresolved). The change is additive (new pure
+  module + a few lines in the single pairing HTTP handler), so blast radius was
+  traced by reading the call graph directly. Re-run <code>npx gitnexus analyze</code>
+  when the index is writable.</p>
+</div>
+
+<h2>Validation</h2>
+<pre>bunx @typescript/native-preview --noEmit -p tsconfig.json   # exit 0
+bun test src/server/runner-pairing-urls.test.ts \
+         src/server/pairing-endpoints.test.ts                # 12 pass / 0 fail</pre>
+<p>Integration proof boots a <em>real</em> server bound to <code>0.0.0.0</code> and
+hits the live <code>/api/pairing/exchange</code>: 409 without an advertised host,
+and <code>natsUrl</code>/<code>natsWsUrl</code> hostname equal to the advertised
+host when one is set.</p>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test"
 import { startClaudeTurn, type ClaudeSdkBinding } from "./claude-harness"
+import type { ResolveClaudeBinaryResult } from "./claude-pty/resolve-binary.adapter"
 
 const warmQueryCalls: string[] = []
 const directQueryCalls: Array<{ prompt: string; options?: Record<string, unknown> }> = []
@@ -7,6 +8,13 @@ const interruptMock = mock(async () => {})
 const closeMock = mock(() => {})
 const accountInfoMock = mock(async () => null)
 const contextUsageMock = mock(async () => null)
+
+/** Fake binary resolver that short-circuits real fs/PATH lookups in unit tests. */
+const fakeBinaryResolver = async (): Promise<ResolveClaudeBinaryResult> => ({
+  path: "/fake/claude",
+  source: "PATH",
+  triedPaths: ["PATH lookup: /fake/claude"],
+})
 
 function createQuery(model = "claude-sonnet-4-5") {
   return {
@@ -78,6 +86,7 @@ describe("startClaudeTurn", () => {
       onToolRequest: async () => ({}),
       chatId: "chat-1",
       sdk,
+      _resolveBinary: fakeBinaryResolver,
     })
 
     const events = await collect(turn.stream)
@@ -130,6 +139,7 @@ describe("startClaudeTurn", () => {
       sessionToken: null,
       onToolRequest: async () => ({}),
       sdk,
+      _resolveBinary: fakeBinaryResolver,
     })
 
     await collect(turn.stream)
@@ -137,5 +147,30 @@ describe("startClaudeTurn", () => {
     expect(directQueryCalls).toHaveLength(1)
     expect(directQueryCalls[0]?.prompt).toBe("Direct bootstrap prompt")
     expect(directQueryCalls[0]?.options?.cwd).toBe("/tmp/project")
+  })
+
+  test("resolves binary runner-side and passes path to pathToClaudeCodeExecutable", async () => {
+    // Capture the options passed to the SDK so we can assert on pathToClaudeCodeExecutable.
+    let capturedOptions: Record<string, unknown> | undefined
+    const sdk: ClaudeSdkBinding = {
+      query(args) {
+        capturedOptions = args.options as Record<string, unknown>
+        return createQuery() as never
+      },
+    }
+
+    const fakePath = "/usr/local/bin/claude-custom"
+    await startClaudeTurn({
+      content: "test",
+      localPath: "/tmp/project",
+      model: "claude-sonnet-4-5",
+      planMode: false,
+      sessionToken: null,
+      onToolRequest: async () => ({}),
+      sdk,
+      _resolveBinary: async () => ({ path: fakePath, source: "PATH", triedPaths: [] }),
+    }).then((t) => collect(t.stream))
+
+    expect(capturedOptions?.pathToClaudeCodeExecutable).toBe(fakePath)
   })
 })

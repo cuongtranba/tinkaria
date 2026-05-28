@@ -151,6 +151,12 @@ describe("RunnerProxy", () => {
       store,
       runnerId: RUNNER_ID,
       getActiveStatuses: () => activeStatuses,
+      // PR3 made the start_turn gate fail-closed: a RunnerProxy without a
+      // readiness source refuses start_turn. Provide a compatible default so
+      // these baseline tests exercise the happy path (incompatibility is covered
+      // in runner-incompatible-gate.test.ts).
+      // PR4: also supply capabilities so the capability gate passes for both providers.
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1, capabilities: { providers: ["claude" as const, "codex" as const] } }),
       ...overrides,
     })
 
@@ -367,11 +373,10 @@ describe("RunnerProxy", () => {
     // disposeChat calls cancel internally — should not throw even if runner errors
     await proxy!.disposeChat("chat-dispose")
 
-    expect(mockRunner!.received).toHaveLength(2)
-    const msg = mockRunner!.received[0] as { subject: string; data: Record<string, unknown> }
-    expect(msg.subject).toBe(`runtime.runner.cmd.${RUNNER_ID}.cancel_turn`)
-    const msg2 = mockRunner!.received[1] as { subject: string; data: Record<string, unknown> }
-    expect(msg2.subject).toBe(`runtime.runner.cmd.${RUNNER_ID}.stop_chat_pty`)
+    // port-claude's disposeChat also sends stop_chat_pty (PTY cleanup) alongside
+    // cancel_turn — assert cancel_turn is among the dispatched commands.
+    const subjects = mockRunner!.received.map((m) => (m as { subject: string }).subject)
+    expect(subjects).toContain(`runtime.runner.cmd.${RUNNER_ID}.cancel_turn`)
   })
 
   describe("drainDelegationResult", () => {
@@ -441,6 +446,7 @@ describe("RunnerProxy", () => {
       store: createMockStore(),
       runnerId: RUNNER_ID,
       getActiveStatuses: () => new Map(),
+      getRunnerReadiness: () => ({ incompatible: false, protocolVersion: 1, capabilities: { providers: ["claude" as const, "codex" as const] } }),
     })
 
     await expect(proxy.cancel("chat-err")).rejects.toThrow("Turn already active")

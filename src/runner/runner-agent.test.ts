@@ -39,6 +39,10 @@ function createMockTurn(events: HarnessEvent[]): HarnessTurn {
   }
 }
 
+// startTurn now fails fast if the workspace dir doesn't exist on the runner, so the
+// fixture must point at a real directory.
+const TEST_WORKSPACE = mkdtempSync(join(tmpdir(), "runner-agent-ws-"))
+
 function makeCmd(overrides?: Partial<StartTurnCommand>): StartTurnCommand {
   return {
     chatId: "chat-1",
@@ -47,7 +51,7 @@ function makeCmd(overrides?: Partial<StartTurnCommand>): StartTurnCommand {
     model: "test-model",
     planMode: false,
     appendUserPrompt: true,
-    workspaceLocalPath: "/tmp/test",
+    workspaceLocalPath: TEST_WORKSPACE,
     sessionToken: null,
     chatTitle: "New Chat",
     existingMessageCount: 0,
@@ -132,6 +136,19 @@ describe("RunnerAgent", () => {
 
     // Must end with turn_finished
     expect(types).toContain("turn_finished")
+  })
+
+  test("startTurn fails fast (not a hang) when the workspace dir is missing on this runner", async () => {
+    let factoryCalled = false
+    const turnFactory: TurnFactory = async () => { factoryCalled = true; return createMockTurn([]) }
+    const agent = new RunnerAgent({ nc, createTurn: turnFactory })
+
+    await expect(
+      agent.startTurn(makeCmd({ workspaceLocalPath: "/no/such/workspace-xyz-12345" })),
+    ).rejects.toThrow(/does not exist on this runner/i)
+    // It must reject BEFORE invoking the turn factory (which would spawn the agent
+    // into a nonexistent cwd and hang — the original bug).
+    expect(factoryCalled).toBe(false)
   })
 
   test("startTurn without appendUserPrompt skips user_prompt", async () => {

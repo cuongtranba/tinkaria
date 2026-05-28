@@ -81,6 +81,30 @@ describe("createNatsPublisher", () => {
     publisher.dispose()
   })
 
+  test("runner-teams snapshot derives members + runner labels (US-RTN)", async () => {
+    server = await NatsServer.start({ jetstream: true })
+    nc = await connect({ servers: server.url })
+
+    const args = mockArgs()
+    args.store.state.teamMembers.set("m1", { id: "m1", name: "Alice" })
+    args.store.state.runnerLabels.set("runner-1", { runnerId: "runner-1", name: "Studio Mac", memberId: "m1", updatedAt: 1 })
+
+    const publisher = await createNatsPublisher(args)
+    const topic: SubscriptionTopic = { type: "runner-teams" }
+    const sub = nc.subscribe(snapshotSubject(topic))
+
+    publisher.addSubscription("sub-rt", topic)
+    publisher.getSnapshot(topic)
+
+    const msgs = await collectMessages(sub, 1)
+    expect(msgs.length).toBe(1)
+    const data = JSON.parse(msgs[0]) as { members: unknown[]; runners: unknown[] }
+    expect(data.members).toEqual([{ id: "m1", name: "Alice" }])
+    expect(data.runners).toEqual([{ runnerId: "runner-1", name: "Studio Mac", memberId: "m1", updatedAt: 1 }])
+
+    publisher.dispose()
+  })
+
   test("dedup skips identical publishes", async () => {
     server = await NatsServer.start({ jetstream: true })
     nc = await connect({ servers: server.url })

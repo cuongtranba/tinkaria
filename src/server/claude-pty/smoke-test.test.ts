@@ -70,6 +70,23 @@ describe("createSmokeTestGate", () => {
     expect(cached?.result).toBe("fail")
   })
 
+  test("probe error is re-thrown and NOT cached (no 24h poisoning)", async () => {
+    let probeRuns = 0
+    const probe: SmokeTestProbeFn = async () => {
+      probeRuns += 1
+      throw new Error("TUI ready timeout")
+    }
+    const cache = inMemoryCache()
+    const gate = createSmokeTestGate({ probe, cache, ttlMs: 24 * 3600 * 1000, now: () => Date.now() })
+
+    await expect(gate.canSpawn({ binarySha256: "transient", model: "m1" })).rejects.toThrow("TUI ready timeout")
+    // A transient probe error must leave the cache untouched so the next spawn
+    // re-probes instead of being refused for the full TTL.
+    expect(await cache.get("transient|m1")).toBeNull()
+    await expect(gate.canSpawn({ binarySha256: "transient", model: "m1" })).rejects.toThrow("TUI ready timeout")
+    expect(probeRuns).toBe(2)
+  })
+
   test("expired cache entry triggers re-probe", async () => {
     let probeRan = 0
     const probe: SmokeTestProbeFn = async () => { probeRan++; return "pass" }

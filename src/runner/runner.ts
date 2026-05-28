@@ -20,14 +20,63 @@ import { OAuthSettingsStore } from "../server/oauth-pool/oauth-settings-store"
 import { OAuthTokenPool } from "../server/oauth-pool/oauth-token-pool"
 import { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
 import { ALL_OAUTH_EVENTS } from "../shared/nats-subjects"
+import { pairRunner } from "./runner-pair"
+import { readRunnerCredential } from "./runner-credential"
+import { installConsoleTee } from "../shared/log-sink"
 
-const natsUrl = process.env.NATS_URL
-const natsToken = process.env.NATS_TOKEN
+// Observability (decision 0012): tee runner console output to VictoriaLogs when
+// VICTORIALOGS_URL is set; no-op otherwise. A remote runner only ships if it can
+// reach the URL (localhost VL is server-machine-only) — see story design notes.
+installConsoleTee(process.env, "runner")
+
+// ── Subcommand dispatch ───────────────────────────────────────────────────────
+//
+// Usage: bun run src/runner/runner.ts pair --server <url> --code <code>
+//
+// Any other invocation (or no args) falls through to the normal runner start.
+
+if (process.argv[2] === "pair") {
+  // Minimal arg parsing — enough to be useful; full packaging is PR8.
+  const args = process.argv.slice(3)
+  function argValue(flag: string): string | undefined {
+    const idx = args.indexOf(flag)
+    return idx !== -1 ? args[idx + 1] : undefined
+  }
+  const serverUrl = argValue("--server")
+  const code = argValue("--code")
+  if (!serverUrl || !code) {
+    console.error(LOG_PREFIX, "Usage: bun run src/runner/runner.ts pair --server <url> --code <code>")
+    process.exit(1)
+  }
+  await pairRunner({ serverUrl, code })
+  process.exit(0)
+}
+
+// ── Normal runner start ───────────────────────────────────────────────────────
+
+// Resolve NATS connection parameters: env vars win (server-spawned runners);
+// otherwise fall back to the stored credential file (externally-launched runners).
+let natsUrl = process.env.NATS_URL
+let natsToken = process.env.NATS_TOKEN
 const natsDataDir = process.env.NATS_DATA_DIR
-const runnerId = process.env.RUNNER_ID ?? `runner-${process.pid}`
+let runnerId = process.env.RUNNER_ID ?? `runner-${process.pid}`
 
 if (!natsUrl) {
-  console.error(LOG_PREFIX, "NATS_URL environment variable is required")
+  // No env — try the credential file written by the pair flow.
+  const cred = await readRunnerCredential()
+  if (cred) {
+    // Prefer the /nats-ws proxy URL (WS over the tunneled HTTP port) when present
+    // — it's the reliable path the browser uses. Fall back to the raw TCP natsUrl
+    // for older credentials paired before this field existed.
+    natsUrl = cred.natsWsProxyUrl ?? cred.natsUrl
+    natsToken = cred.token
+    runnerId = cred.runnerId
+    console.warn(LOG_PREFIX, `Loading credential from file — runnerId: ${runnerId}`)
+  }
+}
+
+if (!natsUrl) {
+  console.error(LOG_PREFIX, "NATS_URL environment variable is required (or run 'pair' to set up a credential file)")
   process.exit(1)
 }
 
@@ -112,13 +161,13 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
 
 const createTurn: TurnFactory = async (args) => {
   if (args.provider === "claude") {
-    return startClaudeTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
+    return startClaudeTurn({ ...args, extraEnv: args.extraEnv })
   }
   if (args.provider === "claude-pty") {
     return startClaudePtyTurn({ ...args, nc })
   }
   if (args.provider === "codex") {
-    return startCodexTurn({ ...args, binaryPath: args.binaryPath, extraEnv: args.extraEnv })
+    return startCodexTurn({ ...args, extraEnv: args.extraEnv })
   }
   throw new Error(`Provider ${args.provider} not supported in runner`)
 }

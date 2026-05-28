@@ -138,11 +138,16 @@ export function buildLiveSmokeProbe(args: BuildLiveSmokeProbeArgs): SmokeTestPro
         stream.close()
       }
     } catch (err) {
-      // Rate-limit errors must not be cached as "fail" — they're transient.
-      // Re-throw so the gate propagates the error without poisoning the cache.
-      if (err instanceof Error && (err as Error & { code?: string }).code === "rate_limited") throw err
-      console.warn("[kanna/pty] smoke probe errored, treating as FAIL", err)
-      probeResult = "fail"
+      // An exception means the probe never reached a conclusive observation
+      // (TUI-ready / first-JSONL / result timeouts, rate limits, spawn hiccups,
+      // etc.). These are transient and must NOT be cached as a hard FAIL —
+      // doing so locks out every PTY spawn for the full cache TTL (24h) on a
+      // single hiccup. Re-throw so the gate fails THIS spawn without poisoning
+      // the cache; the next attempt re-probes. Only a genuine observation of a
+      // disallowed tool_use (probeResult="fail" in the try above) is a real,
+      // cacheable failure.
+      console.warn("[kanna/pty] smoke probe errored (transient — not caching as FAIL):", err)
+      throw err
     } finally {
       try { await sendExitCommand(pty) } catch { /* swallow */ }
       try { pty.close() } catch { /* swallow */ }

@@ -1,5 +1,6 @@
 import { jetstream, type JetStream } from "@nats-io/jetstream"
 import type { NatsConnection } from "@nats-io/transport-node"
+import { existsSync } from "node:fs"
 import { LOG_PREFIX } from "../shared/branding"
 import type { HarnessToolRequest, HarnessTurn } from "../shared/harness-types"
 import {
@@ -34,7 +35,6 @@ export type TurnFactory = (args: {
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
   chatId: string
   store?: CoordinationStore
-  binaryPath?: string
   extraEnv?: Record<string, string>
 }) => Promise<HarnessTurn>
 
@@ -137,6 +137,18 @@ export class RunnerAgent {
       throw new Error("Chat is already running")
     }
 
+    // Fail fast (instead of a silent 10s timeout) when the chat's workspace does
+    // not exist on THIS runner — e.g. a remote runner handed a server-only path.
+    // Launching the agent with a nonexistent cwd hangs the spawn, so the start_turn
+    // request never gets a reply. Surface a clear, actionable error instead.
+    if (cmd.workspaceLocalPath && !existsSync(cmd.workspaceLocalPath)) {
+      throw new Error(
+        `Workspace "${cmd.workspaceLocalPath}" does not exist on this runner machine. ` +
+        `The workspace must exist on the runner to run a turn here — pick a runner that ` +
+        `has this path, or make the path available on the runner.`,
+      )
+    }
+
     const shouldGenerateTitle =
       cmd.appendUserPrompt &&
       cmd.chatTitle === "New Chat" &&
@@ -176,7 +188,7 @@ export class RunnerAgent {
       })
     }
 
-    // Start the harness turn
+    // Start the harness turn — binary resolution is done inside each factory
     const turn = await this.createTurn({
       provider: cmd.provider,
       content: buildHarnessInput(cmd),
@@ -187,7 +199,6 @@ export class RunnerAgent {
       onToolRequest,
       chatId: cmd.chatId,
       store: this.coordinationStore,
-      binaryPath: cmd.binaryPath,
       extraEnv: cmd.extraEnv,
     })
 

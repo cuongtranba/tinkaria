@@ -18,6 +18,7 @@ import type { RuntimeRegistry } from "./runtime-registry"
 import { deriveServerProviderCatalog } from "./provider-catalog"
 import type { ProfileSnapshot } from "../shared/profile-types"
 import type { ExtensionPreferencesSnapshot } from "../shared/extension-types"
+import type { RunnerTeamSnapshot } from "../shared/runner-team-types"
 
 const encoder = new TextEncoder()
 
@@ -62,6 +63,13 @@ function deriveProfileSnapshot(store: EventStore): ProfileSnapshot {
 function deriveExtensionPreferencesSnapshot(store: EventStore): ExtensionPreferencesSnapshot {
   return {
     preferences: [...store.state.extensionPreferences.values()],
+  }
+}
+
+function deriveRunnerTeamSnapshot(store: EventStore): RunnerTeamSnapshot {
+  return {
+    members: [...store.state.teamMembers.values()],
+    runners: [...store.state.runnerLabels.values()],
   }
 }
 
@@ -159,6 +167,8 @@ export async function createNatsPublisher(args: CreateNatsPublisherArgs) {
         return deriveProfileSnapshot(store)
       case "extension-preferences":
         return deriveExtensionPreferencesSnapshot(store)
+      case "runner-teams":
+        return deriveRunnerTeamSnapshot(store)
       default: {
         const _exhaustive: never = topic
         throw new Error(`Unknown topic type: ${(_exhaustive as SubscriptionTopic).type}`)

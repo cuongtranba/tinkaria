@@ -27,7 +27,7 @@ export { startClaudeTurn } from "../server/claude-harness"
 import { CodexAppServerManager } from "../server/codex-app-server"
 import type { HarnessToolRequest, HarnessTurn } from "../shared/harness-types"
 import type { CodexReasoningEffort, ServiceTier } from "../shared/types"
-import { startClaudeSessionPTY } from "../server/claude-pty/driver"
+import { startClaudeSessionPTY, type PtyUsageSample } from "../server/claude-pty/driver"
 import { ptyDeltaSubject } from "../shared/nats-subjects"
 import { compressPayload } from "../shared/compression"
 import type { NatsConnection } from "@nats-io/transport-node"
@@ -36,6 +36,7 @@ import type { HarnessEvent } from "../shared/harness-types"
 import type { ClaudeSessionHandle } from "../server/claude-pty/agent-normalizers"
 import type { OAuthTokenPool } from "../server/oauth-pool/oauth-token-pool"
 import type { ClaudePtyRegistry } from "../server/claude-pty/pid-registry.adapter"
+import { spawnSync } from "node:child_process"
 
 const ptyDeltaEncoder = new TextEncoder()
 function encodeDelta(delta: PtyInstanceDelta): Uint8Array {
@@ -53,6 +54,8 @@ interface ClaudePtySession {
   /** Timestamp of the last turn end (or session start). Used by idle sweeper. */
   lastUsedAt: number
   publishDelta: (delta: PtyInstanceDelta) => void
+  /** Stops further onUsageSample deltas (called once the session is torn down). */
+  stopUsage: () => void
 }
 
 interface TurnDispatcher {
@@ -172,6 +175,7 @@ function startSessionReader(session: ClaudePtySession): void {
         }
       }
     } finally {
+      session.stopUsage()
       session.currentTurn?.end()
       if (claudePtySessions.get(session.chatId) === session) {
         claudePtySessions.delete(session.chatId)
@@ -226,9 +230,34 @@ export function sweepIdleClaudePtySessions(now: number, idleMs: number): number 
 
 let codexManager: CodexAppServerManager | null = null
 
-function getCodexManager(binaryPath?: string, extraEnv?: Record<string, string>): CodexAppServerManager {
+/**
+ * Resolve the codex binary runner-side by checking PATH, then falling back to
+ * the well-known `codex` name (lets the shell find it via the runner's PATH).
+ * Always runner-local — never relies on a server-sent binaryPath.
+ */
+function resolveCodexBinary(extraEnv?: Record<string, string>): string {
+  // Runner-local resolution: NEVER let a server-supplied PATH redirect which
+  // binary we run (security M1) — strip PATH so the runner's own PATH decides.
+  const { PATH: _serverPath, ...safeEnv } = extraEnv ?? {}
+  const env = { ...process.env, ...safeEnv }
+  const which = spawnSync("which", ["codex"], { encoding: "utf-8", timeout: 3000, env })
+  if (which.status === 0) {
+    const p = which.stdout.trim()
+    if (p) return p
+  }
+  // Fall back: let the OS resolve it at spawn time
+  return "codex"
+}
+
+// NOTE: the codex manager is a once-per-runner-lifetime singleton — the first
+// turn's (PATH-stripped) extraEnv fixes the manager. The binary is always
+// runner-local (PATH stripped above), so this cannot be steered by the server.
+function getCodexManager(extraEnv?: Record<string, string>): CodexAppServerManager {
   if (!codexManager) {
-    codexManager = new CodexAppServerManager({ binaryPath, extraEnv })
+    // Strip server-supplied PATH from the spawned process env too (M1).
+    const { PATH: _serverPath, ...safeEnv } = extraEnv ?? {}
+    const binaryPath = resolveCodexBinary(safeEnv)
+    codexManager = new CodexAppServerManager({ binaryPath, extraEnv: safeEnv })
   }
   return codexManager
 }
@@ -243,10 +272,9 @@ export async function startCodexTurn(args: {
   planMode: boolean
   sessionToken: string | null
   onToolRequest: (request: HarnessToolRequest) => Promise<unknown>
-  binaryPath?: string
   extraEnv?: Record<string, string>
 }): Promise<HarnessTurn> {
-  const manager = getCodexManager(args.binaryPath, args.extraEnv)
+  const manager = getCodexManager(args.extraEnv)
 
   await manager.startSession({
     chatId: args.chatId,
@@ -344,6 +372,22 @@ export async function startClaudePtyTurn(args: {
 
     publishDelta({ type: "added", instance: baseInstance })
 
+    // `baseInstance` is the canonical, mutable record for this session: phase
+    // transitions and usage samples both write into it so every published
+    // delta stays internally coherent. `usageStopped` suppresses late sampler
+    // ticks (spawn-failure or post-teardown) that would otherwise resurrect a
+    // removed instance in the client store.
+    let usageStopped = false
+    const onUsageSample = (usage: PtyUsageSample): void => {
+      if (usageStopped) return
+      baseInstance.rssBytes = usage.rssBytes
+      baseInstance.rssPeakBytes = usage.rssPeakBytes
+      baseInstance.cpuPercent = usage.cpuPercent
+      baseInstance.cpuPeakPercent = usage.cpuPeakPercent
+      baseInstance.lastEventAt = Date.now()
+      publishDelta({ type: "updated", instance: { ...baseInstance } })
+    }
+
     let handle: ClaudeSessionHandle
     try {
       handle = await startClaudeSessionPTY({
@@ -358,15 +402,19 @@ export async function startClaudePtyTurn(args: {
         oauthToken: picked.token,
         oauthLabel: picked.label,
         ptyRegistry: sharedRegistry ?? undefined,
+        onUsageSample,
         onToolRequest: args.onToolRequest as never,
       })
     } catch (err) {
+      usageStopped = true
       publishDelta({ type: "removed", chatId: args.chatId })
       try { sharedPool.release(args.chatId) } catch { /* swallow */ }
       throw err
     }
 
-    publishDelta({ type: "updated", instance: { ...baseInstance, phase: "ready", lastEventAt: Date.now() } })
+    baseInstance.phase = "ready"
+    baseInstance.lastEventAt = Date.now()
+    publishDelta({ type: "updated", instance: { ...baseInstance } })
 
     session = {
       chatId: args.chatId,
@@ -377,6 +425,7 @@ export async function startClaudePtyTurn(args: {
       activeTokenId: picked.id,
       lastUsedAt: Date.now(),
       publishDelta,
+      stopUsage: () => { usageStopped = true },
     }
     claudePtySessions.set(args.chatId, session)
     startSessionReader(session)
@@ -386,15 +435,10 @@ export async function startClaudePtyTurn(args: {
   session.currentTurn = dispatcher
   session.turnCount += 1
   session.lastUsedAt = Date.now()
-  session.publishDelta({
-    type: "updated",
-    instance: {
-      ...session.baseInstance,
-      phase: "streaming",
-      lastEventAt: Date.now(),
-      turnCount: session.turnCount,
-    },
-  })
+  session.baseInstance.phase = "streaming"
+  session.baseInstance.lastEventAt = Date.now()
+  session.baseInstance.turnCount = session.turnCount
+  session.publishDelta({ type: "updated", instance: { ...session.baseInstance } })
 
   await session.handle.sendPrompt(args.content)
 

@@ -4,6 +4,7 @@ import path from "node:path"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
 import type { AgentConfig, AgentConfigRecord } from "../shared/agent-config-types"
 import type { ProviderProfile, WorkspaceProfileOverride } from "../shared/profile-types"
+import type { TeamMember } from "../shared/runner-team-types"
 import type { AgentProvider, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION, compareIndependentWorkspaces } from "../shared/types"
 import {
@@ -14,6 +15,7 @@ import {
   type WorkspaceEvent,
   type ProviderProfileEvent,
   type ExtensionPreferenceEvent,
+  type RunnerTeamEvent,
   type SandboxEvent,
   type WorkflowEvent,
   type SnapshotFile,
@@ -62,6 +64,7 @@ export class EventStore {
   private readonly sandboxLogPath: string
   private readonly profilesLogPath: string
   private readonly extensionPrefsLogPath: string
+  private readonly runnerTeamsLogPath: string
   private readonly ptySubagentLogPath: string
   private readonly ptyToolRequestsLogPath: string
   private readonly ptySessionTokensLogPath: string
@@ -82,6 +85,7 @@ export class EventStore {
     this.sandboxLogPath = path.join(this.dataDir, "sandbox.jsonl")
     this.profilesLogPath = path.join(this.dataDir, "profiles.jsonl")
     this.extensionPrefsLogPath = path.join(this.dataDir, "extension-prefs.jsonl")
+    this.runnerTeamsLogPath = path.join(this.dataDir, "runner-teams.jsonl")
     this.ptySubagentLogPath = path.join(this.dataDir, "pty-subagent.jsonl")
     this.ptyToolRequestsLogPath = path.join(this.dataDir, "pty-tool-requests.jsonl")
     this.ptySessionTokensLogPath = path.join(this.dataDir, "pty-session-tokens.jsonl")
@@ -101,6 +105,7 @@ export class EventStore {
     await this.ensureFile(this.sandboxLogPath)
     await this.ensureFile(this.profilesLogPath)
     await this.ensureFile(this.extensionPrefsLogPath)
+    await this.ensureFile(this.runnerTeamsLogPath)
     await this.ensureFile(this.ptySubagentLogPath)
     await this.ensureFile(this.ptyToolRequestsLogPath)
     await this.ensureFile(this.ptySessionTokensLogPath)
@@ -137,6 +142,7 @@ export class EventStore {
       Bun.write(this.sandboxLogPath, ""),
       Bun.write(this.profilesLogPath, ""),
       Bun.write(this.extensionPrefsLogPath, ""),
+      Bun.write(this.runnerTeamsLogPath, ""),
     ])
   }
 
@@ -222,6 +228,16 @@ export class EventStore {
           this.state.extensionPreferences.set(pref.extensionId, { ...pref })
         }
       }
+      if (parsed.teamMembers?.length) {
+        for (const member of parsed.teamMembers) {
+          this.state.teamMembers.set(member.id, { ...member })
+        }
+      }
+      if (parsed.runnerLabels?.length) {
+        for (const label of parsed.runnerLabels) {
+          this.state.runnerLabels.set(label.runnerId, { ...label })
+        }
+      }
       if (parsed.messages?.length) {
         this.snapshotHasLegacyMessages = true
         for (const messageSet of parsed.messages) {
@@ -248,6 +264,8 @@ export class EventStore {
     this.state.providerProfiles.clear()
     this.state.workspaceProfileOverrides.clear()
     this.state.extensionPreferences.clear()
+    this.state.teamMembers.clear()
+    this.state.runnerLabels.clear()
     this.transcriptCache.clear()
   }
 
@@ -279,6 +297,8 @@ export class EventStore {
     await this.replayLog<ProviderProfileEvent>(this.profilesLogPath)
     if (this.storageReset) return
     await this.replayLog<ExtensionPreferenceEvent>(this.extensionPrefsLogPath)
+    if (this.storageReset) return
+    await this.replayLog<RunnerTeamEvent>(this.runnerTeamsLogPath)
   }
 
   private async replayLog<TEvent extends StoreEvent>(filePath: string) {
@@ -439,6 +459,13 @@ export class EventStore {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
         chat.unread = event.unread
+        chat.updatedAt = event.timestamp
+        break
+      }
+      case "chat_runner_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.runnerId = event.runnerId
         chat.updatedAt = event.timestamp
         break
       }
@@ -871,6 +898,35 @@ export class EventStore {
         }
         break
       }
+      case "team_member_saved": {
+        this.state.teamMembers.set(event.memberId, event.member)
+        break
+      }
+      case "team_member_removed": {
+        this.state.teamMembers.delete(event.memberId)
+        // Cascade: unassign any runner that pointed at the removed member.
+        for (const [runnerId, label] of this.state.runnerLabels) {
+          if (label.memberId === event.memberId) {
+            this.state.runnerLabels.set(runnerId, { ...label, memberId: null, updatedAt: event.timestamp })
+          }
+        }
+        break
+      }
+      case "runner_label_set": {
+        // Upsert by runnerId. A label with neither a name nor a member is still
+        // a valid record (the reducer never prunes — removal is explicit).
+        this.state.runnerLabels.set(event.runnerId, {
+          runnerId: event.runnerId,
+          name: event.name,
+          memberId: event.memberId,
+          updatedAt: event.timestamp,
+        })
+        break
+      }
+      case "runner_label_removed": {
+        this.state.runnerLabels.delete(event.runnerId)
+        break
+      }
       case "workspace_profile_override_set": {
         const wsOverrides = this.state.workspaceProfileOverrides.get(event.workspaceId) ?? new Map<string, WorkspaceProfileOverride>()
         wsOverrides.set(event.profileId, {
@@ -1144,6 +1200,19 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
       provider,
+    }
+    await this.append(this.chatsLogPath, event)
+  }
+
+  async setChatRunner(chatId: string, runnerId: string | null) {
+    const chat = this.requireChat(chatId)
+    if ((chat.runnerId ?? null) === runnerId) return
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_runner_set",
+      timestamp: Date.now(),
+      chatId,
+      runnerId,
     }
     await this.append(this.chatsLogPath, event)
   }
@@ -1455,6 +1524,28 @@ export class EventStore {
     await this.append<ExtensionPreferenceEvent>(this.extensionPrefsLogPath, event)
   }
 
+  // --- Runner team mutation methods (US-RTN) ---
+
+  async saveTeamMember(member: TeamMember) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "team_member_saved", timestamp: Date.now(), memberId: member.id, member }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async removeTeamMember(memberId: string) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "team_member_removed", timestamp: Date.now(), memberId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async setRunnerLabel(runnerId: string, name: string | null, memberId: string | null) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "runner_label_set", timestamp: Date.now(), runnerId, name, memberId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
+  async removeRunnerLabel(runnerId: string) {
+    const event: RunnerTeamEvent = { v: STORE_VERSION, type: "runner_label_removed", timestamp: Date.now(), runnerId }
+    await this.append<RunnerTeamEvent>(this.runnerTeamsLogPath, event)
+  }
+
   // --- Repo mutation methods ---
 
   async addRepo(id: string, workspaceId: string, localPath: string, origin: string | null, label: string | null, branch: string | null) {
@@ -1703,6 +1794,12 @@ export class EventStore {
       ...(this.state.extensionPreferences.size > 0 ? {
         extensionPreferences: [...this.state.extensionPreferences.values()],
       } : {}),
+      ...(this.state.teamMembers.size > 0 ? {
+        teamMembers: [...this.state.teamMembers.values()],
+      } : {}),
+      ...(this.state.runnerLabels.size > 0 ? {
+        runnerLabels: [...this.state.runnerLabels.values()],
+      } : {}),
     }
   }
 
@@ -1721,6 +1818,7 @@ export class EventStore {
       Bun.write(this.sandboxLogPath, ""),
       Bun.write(this.profilesLogPath, ""),
       Bun.write(this.extensionPrefsLogPath, ""),
+      Bun.write(this.runnerTeamsLogPath, ""),
     ])
   }
 
@@ -1768,6 +1866,7 @@ export class EventStore {
       Bun.file(this.sandboxLogPath).size,
       Bun.file(this.profilesLogPath).size,
       Bun.file(this.extensionPrefsLogPath).size,
+      Bun.file(this.runnerTeamsLogPath).size,
     ])
     return sizes.reduce((total, size) => total + size, 0) >= COMPACTION_THRESHOLD_BYTES
   }

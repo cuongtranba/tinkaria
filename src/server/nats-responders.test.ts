@@ -6,6 +6,7 @@ import { NatsServer } from "@lagz0ne/nats-embedded"
 import { connect, type NatsConnection } from "@nats-io/transport-node"
 import { registerCommandResponders, type RegisterRespondersArgs } from "./nats-responders"
 import { commandSubject } from "../shared/nats-subjects"
+import { EventStore } from "./event-store"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -959,5 +960,59 @@ describe("nats-responders", () => {
       topic: { type: "local-workspaces" },
     })
     expect(refreshed).toBe(true)
+  })
+})
+
+describe("nats-responders runner team (US-RTN)", () => {
+  // Uses a real EventStore so the command → store → state round-trip is exercised.
+  async function setupWithStore() {
+    const dir = await mkdtemp(path.join(tmpdir(), "kanna-rt-resp-"))
+    tempDir = dir
+    const store = new EventStore(dir)
+    await store.initialize()
+    let stateChanges = 0
+    const { clientNc } = await setup({
+      store: store as never,
+      onStateChange: () => { stateChanges += 1 },
+    })
+    return { clientNc, store, stateChanges: () => stateChanges }
+  }
+
+  test("team.member.save persists and team.member.list returns it", async () => {
+    const { clientNc, store } = await setupWithStore()
+    const save = await sendCommand(clientNc, { type: "team.member.save", member: { id: "m1", name: "Alice" } })
+    expect(save.ok).toBe(true)
+    expect(store.state.teamMembers.get("m1")?.name).toBe("Alice")
+
+    const list = await sendCommand(clientNc, { type: "team.member.list" })
+    expect(list.ok).toBe(true)
+    expect((list.result as { members: { id: string; name: string }[] }).members).toEqual([{ id: "m1", name: "Alice" }])
+  })
+
+  test("runner.label.set persists name + assignment and triggers a state change", async () => {
+    const { clientNc, store, stateChanges } = await setupWithStore()
+    const before = stateChanges()
+    const res = await sendCommand(clientNc, { type: "runner.label.set", runnerId: "runner-1", name: "Studio Mac", memberId: "m1" })
+    expect(res.ok).toBe(true)
+    expect(store.state.runnerLabels.get("runner-1")?.name).toBe("Studio Mac")
+    expect(store.state.runnerLabels.get("runner-1")?.memberId).toBe("m1")
+    // Mutating command must republish snapshots.
+    expect(stateChanges()).toBe(before + 1)
+  })
+
+  test("team.member.remove unassigns runners", async () => {
+    const { clientNc, store } = await setupWithStore()
+    await sendCommand(clientNc, { type: "team.member.save", member: { id: "m1", name: "Alice" } })
+    await sendCommand(clientNc, { type: "runner.label.set", runnerId: "runner-1", name: "Box", memberId: "m1" })
+    await sendCommand(clientNc, { type: "team.member.remove", memberId: "m1" })
+    expect(store.state.teamMembers.get("m1")).toBeUndefined()
+    expect(store.state.runnerLabels.get("runner-1")?.memberId).toBeNull()
+  })
+
+  test("team.member.list is non-mutating (no state change)", async () => {
+    const { clientNc, stateChanges } = await setupWithStore()
+    const before = stateChanges()
+    await sendCommand(clientNc, { type: "team.member.list" })
+    expect(stateChanges()).toBe(before)
   })
 })

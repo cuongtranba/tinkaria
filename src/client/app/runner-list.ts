@@ -26,11 +26,10 @@ export function filterRelevantRunners(runners: HealthRunner[]): HealthRunner[] {
   return runners
     .filter((r) => !r.incompatible && r.state !== "offline")
     .sort((a, b) => {
-      // online before degraded, then by most-recently-seen, then by id for stability.
+      // online before degraded, then by runnerId for stability. We deliberately
+      // do NOT sort by lastSeenAt — it ticks with every heartbeat (~2s) and would
+      // reorder the list visibly on each poll. State and id are stable.
       if (a.state !== b.state) return a.state === "online" ? -1 : 1
-      const aSeen = a.lastSeenAt ?? 0
-      const bSeen = b.lastSeenAt ?? 0
-      if (aSeen !== bSeen) return bSeen - aSeen
       return a.runnerId.localeCompare(b.runnerId)
     })
 }

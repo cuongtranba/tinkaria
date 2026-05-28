@@ -12,6 +12,18 @@ C3 is the architecture source of truth. Do not rediscover project structure or p
 - If C3 is unavailable or check fails, stop and report the blocker instead of bypassing it.
 - Keep this file brief; durable architecture and coding rules belong in `.c3/`.
 
+## Starting the App
+
+Canonical command to start a full instance (remote runners over the tunnel + VictoriaLogs):
+
+```bash
+NATS_ADVERTISED_HOST=mac-mini.tailbda4c.ts.net VICTORIALOGS_URL=http://127.0.0.1:9428 NATS_PORT=4222 NATS_MONITOR_PORT=8222 bun run start --remote --no-open
+```
+
+Always use this form when you launch the app for the user — it advertises NATS over Tailscale so remote runners can connect, ships logs to VictoriaLogs, and skips auto-opening a browser. Do not strip any of the env vars or flags.
+
+Side-by-side verification in a worktree is the one exception: keep using `bun run dev` per the verification block below so you don't collide with the live `:3210` instance.
+
 ## Verification
 
 - Use Bun, not npm/yarn.

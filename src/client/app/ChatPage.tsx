@@ -649,6 +649,7 @@ export function ChatPage() {
           request={state.needsPickRequest}
           onClose={state.clearNeedsPickRequest}
           onPicked={(runnerId) => setPinnedRunnerName(runnerId.slice(-8))}
+          socket={state.socket}
         />
 
         <div className="flex-1 min-h-0 relative" {...getUiIdentityAttributeProps(CHAT_PAGE_UI_DESCRIPTORS.transcript)}>

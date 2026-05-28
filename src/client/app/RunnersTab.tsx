@@ -8,15 +8,23 @@
  */
 
 import { useEffect, useRef, useState } from "react"
-import { Copy, Check, Plus, Server } from "lucide-react"
+import { Copy, Check, Plus, Server, Pencil } from "lucide-react"
 import { Button } from "../components/ui/button"
+import { Input } from "../components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { cn } from "../lib/utils"
 import {
   filterRelevantRunners,
   newlyConnectedIds,
-  runnerShortName,
   type HealthRunner,
 } from "./runner-list"
+import { useRunnerTeamSubscription } from "./useRunnerTeamSubscription"
+import { resolveRunnerName } from "../../shared/runner-team-types"
+import type { RunnerLabel, TeamMember } from "../../shared/runner-team-types"
+import type { AppState } from "./useAppState"
+
+/** Sentinel for the "Unassigned" option — Radix Select reserves the empty string. */
+const UNASSIGNED = "__none__"
 
 interface PairingCodeResult {
   code: string
@@ -84,9 +92,37 @@ function useLiveRunners(): { runners: HealthRunner[]; error: string | null } {
   return { runners, error }
 }
 
-function RunnerRow({ runner, justConnected }: { runner: HealthRunner; justConnected: boolean }) {
+function RunnerRow({
+  runner,
+  justConnected,
+  labels,
+  members,
+  onRename,
+  onAssign,
+}: {
+  runner: HealthRunner
+  justConnected: boolean
+  labels: RunnerLabel[]
+  members: TeamMember[]
+  onRename: (runnerId: string, name: string | null) => void
+  onAssign: (runnerId: string, memberId: string | null) => void
+}) {
   const providers = runner.capabilities?.providers.join(", ") || "all providers"
   const dotClass = runner.state === "online" ? "bg-green-500" : "bg-yellow-500"
+  const displayName = resolveRunnerName(runner.runnerId, labels)
+  const label = labels.find((l) => l.runnerId === runner.runnerId)
+  const currentLabel = label?.name ?? ""
+  const assignedId = label?.memberId ?? null
+
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(currentLabel)
+
+  function commit() {
+    const trimmed = draft.trim()
+    onRename(runner.runnerId, trimmed === "" ? null : trimmed)
+    setEditing(false)
+  }
+
   return (
     <div
       className={cn(
@@ -100,9 +136,34 @@ function RunnerRow({ runner, justConnected }: { runner: HealthRunner; justConnec
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex items-center gap-2">
           <span className={cn("size-2 shrink-0 rounded-full", dotClass)} />
-          <span className="truncate text-sm font-medium text-foreground">
-            {runnerShortName(runner.runnerId)}
-          </span>
+          {editing ? (
+            <Input
+              size="sm"
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commit()
+                if (e.key === "Escape") { setDraft(currentLabel); setEditing(false) }
+              }}
+              placeholder={runner.runnerId.split("-").slice(-2).join("-")}
+              className="h-6 max-w-[14rem] text-sm"
+            />
+          ) : (
+            <>
+              <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-5 shrink-0 text-muted-foreground"
+                title="Rename runner"
+                onClick={() => { setDraft(currentLabel); setEditing(true) }}
+              >
+                <Pencil className="size-3" />
+              </Button>
+            </>
+          )}
           {runner.isShared && (
             <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
               shared
@@ -113,7 +174,21 @@ function RunnerRow({ runner, justConnected }: { runner: HealthRunner; justConnec
               connected
             </span>
           )}
-          <span className="ml-auto shrink-0 text-xs capitalize text-muted-foreground">
+          <Select
+            value={assignedId ?? UNASSIGNED}
+            onValueChange={(v) => onAssign(runner.runnerId, v === UNASSIGNED ? null : v)}
+          >
+            <SelectTrigger className="ml-auto h-7 w-36 text-xs">
+              <SelectValue placeholder="Unassigned" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+              {members.map((m) => (
+                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="shrink-0 text-xs capitalize text-muted-foreground">
             {runner.state}
           </span>
         </div>
@@ -123,7 +198,7 @@ function RunnerRow({ runner, justConnected }: { runner: HealthRunner; justConnec
   )
 }
 
-export function RunnersTab() {
+export function RunnersTab({ state }: { state: AppState }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<PairingCodeResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -132,6 +207,27 @@ export function RunnersTab() {
   const baselineIds = useRef<Set<string> | null>(null)
 
   const { runners, error: listError } = useLiveRunners()
+  const team = useRunnerTeamSubscription(state.socket)
+  const labels = team?.runners ?? []
+  const members = team?.members ?? []
+
+  function handleRename(runnerId: string, name: string | null) {
+    void state.socket.command({
+      type: "runner.label.set",
+      runnerId,
+      name,
+      memberId: labels.find((l) => l.runnerId === runnerId)?.memberId ?? null,
+    })
+  }
+
+  function handleAssign(runnerId: string, memberId: string | null) {
+    void state.socket.command({
+      type: "runner.label.set",
+      runnerId,
+      name: labels.find((l) => l.runnerId === runnerId)?.name ?? null,
+      memberId,
+    })
+  }
 
   const newIds = baselineIds.current
     ? newlyConnectedIds(baselineIds.current, runners)
@@ -210,7 +306,15 @@ export function RunnersTab() {
         )}
 
         {runners.map((runner) => (
-          <RunnerRow key={runner.runnerId} runner={runner} justConnected={newIds.has(runner.runnerId)} />
+          <RunnerRow
+            key={runner.runnerId}
+            runner={runner}
+            justConnected={newIds.has(runner.runnerId)}
+            labels={labels}
+            members={members}
+            onRename={handleRename}
+            onAssign={handleAssign}
+          />
         ))}
 
         {awaitingConnection && (

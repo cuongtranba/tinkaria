@@ -97,6 +97,7 @@ const NON_MUTATING: ReadonlySet<ClientCommand["type"]> = new Set([
   "profile.list",
   "profile.resolve",
   "extension.preference.list",
+  "team.member.list",
 ])
 
 /** Commands handled by the Bun backend. */
@@ -181,6 +182,11 @@ const SERVER_COMMANDS: readonly ClientCommand["type"][] = [
   "workspace.profile.override.remove",
   "extension.preference.set",
   "extension.preference.list",
+  "team.member.list",
+  "team.member.save",
+  "team.member.remove",
+  "runner.label.set",
+  "runner.label.remove",
   "chat.selectRunner",
 ]
 
@@ -834,6 +840,34 @@ export function registerCommandResponders(args: RegisterRespondersArgs): { dispo
 
       case "extension.preference.set": {
         await store.setExtensionPreference(command.extensionId, command.enabled)
+        return { ok: true }
+      }
+
+      // --- Runner team (US-RTN) ---
+
+      case "team.member.list": {
+        return {
+          members: [...store.state.teamMembers.values()],
+        }
+      }
+
+      case "team.member.save": {
+        await store.saveTeamMember(command.member)
+        return { ok: true }
+      }
+
+      case "team.member.remove": {
+        await store.removeTeamMember(command.memberId)
+        return { ok: true }
+      }
+
+      case "runner.label.set": {
+        await store.setRunnerLabel(command.runnerId, command.name, command.memberId)
+        return { ok: true }
+      }
+
+      case "runner.label.remove": {
+        await store.removeRunnerLabel(command.runnerId)
         return { ok: true }
       }
 

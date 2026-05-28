@@ -3,6 +3,7 @@ import type { WorkspaceTodo, WorkspaceClaim, WorkspaceWorktree, WorkspaceRule } 
 import type { AgentConfig, AgentConfigRecord } from "../shared/agent-config-types"
 import type { ProviderProfile, ProviderProfileRecord, WorkspaceProfileOverride } from "../shared/profile-types"
 import type { ExtensionPreference } from "../shared/extension-types"
+import type { TeamMember, RunnerLabelRecord } from "../shared/runner-team-types"
 import type { WorkflowRunState } from "../shared/workflow-types"
 import type { SandboxRecord, SandboxHealthReport, ResourceLimits } from "../shared/sandbox-types"
 
@@ -75,6 +76,8 @@ export interface StoreState {
   providerProfiles: Map<string, ProviderProfileRecord>
   workspaceProfileOverrides: Map<string, Map<string, WorkspaceProfileOverride>>
   extensionPreferences: Map<string, ExtensionPreference>
+  teamMembers: Map<string, TeamMember>
+  runnerLabels: Map<string, RunnerLabelRecord>
 }
 
 export function createEmptyCoordinationState(): WorkspaceCoordinationState {
@@ -103,6 +106,8 @@ export interface SnapshotFile {
   providerProfiles?: ProviderProfileRecord[]
   workspaceProfileOverrides?: WorkspaceProfileOverride[]
   extensionPreferences?: ExtensionPreference[]
+  teamMembers?: TeamMember[]
+  runnerLabels?: RunnerLabelRecord[]
 }
 
 export type WorkspaceEvent = {
@@ -340,7 +345,13 @@ export type ProviderProfileEvent =
 export type ExtensionPreferenceEvent =
   | { v: 3; type: "extension_preference_set"; timestamp: number; extensionId: string; enabled: boolean }
 
-export type StoreEvent = WorkspaceEvent | ChatEvent | MessageEvent | TurnEvent | CoordinationEvent | RepoEvent | AgentConfigEvent | WorkflowEvent | SandboxEvent | ProviderProfileEvent | ExtensionPreferenceEvent
+export type RunnerTeamEvent =
+  | { v: 3; type: "team_member_saved"; timestamp: number; memberId: string; member: TeamMember }
+  | { v: 3; type: "team_member_removed"; timestamp: number; memberId: string }
+  | { v: 3; type: "runner_label_set"; timestamp: number; runnerId: string; name: string | null; memberId: string | null }
+  | { v: 3; type: "runner_label_removed"; timestamp: number; runnerId: string }
+
+export type StoreEvent = WorkspaceEvent | ChatEvent | MessageEvent | TurnEvent | CoordinationEvent | RepoEvent | AgentConfigEvent | WorkflowEvent | SandboxEvent | ProviderProfileEvent | ExtensionPreferenceEvent | RunnerTeamEvent
 
 export function createEmptyState(): StoreState {
   return {
@@ -358,6 +369,8 @@ export function createEmptyState(): StoreState {
     providerProfiles: new Map(),
     workspaceProfileOverrides: new Map(),
     extensionPreferences: new Map(),
+    teamMembers: new Map(),
+    runnerLabels: new Map(),
   }
 }
 

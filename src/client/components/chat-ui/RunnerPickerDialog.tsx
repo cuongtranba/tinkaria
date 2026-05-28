@@ -9,6 +9,9 @@
 import { useEffect, useState } from "react"
 import { Server } from "lucide-react"
 import type { ClientRunnerDescriptor, RunnerPickRequest } from "../../app/useChatCommands"
+import type { AppTransport } from "../../app/socket-interface"
+import { useRunnerTeamSubscription } from "../../app/useRunnerTeamSubscription"
+import { resolveRunnerName, resolveRunnerMember } from "../../../shared/runner-team-types"
 import {
   Dialog,
   DialogContent,
@@ -27,12 +30,8 @@ interface Props {
   onClose: () => void
   /** Called with the chosen runnerId after a successful pick + retry. */
   onPicked?: (runnerId: string) => void
-}
-
-function runnerDisplayName(d: ClientRunnerDescriptor): string {
-  // Use the last segment of runnerId as a short name (e.g. "runner-abc123" → "abc123")
-  const parts = d.runnerId.split("-")
-  return parts.length > 1 ? parts.slice(-2).join("-") : d.runnerId
+  /** Optional transport for resolving operator runner names/members (US-RTN). */
+  socket?: AppTransport | null
 }
 
 function stateLabel(state: ClientRunnerDescriptor["state"]): { text: string; className: string } {
@@ -41,10 +40,13 @@ function stateLabel(state: ClientRunnerDescriptor["state"]): { text: string; cla
   return { text: "offline", className: "text-muted-foreground" }
 }
 
-export function RunnerPickerDialog({ request, onClose, onPicked }: Props) {
+export function RunnerPickerDialog({ request, onClose, onPicked, socket }: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const team = useRunnerTeamSubscription(socket ?? null)
+  const labels = team?.runners ?? []
+  const members = team?.members ?? []
 
   // Reset selection/error/busy when a new request arrives so prior state can't leak
   useEffect(() => {
@@ -108,8 +110,13 @@ export function RunnerPickerDialog({ request, onClose, onPicked }: Props) {
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-foreground">
-                      {runnerDisplayName(d)}
+                      {resolveRunnerName(d.runnerId, labels)}
                     </span>
+                    {resolveRunnerMember(d.runnerId, labels, members) && (
+                      <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {resolveRunnerMember(d.runnerId, labels, members)!.name}
+                      </span>
+                    )}
                     {d.isShared && (
                       <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         shared

@@ -18,6 +18,7 @@ export type SubscriptionTopic =
   | { type: "runtime-status" }
   | { type: "profiles" }
   | { type: "extension-preferences" }
+  | { type: "runner-teams" }
 
 export interface TerminalSnapshot {
   terminalId: string
@@ -144,4 +145,9 @@ export type ClientCommand =
   | { type: "workspace.profile.override.remove"; workspaceId: string; profileId: string }
   | { type: "extension.preference.set"; extensionId: string; enabled: boolean }
   | { type: "extension.preference.list" }
+  | { type: "team.member.list" }
+  | { type: "team.member.save"; member: import("./runner-team-types").TeamMember }
+  | { type: "team.member.remove"; memberId: string }
+  | { type: "runner.label.set"; runnerId: string; name: string | null; memberId: string | null }
+  | { type: "runner.label.remove"; runnerId: string }
   | { type: "chat.selectRunner"; chatId: string; runnerId: string }

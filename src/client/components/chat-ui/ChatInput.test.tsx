@@ -1,6 +1,17 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { DEFAULT_CLAUDE_MODEL_OPTIONS, PROVIDERS } from "../../../shared/types"
+
+// Pin the desktop layout. ChatPreferenceControls.test.tsx installs a persistent
+// `mock.module` on useIsMobile and leaves its last value at `true` (mobile),
+// which would otherwise collapse the model indicator into the input pill and
+// reorder the DOM, breaking the desktop layout assertions below.
+mock.module("../../hooks/useIsMobile", () => ({
+  useIsMobile: () => false,
+  getIsMobile: () => false,
+  MOBILE_BREAKPOINT_QUERY: "(max-width: 767px)",
+}))
+
 import {
   CHAT_COMPOSER_PLACEHOLDER_POOL,
   getAwaitingChatComposerPlaceholderText,
@@ -11,8 +22,6 @@ import { useSkillCompositionStore } from "../../stores/skillCompositionStore"
 import { areChatInputPropsEqual, ChatInput, shouldInvokeCancelAction } from "./ChatInput"
 
 describe("ChatInput", () => {
-  let originalMatchMedia: typeof window.matchMedia | undefined
-
   beforeEach(() => {
     // Pin the composer to a known claude/opus state so the rendered model label
     // is deterministic regardless of cross-file test ordering.
@@ -24,24 +33,6 @@ describe("ChatInput", () => {
         planMode: false,
       },
     })
-
-    // Pin the desktop layout: useIsMobile() reads window.matchMedia, which another
-    // test file can leave returning mobile=true. The composer collapses its model
-    // indicator into the input pill on mobile, reordering the DOM and breaking the
-    // desktop layout assertions below.
-    if (typeof window !== "undefined") {
-      originalMatchMedia = window.matchMedia
-      window.matchMedia = ((query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      })) as typeof window.matchMedia
-    }
   })
 
   afterEach(() => {
@@ -49,9 +40,6 @@ describe("ChatInput", () => {
       usageCounts: {},
       ribbonVisible: true,
     })
-    if (typeof window !== "undefined" && originalMatchMedia) {
-      window.matchMedia = originalMatchMedia
-    }
   })
 
   test("keeps the skill chips above the composer while placing the Skills toggle beside model selection", () => {

@@ -44,6 +44,11 @@ describe("migrateChatPreferencesState", () => {
           modelOptions: { reasoningEffort: "minimal", fastMode: true },
           planMode: false,
         },
+        "claude-pty": {
+          model: "opus",
+          modelOptions: { reasoningEffort: "high", contextWindow: "200k" },
+          planMode: false,
+        },
       },
       composerState: {
         provider: "claude",

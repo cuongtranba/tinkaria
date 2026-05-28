@@ -63,8 +63,10 @@ describe("shouldDeactivateMobileFabAfterCopyTargetSelection", () => {
 describe("getNextProvider", () => {
   test("cycles providers in both directions", () => {
     expect(getNextProvider("claude", 1)).toBe("codex")
-    expect(getNextProvider("codex", 1)).toBe("claude")
-    expect(getNextProvider("claude", -1)).toBe("codex")
+    expect(getNextProvider("codex", 1)).toBe("claude-pty")
+    expect(getNextProvider("claude-pty", 1)).toBe("claude")
+    expect(getNextProvider("claude", -1)).toBe("claude-pty")
+    expect(getNextProvider("claude-pty", -1)).toBe("codex")
   })
 })
 

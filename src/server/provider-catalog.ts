@@ -138,6 +138,7 @@ export function deriveServerProviderCatalog(
 
   const dynamicClaude: ProviderCatalogEntry = {
     ...staticClaude,
+    defaultModel: "sonnet",
     models: enrichedModels,
   }
 

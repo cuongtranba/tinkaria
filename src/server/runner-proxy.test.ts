@@ -367,9 +367,11 @@ describe("RunnerProxy", () => {
     // disposeChat calls cancel internally — should not throw even if runner errors
     await proxy!.disposeChat("chat-dispose")
 
-    expect(mockRunner!.received).toHaveLength(1)
+    expect(mockRunner!.received).toHaveLength(2)
     const msg = mockRunner!.received[0] as { subject: string; data: Record<string, unknown> }
     expect(msg.subject).toBe(`runtime.runner.cmd.${RUNNER_ID}.cancel_turn`)
+    const msg2 = mockRunner!.received[1] as { subject: string; data: Record<string, unknown> }
+    expect(msg2.subject).toBe(`runtime.runner.cmd.${RUNNER_ID}.stop_chat_pty`)
   })
 
   describe("drainDelegationResult", () => {

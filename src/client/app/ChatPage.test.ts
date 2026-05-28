@@ -3,6 +3,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { HydratedTranscriptMessage, TranscriptRenderUnit } from "../../shared/types"
 import { ChatNavbar, getChatNavbarUiIdentityDescriptors } from "../components/chat-ui/ChatNavbar"
+import { TooltipProvider } from "../components/ui/tooltip"
 import { TextMessage } from "../components/messages/TextMessage"
 import type { ProcessedTextMessage } from "../components/messages/types"
 import { CHAT_EMPTY_STATE_POOL, getChatEmptyStateText } from "../lib/quirkyCopy"
@@ -467,14 +468,18 @@ describe("getChatPageUiIdentities", () => {
 
   test("renders the navbar id on the ChatNavbar visible surface", () => {
     const html = renderToStaticMarkup(
-      createElement(ChatNavbar, {
-        sidebarCollapsed: false,
-        onOpenSidebar: () => {},
-        onCollapseSidebar: () => {},
-        onExpandSidebar: () => {},
-        onForkSession: () => {},
-        onMergeSession: () => {},
-      })
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ChatNavbar, {
+          sidebarCollapsed: false,
+          onOpenSidebar: () => {},
+          onCollapseSidebar: () => {},
+          onExpandSidebar: () => {},
+          onForkSession: () => {},
+          onMergeSession: () => {},
+        })
+      )
     )
 
     const identityIndex = html.indexOf('data-ui-id="chat.navbar"')
@@ -490,15 +495,19 @@ describe("getChatPageUiIdentities", () => {
   test("renders curated navbar area and action ids on the stable visible controls", () => {
     const descriptors = getChatNavbarUiIdentityDescriptors()
     const html = renderToStaticMarkup(
-      createElement(ChatNavbar, {
-        sidebarCollapsed: false,
-        onOpenSidebar: () => {},
-        onCollapseSidebar: () => {},
-        onExpandSidebar: () => {},
-        onForkSession: () => {},
-        onMergeSession: () => {},
-        localPath: "/tmp/project",
-      })
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ChatNavbar, {
+          sidebarCollapsed: false,
+          onOpenSidebar: () => {},
+          onCollapseSidebar: () => {},
+          onExpandSidebar: () => {},
+          onForkSession: () => {},
+          onMergeSession: () => {},
+          localPath: "/tmp/project",
+        })
+      )
     )
 
     expect(html).toMatch(new RegExp(`<div[^>]*data-ui-id="${descriptors.area.id}"[^>]*data-ui-c3="c3-112"`))

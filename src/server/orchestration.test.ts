@@ -416,7 +416,7 @@ describe("SessionOrchestrator", () => {
           chatId: targetId,
           content: "more input",
           provider: "claude",
-          model: "sonnet",
+          model: "opus",
           planMode: false,
         },
       ])

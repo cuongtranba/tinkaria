@@ -5,6 +5,7 @@ import type {
   TranscriptEntry,
 } from "../../shared/types"
 import type { HarnessEvent } from "../harness-types"
+import { ClaudeLimitDetector } from "./../auto-continue/limit-detector"
 
 export interface ClaudeSessionHandle {
   provider: "claude"
@@ -120,25 +121,85 @@ export function getClaudeAssistantMessageUsageId(message: unknown): string | nul
 }
 
 /**
- * MINIMAL PORT: kanna's `normalizeClaudeStreamMessage` returns full
- * TranscriptEntry[] derived from claude-agent-sdk message shape. The
- * full mapper is ~250 LOC and pulls in tool-call / attachment / thinking
- * normalizers. For the PTY driver bring-up we only need to surface
- * system_init (slash commands) — assistant/result mapping is delegated
- * to `jsonl-to-event.ts` which is the PTY-native parser. This stub
- * keeps the import surface intact; replace with full port if SDK-based
- * provider also routes through here.
- */
-/**
- * MINIMAL stub for parity-matrix test compatibility. Full SDK→HarnessEvent
- * translation lives in the upstream SDK provider; PTY's own path goes
- * through `jsonl-to-event.ts`.
+ * Stateful SDK → HarnessEvent stream. Implements the same D1/D2/D3 logic as
+ * `createJsonlEventParser` so PTY and SDK paths produce identical event
+ * sequences for any given message fixture.
+ *
+ * D1 — assistant usage → context_window_updated (deduped by message id);
+ *       result → final context_window_updated with resolved context window.
+ * D2 — rate_limit_event → rate_limit event.
+ * D3 — session_token emitted for every message carrying a session_id.
  */
 export async function* createClaudeHarnessStream(
   source: AsyncIterable<unknown>,
-  _configuredContextWindow?: number,
+  configuredContextWindow?: number,
 ): AsyncIterable<HarnessEvent> {
+  let seenAssistantUsageIds = new Set<string>()
+  let latestUsageSnapshot: ContextWindowUsageSnapshot | null = null
+  let lastKnownContextWindow: number | undefined = configuredContextWindow
+  const detector = new ClaudeLimitDetector()
+
   for await (const message of source) {
+    const m = asRecord(message)
+    if (!m) continue
+
+    // D3 — session_token for every message carrying a session_id.
+    if (typeof m.session_id === "string" && m.session_id.length > 0) {
+      yield { type: "session_token", sessionToken: m.session_id }
+    }
+
+    // D2 — rate_limit_event (SDK-native shape).
+    if (m.type === "rate_limit_event") {
+      const detection = detector.detectFromSdkRateLimitInfo(
+        "",
+        (m as { rate_limit_info?: unknown }).rate_limit_info,
+      )
+      if (detection) {
+        yield { type: "rate_limit", rateLimit: { resetAt: detection.resetAt, tz: detection.tz } }
+      }
+    }
+
+    // D1 — assistant usage delta → context_window_updated (deduped by message id).
+    if (m.type === "assistant") {
+      const usageId = getClaudeAssistantMessageUsageId(m)
+      const usageSnapshot = normalizeClaudeUsageSnapshot(
+        (m as { usage?: unknown }).usage,
+        lastKnownContextWindow,
+      )
+      if (usageId && usageSnapshot && !seenAssistantUsageIds.has(usageId)) {
+        seenAssistantUsageIds.add(usageId)
+        latestUsageSnapshot = usageSnapshot
+        yield {
+          type: "transcript",
+          entry: timestamped({ kind: "context_window_updated", usage: usageSnapshot }),
+        }
+      }
+    }
+
+    // D1 — result → final context_window_updated, then reset turn state.
+    if (m.type === "result") {
+      const resultContextWindow = maxClaudeContextWindowFromModelUsage(
+        (m as { modelUsage?: unknown }).modelUsage,
+      )
+      if (resultContextWindow !== undefined) {
+        lastKnownContextWindow = Math.max(lastKnownContextWindow ?? 0, resultContextWindow)
+      }
+      const accumulatedUsage = normalizeClaudeUsageSnapshot(
+        (m as { usage?: unknown }).usage,
+        lastKnownContextWindow,
+      )
+      const finalUsage = resolveFinalTurnUsage(latestUsageSnapshot, accumulatedUsage, lastKnownContextWindow)
+      if (finalUsage) {
+        yield {
+          type: "transcript",
+          entry: timestamped({ kind: "context_window_updated", usage: finalUsage }),
+        }
+      }
+      seenAssistantUsageIds = new Set<string>()
+      latestUsageSnapshot = null
+    }
+
+    // Transcript entries (system_init, assistant_text, tool_call, tool_result, etc.)
     for (const entry of normalizeClaudeStreamMessage(message)) {
       yield { type: "transcript", entry }
     }

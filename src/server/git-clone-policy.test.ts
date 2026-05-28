@@ -41,7 +41,7 @@ describe("GitClonePolicy", () => {
     // Need at least one commit so branch exists
     const seedDir = await makeTempDir()
     await $`git clone ${bareDir} ${seedDir}`.quiet()
-    await $`git -C ${seedDir} commit --allow-empty -m "init"`.quiet()
+    await $`git -C ${seedDir} -c user.email=ci@example.com -c user.name=CI commit --allow-empty -m "init"`.quiet()
     await $`git -C ${seedDir} push origin main`.quiet().nothrow()
     // Push whatever default branch was created
     await $`git -C ${seedDir} push`.quiet()
@@ -78,7 +78,7 @@ describe("GitClonePolicy", () => {
     await $`git init --bare ${bareDir}`.quiet()
     const seedDir = await makeTempDir()
     await $`git clone ${bareDir} ${seedDir}`.quiet()
-    await $`git -C ${seedDir} commit --allow-empty -m "init"`.quiet()
+    await $`git -C ${seedDir} -c user.email=ci@example.com -c user.name=CI commit --allow-empty -m "init"`.quiet()
     await $`git -C ${seedDir} push`.quiet()
 
     const repoId = "repo-safe"

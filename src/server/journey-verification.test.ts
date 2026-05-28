@@ -403,6 +403,8 @@ afterEach(async () => {
   }
 })
 
+const hasAgentBrowser = Boolean(Bun.which("agent-browser"))
+
 describe("journey verification inventory", () => {
   test("documents the first homepage -> new task journey in stable screen stages", () => {
     expect(structuredClone(HOME_TO_NEW_CHAT_JOURNEY)).toMatchObject({
@@ -462,7 +464,7 @@ describe("journey verification inventory", () => {
   })
 
   describe.serial("browser integration", () => {
-  test("verifies the first browser journey against a real isolated dev instance", async () => {
+  test.skipIf(!hasAgentBrowser)("verifies the first browser journey against a real isolated dev instance", async () => {
     closeAllAgentBrowsers()
     const session = `journey-${crypto.randomUUID()}`
     activeAgentBrowserSessions.add(session)
@@ -477,7 +479,7 @@ describe("journey verification inventory", () => {
     await openNewChatFromHomepage(session, fixture)
   }, 90_000)
 
-  test("verifies fork and merge dialog journeys against a real isolated dev instance", async () => {
+  test.skipIf(!hasAgentBrowser)("verifies fork and merge dialog journeys against a real isolated dev instance", async () => {
     closeAllAgentBrowsers()
     const session = `journey-${crypto.randomUUID()}`
     activeAgentBrowserSessions.add(session)
@@ -523,7 +525,7 @@ describe("journey verification inventory", () => {
     expect(mergeStage.probe.c3ByUiId["chat.merge-session.dialog"]).toBe("c3-110")
   }, 90_000)
 
-  test("creates a new project from the homepage modal and lands in chat", async () => {
+  test.skipIf(!hasAgentBrowser)("creates a new project from the homepage modal and lands in chat", async () => {
     closeAllAgentBrowsers()
     const session = `journey-${crypto.randomUUID()}`
     activeAgentBrowserSessions.add(session)
